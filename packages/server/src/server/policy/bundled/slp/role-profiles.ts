@@ -109,12 +109,27 @@ const DEFAULT_DISABLED_ROLE_TOOLS = {
   ]),
 } as const satisfies Record<PaseoRoleId, ReadonlySet<string>>;
 
+const SUPERVISOR_DELEGATION_TOOLS = new Set(["create_agent", "send_agent_prompt"]);
+
 export const ROLE_DEFAULT_TOOLS = Object.fromEntries(
   PASEO_ROLE_IDS.map((roleId) => [
     roleId,
     ROLE_TOOL_CEILINGS[roleId].filter((tool) => !DEFAULT_DISABLED_ROLE_TOOLS[roleId].has(tool)),
   ]),
 ) as Record<PaseoRoleId, string[]>;
+
+function roleDefaultToolsForAssignment(
+  roleId: PaseoRoleId,
+  assignmentEffectClass: AssignmentEffectClass | undefined,
+): string[] {
+  if (roleId !== "supervisor" || assignmentEffectClass !== "delegation") {
+    return ROLE_DEFAULT_TOOLS[roleId];
+  }
+  return ROLE_TOOL_CEILINGS[roleId].filter(
+    (tool) =>
+      !DEFAULT_DISABLED_ROLE_TOOLS[roleId].has(tool) || SUPERVISOR_DELEGATION_TOOLS.has(tool),
+  );
+}
 
 export const MANDATORY_ROLE_TOOLS = ["beads_status", "beads_get", "beads_prime"] as const;
 export const MANDATORY_ROLE_SKILLS = ["beads-issue-tracker"] as const;
@@ -181,7 +196,10 @@ export function materializeRoleProfileBindingReceipt(
   const preferences = RoleProfilePreferencesSchema.parse(input ?? {});
   const toolCeiling = ROLE_TOOL_CEILINGS[roleId];
   const skillCeiling = roleSkillCeiling(roleId);
-  const selectedTools = canonicalSelection(preferences.allowedTools, ROLE_DEFAULT_TOOLS[roleId]);
+  const selectedTools = canonicalSelection(
+    preferences.allowedTools,
+    roleDefaultToolsForAssignment(roleId, assignmentEffectClass),
+  );
   const allowedTools =
     roleId === "peer" && assignmentEffectClass === "read-only"
       ? selectedTools.filter((tool) => !PEER_MUTATING_BEADS_TOOLS.has(tool))

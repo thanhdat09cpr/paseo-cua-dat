@@ -64,7 +64,8 @@ hữu engineering conventions; assignment không copy cả organization manual.
 
 Foundation có ba role native:
 
-- `Supervisor` bảo vệ orchestration quality và continuity cho Human. Supervisor không phải super-Lead.
+- `Supervisor` bảo vệ orchestration quality và continuity cho Human; exact Human delegation lease có
+  thể cho Supervisor tạo và brief Lead con trực tiếp. Supervisor không phải super-Lead.
 - `Lead` giữ project outcome, topology, integration, cross-scope decision và engineering acceptance.
 - `Peer` cung cấp independent judgment trong một bounded assignment và không điều phối agent khác.
 
@@ -93,8 +94,8 @@ wake Lead; Lead hoặc Human đúng boundary mới issue verdict.
 
 Lead làm trực tiếp exact tiny task khi applicable binding cho phép và việc transfer không thêm
 independent judgment. Bounded material work dùng một Peer Owner. Reviewer chỉ được thêm khi failure risk,
-irreversibility hoặc independent falsification đáng giá. Supervisor chỉ xuất hiện khi Human cần
-governance observation, continuity hoặc bounded recovery.
+irreversibility hoặc independent falsification đáng giá. Supervisor xuất hiện khi Human cần một entry
+point để coordinate Lead, governance observation, continuity hoặc bounded recovery.
 
 Council, committee và nhiều reviewer không phải default. Thêm node phải trả lời được node đó giảm risk
 nào mà topology nhỏ hơn không giảm được.

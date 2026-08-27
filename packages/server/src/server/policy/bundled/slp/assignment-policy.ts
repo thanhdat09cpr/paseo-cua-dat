@@ -121,7 +121,7 @@ export function buildSlpAssignmentInstruction(contract: PersistedAssignmentContr
       : "Technical capability boundary: runtime capability does not expand the exact bounded-write scope or external-effect lease above.";
   const supervisorDelegationBoundary =
     receipt.roleId === "supervisor" && envelope.effectClass === "delegation"
-      ? "Human-issued topology lease: you may create and prompt only your own direct role-bound Lead children through Paseo. Those Leads own their project engineering and may delegate only to their own Peers; do not bypass a Lead to direct its Peers."
+      ? "Human-issued topology lease: staffing your own direct role-bound Lead children is explicitly authorized for this assignment. You may create and prompt only those Leads through Paseo. This exception does not make you a super-Lead: each Lead owns its project engineering and may delegate only to its own Peers; do not bypass a Lead to direct its Peers."
       : null;
   return [
     `Assignment Contract: sha256=${receipt.assignmentDigest}; disposition=${envelope.disposition}; effect=${envelope.effectClass}.`,

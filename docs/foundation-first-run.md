@@ -42,7 +42,14 @@ Role Profile (`Lead`, `Peer`, `Supervisor`) giữ standing invariants của Foun
 agent mới giữ objective, effect class, write scope, evidence, handback và stop condition. Không dùng tên
 profile hoặc initial prompt để giả lập role.
 
-## 4. Tạo Lead đầu tiên
+## 4. Chọn entry role
+
+Human có thể tạo Lead trực tiếp cho một bounded task, hoặc tạo Supervisor với assignment
+**Coordinate Leads** khi muốn dùng Supervisor làm kênh bootstrap/điều phối chính. Coordinate Leads là
+exact Human-issued delegation lease: Supervisor chỉ được tạo và prompt Lead con trực tiếp; Lead mới giữ
+project engineering, Peer routing, integration và acceptance.
+
+### Tạo Lead trực tiếp
 
 Trong workspace, chọn role **Lead**, chọn exact provider/model đã discover, rồi điền assignment:
 
@@ -85,10 +92,12 @@ sai hoặc evidence thiếu thì REOPEN_REQUEST/BLOCKED và nói thẳng.
 Receipt phải chứng minh Peer là direct child của exact Lead, role binding immutable, assignment digest
 đúng và no-write mode được daemon pin khi assignment không cho mutation.
 
-## 6. Dùng Supervisor như governance observer
+## 6. Dùng Supervisor để observe hoặc coordinate Lead
 
-Human tạo Supervisor trong assignment riêng. Mặc định là `observe + advise only`; Supervisor không quản
-lý task thường ngày, direct Peer, implement product hoặc accept engineering.
+Human tạo Supervisor trong assignment riêng. **Observe** là mặc định `observe + advise only` và không có
+quyền tạo agent. **Coordinate Leads** cấp đúng `create_agent` và `send_agent_prompt` để Supervisor tạo,
+brief và tiếp tục trao đổi với Lead con trực tiếp. Cả hai mode đều không cho Supervisor direct Peer,
+implement product hoặc accept engineering.
 
 Prompt mẫu:
 
@@ -102,7 +111,8 @@ Lead/Peer messages và verdict chain. `list_profiles` vẫn là Lead routing cap
 đọc effective role/profile receipts từ exact agent status và giữ current approval state là `UNKNOWN`
 nếu Human mandate cần fact đó nhưng không có authoritative receipt.
 
-Chỉ exact Human recovery/replacement lease mới mở bounded `STOP`, `FREEZE` hoặc Lead replacement flow.
+Coordinate Leads không tự cấp recovery/replacement. Chỉ exact Human recovery/replacement lease mới mở
+bounded `STOP`, `FREEZE` hoặc Lead replacement flow.
 
 ## 7. Room và Council
 
