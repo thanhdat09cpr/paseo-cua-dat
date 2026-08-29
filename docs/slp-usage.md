@@ -69,9 +69,9 @@ paseo run \
   "<bounded Human assignment>"
 ```
 
-Tạo Supervisor bằng `--role supervisor` trong một assignment riêng. Effect mặc định `read-only` là
-Observe; effect `delegation` là Coordinate Leads và cho phép Supervisor tạo/prompt duy nhất Lead con
-trực tiếp. Lead tạo Peer bằng Paseo `create_agent` với `role=peer`, exact workspace,
+Tạo Supervisor bằng `--role supervisor` trong một assignment riêng. Effect mặc định `delegation` là
+Coordinate Leads và cho phép Supervisor tạo/prompt duy nhất Lead con trực tiếp. Human có thể chọn effect
+`read-only` để dùng mode Observe. Lead tạo Peer bằng Paseo `create_agent` với `role=peer`, exact workspace,
 discovered provider/model và bounded assignment. Không dùng provider alias hoặc initial prompt để giả
 lập role.
 

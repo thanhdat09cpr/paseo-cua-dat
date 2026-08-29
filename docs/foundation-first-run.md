@@ -94,10 +94,11 @@ Receipt phải chứng minh Peer là direct child của exact Lead, role binding
 
 ## 6. Dùng Supervisor để observe hoặc coordinate Lead
 
-Human tạo Supervisor trong assignment riêng. **Observe** là mặc định `observe + advise only` và không có
-quyền tạo agent. **Coordinate Leads** cấp đúng `create_agent` và `send_agent_prompt` để Supervisor tạo,
-brief và tiếp tục trao đổi với Lead con trực tiếp. Cả hai mode đều không cho Supervisor direct Peer,
-implement product hoặc accept engineering.
+Human tạo Supervisor trong assignment riêng. **Coordinate Leads** là mặc định `delegation` cho Supervisor
+mới; nó cấp đúng `create_agent` và `send_agent_prompt` để Supervisor tạo, brief và tiếp tục trao đổi với
+Lead con trực tiếp. Human vẫn có thể chọn **Observe** (`read-only`) để chỉ quan sát và tư vấn. Cả hai mode
+đều không cho Supervisor direct Peer, implement product, sửa workspace, accept engineering hoặc tạo
+external effect.
 
 Prompt mẫu:
 

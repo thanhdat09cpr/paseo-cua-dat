@@ -18,14 +18,27 @@ describe("ordinary assignment authority", () => {
     ]);
     expect(
       ordinaryAssignmentAuthorityOptionsForRole("supervisor").map((option) => option.id),
-    ).toEqual(["read-only", "delegation"]);
+    ).toEqual(["delegation", "read-only"]);
   });
 
   test("uses task-oriented defaults and labels", () => {
     expect(defaultAssignmentEffectForRole("lead")).toBe("mutating");
     expect(defaultAssignmentEffectForRole("peer")).toBe("mutating");
-    expect(defaultAssignmentEffectForRole("supervisor")).toBe("read-only");
+    expect(defaultAssignmentEffectForRole("supervisor")).toBe("delegation");
     expect(assignmentAuthorityLabel("lead", "delegation")).toBe("Coordinate only");
+    expect(assignmentAuthorityLabel("supervisor", "delegation")).toBe("Coordinate Leads");
     expect(assignmentAuthorityLabel("supervisor", "recovery")).toBe("recovery");
+  });
+
+  test("keeps Observe available as an explicit no-write Supervisor mode", () => {
+    const observe = ordinaryAssignmentAuthorityOptionsForRole("supervisor").find(
+      (option) => option.id === "read-only",
+    );
+
+    expect(observe).toEqual({
+      id: "read-only",
+      label: "Observe",
+      description: "Inspect project activity and evidence without changing files or routing work.",
+    });
   });
 });
