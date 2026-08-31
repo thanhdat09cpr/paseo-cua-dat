@@ -39,6 +39,8 @@ question grammar và policy version.
   trigger khác nhau không nuốt nhau, invalid `used > maximum` telemetry giữ UNKNOWN thay vì clamp.
 - Frozen-generation parse/digest/registration failure không làm mất active `.46`; partial registration
   vẫn fail closed cho exact `.45` owner cho tới khi một registration hoàn chỉnh xoá failure.
+- Portable release artifact build pin bounded Node old-space `4096 MiB`, tránh Metro worker bị OOM ở
+  khoảng `2 GiB` trên cả macOS arm64 và x64 runners khi bundle WebUI.
 
 ### Compatibility
 

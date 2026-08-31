@@ -251,6 +251,8 @@ jobs:
           if ($errors.Count -gt 0) { throw ($errors | Out-String) }
 
       - name: Build host-native WebUI + CLI artifact
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build:web-cli-artifact
 
       - name: Check out pinned release tooling
