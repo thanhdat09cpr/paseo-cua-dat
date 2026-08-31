@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.6.0-paseo.46 - 2026-08-31
+
+Bản này hoàn thiện continuity attention theo Foundation doctrine: kernel chỉ giữ event/state,
+persistence và safe-boundary delivery dùng chung; bundled SLP sở hữu classifier, routing, threshold,
+question grammar và policy version.
+
+### Added
+
+- Event-driven SLP attention policy mặc định bật, đánh thức đúng một role-bound Supervisor khi có
+  repeated failure, context pressure, compaction pressure hoặc semantic friction có evidence; emergency
+  rollback dùng `PASEO_DISABLE_SLP_ATTENTION_POLICY=1`.
+- Supervisor có surface `ask_attention_question` để hỏi đúng một câu authority-neutral, evidence-backed
+  tới Lead hoặc Peer cùng workspace; command, verdict, acceptance, ownership transfer, handoff, write và
+  recovery language đều bị fail closed.
+- Agent inspect/projection công bố continuity metadata runtime thực sự biết: context/tokens/cache khi có,
+  compaction count, idle timestamp/duration, task snapshot và held locks; dữ liệu provider không hỗ trợ
+  tiếp tục là optional/UNKNOWN.
+- Foundation `0.1.0-dev.22` được import với hai orchestration-doctrine books và canonical production
+  attention-question corpus; runtime test validate toàn bộ marker qua chính production grammar.
+
+### Changed
+
+- Native hard-coded coordination policy được thay bằng generic event-policy runtime; persisted state,
+  coalescing, retry và restart delivery được namespace theo exact pinned policy generation.
+- Automatic attention chuyển từ opt-in native switch sang normal bundled SLP path mặc định bật; role
+  tool defaults/ceilings cho phép recipient resolve signal và Supervisor chỉ có minimum question tool.
+- Client/CLI dùng feature negotiation trước attention question; wire format `.45` tiếp tục chấp nhận
+  `relatedAgentId` optional và chỉ enforce yêu cầu mới sau parse.
+
+### Fixed
+
+- `.45`, legacy, missing hoặc corrupt generation không còn nhận nhầm `.46` attention; cả Human ingress
+  và agent-tool ingress kiểm tra exact target generation trước khi persist.
+- Consecutive failures tích luỹ qua realistic `turn_started -> turn_failed`; terminal dispositions và
+  distinct semantic episodes re-arm hợp lệ mà không replay/polling hoặc prompt storm.
+- Pending signals merge bounded occurrence evidence theo explicit requester/target/content identity;
+  trigger khác nhau không nuốt nhau, invalid `used > maximum` telemetry giữ UNKNOWN thay vì clamp.
+- Frozen-generation parse/digest/registration failure không làm mất active `.46`; partial registration
+  vẫn fail closed cho exact `.45` owner cho tới khi một registration hoàn chỉnh xoá failure.
+
+### Compatibility
+
+- Frozen SLP `1.0.0` của `.45` giữ nguyên exact digest
+  `569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0`, default-off automatic policy
+  và generation-local role/tool semantics.
+- Active SLP `1.1.0` sau Foundation import có digest
+  `02607618aea9fee766b468c7063ad17dc270ca7a7bba868d0ed8b436821ec172`; Foundation provenance bind tag
+  `foundation-v0.1.0-dev.22`, commit `b91c43e528658f7f82029173f4d06146ca2db77e`.
+- Legacy non-SLP agents và ordinary Paseo tiếp tục hoạt động; unsupported or corrupt pinned owners fail
+  closed, không silently map sang active generation.
+
+### Qualified
+
+- Independent Codex `gpt-5.6-sol` Peer review APPROVE, không còn actionable P0/P1/P2.
+- Focused portability/grammar suite pass `102/102`; full touched 18-file matrix pass `692/692` với
+  diagnostic test ceiling 30 giây.
+- Server/CLI build, all 12 workspace typechecks, lint `4,034` files, format `4,329` files, Product diff
+  check và clean detached Foundation validator `26/26` đều pass trên feature commit `2d4236ac5`.
+- Counterevidence được giữ nguyên: default 5-second broad matrix timeout ở pre-existing MCP worktree
+  broadcast test sau 583 assertions; exact test hoàn tất khoảng 6.2 giây với diagnostic ceiling, không
+  có unrelated patch để che timing này.
+
 ## 0.6.0-paseo.45 - 2026-08-27
 
 Bản này tách SLP khỏi semantic ownership của Product kernel thành first-party bundled policy plugin,
