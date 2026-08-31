@@ -5,17 +5,24 @@ Nó không thay thế role contracts, Human lease hoặc repository protocol.
 
 ## Mức trưởng thành hiện tại
 
-| Slice                  | Trạng thái                                           | Đã có                                                                                                                               | Chưa được chứng minh                             |
-| ---------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| P0 coordination signal | Candidate, integrated-runtime-qualified, default-off | protocol, persistence, idle-boundary delivery, native paid-provider resolution, CLI/client/tool, flag-gated native attention policy | release activation, multi-day operational effect |
-| P1 manual handoff      | Pilot đã chạy                                        | predecessor packet, independent successor review, rejection evidence                                                                | multi-day operational effect                     |
-| P2 handoff artifact    | Candidate, integrated-runtime-qualified              | immutable packet core, explicit ordered receipts, role/Human gates, write-lease enforcement, paid-provider release canary           | release activation, multi-day operational effect |
+| Slice                  | Trạng thái                                              | Đã có                                                                                                                      | Chưa được chứng minh                                                      |
+| ---------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| P0 coordination signal | Source candidate; automatic bundled policy mặc định bật | protocol, persistence, idle-boundary delivery, CLI/client/tool, SLP-owned classifier/routing/re-arm và generic kernel host | release artifact, installed/live activation, multi-day operational effect |
+| P1 manual handoff      | Pilot đã chạy                                           | predecessor packet, independent successor review, rejection evidence                                                       | multi-day operational effect                                              |
+| P2 handoff artifact    | Candidate, integrated-runtime-qualified                 | immutable packet core, explicit ordered receipts, role/Human gates, write-lease enforcement, paid-provider release canary  | release activation, multi-day operational effect                          |
+
+Compatibility receipt: SHA-256 `569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0`
+binds only the frozen SLP v1.0 artifact bytes shipped in `.45`. Generation-local operational TypeScript is
+separate compatibility source, protected by fixed role/profile, event-state, authority and restart receipts;
+the historical digest does not attest those modules. A frozen compatibility load failure cannot remove the
+independently registered active SLP generation and never aliases a `.45` owner to current semantics.
 
 Không được gọi ba slice này là shipped production capability chỉ vì focused tests xanh.
 
-Các tool candidate không được project vào standing role profile mặc định. Human phải enable exact tool
-trong Role Profiles sau khi chấp nhận use case và evidence boundary; việc tool còn nằm trong Foundation
-ceiling chỉ cho phép opt-in, không phải production endorsement.
+Default profile chỉ project surface tối thiểu: mọi role mặc định có thể nhận attention được resolve
+signal của chính mình; Supervisor có thể hỏi một bounded attention question. Các surface tạo agent,
+handoff, detach hoặc send rộng hơn vẫn opt-in/denied theo authority hiện có. Default projection là source
+candidate, không phải installed/live endorsement.
 
 ## Coordination signal
 
@@ -23,21 +30,32 @@ Coordination signal là durable advisory attention. Nó không phải prompt đi
 authority.
 
 - Human dùng paseo agent signal.
-- Role-bound Lead hoặc Supervisor dùng signal_agent.
+- Role-bound Lead dùng `signal_agent` cho handoff/detach recommendation trong lease.
+- Role-bound Supervisor dùng `ask_attention_question` để gửi câu hỏi attention có cấu trúc tới
+  role-bound Lead hoặc Peer. Human-facing CLI dùng cùng bounded request.
 - Receiving role dùng resolve_agent_signal.
 - Nếu target đang chạy, daemon persist signal ngay nhưng chờ idle boundary để delivery; active run
   không bị replace.
 - Manual handoff/detach recommendation chỉ target role-bound Lead.
-- Native continuity attention dùng provider telemetry hoặc repeated terminal failures. Missing context
-  telemetry fail closed.
-- Automatic native policy không start mặc định; internal pilot phải đặt exact
-  `PASEO_ENABLE_NATIVE_COORDINATION_POLICY=1`. Manual signal và pending safe-boundary delivery không phụ
-  thuộc flag này.
+- Bundled SLP attention dùng provider telemetry, repeated terminal failures và classifier deterministic
+  trên model-visible assistant output. Nó không đọc hidden chain of thought; missing/ambiguous target
+  hoặc telemetry fail closed.
+- Automatic SLP policy start mặc định qua bundled-policy contribution. Emergency rollback đặt exact
+  `PASEO_DISABLE_SLP_ATTENTION_POLICY=1`; manual signal và pending safe-boundary delivery không phụ thuộc
+  switch này.
 
 Ví dụ:
 
     paseo agent signal <lead-id> --kind handoff --reason "Context dilution after repeated reopen"
     paseo agent signal <lead-id> --kind detach --related-agent <agent-id> --reason "Review whether this child should become independent"
+    paseo agent signal <peer-id> --kind question --observation "The evidence conflicts with the current conclusion." --question "What evidence supports the current conclusion?" --evidence "timeline:item-42"
+
+Attention question bắt buộc có observation, câu hỏi kết thúc bằng `?` và ít nhất một evidence reference.
+Nó không phải command, decision, acceptance hoặc ownership transfer. Peer chỉ nhận và tự resolve signal;
+surface này không cấp cho Peer quyền signal/orchestrate. Agent-scoped Supervisor và target phải cùng
+exact workspace. Runtime chỉ nhận một factual observation clause và một clarification clause thuộc finite
+evidence/observation/assumption/uncertainty/risk/constraint/inconsistency/interpretation/status grammar;
+suffix, câu bổ sung, imperative, request hoặc wording mang authority/external-effect shape đều fail closed.
 
 Detach recommendation không promote agent. Detach thật chỉ xóa parent label và vẫn cần exact
 Human-facing lifecycle action.
@@ -47,14 +65,22 @@ Human-facing lifecycle action.
 - Peer failure lặp lại ba lần liên tiếp route attention tới owning Lead hoặc unique workspace Lead.
 - Lead failure lặp lại ba lần liên tiếp chỉ route tới unique workspace Supervisor.
 - Context pressure và provider compaction route về chính Lead để Lead tự đánh giá continuity.
+- Semantic friction ở visible output của Lead hoặc Peer chỉ route tới unique workspace Supervisor; nếu
+  không có đúng một Supervisor thì không phát signal.
 - Một context-pressure hoặc compaction event có thể tạo một advisory attention để tránh bỏ lỡ tín hiệu
   quan trọng, nhưng riêng signal đó không đủ để trigger replacement, handoff hay authority change.
 - Supervisor quan sát và khuyến nghị; không seize implementation ownership.
 - Lead giữ routing, integration và engineering acceptance trong Human lease.
 - Peer không signal, transition hoặc tạo handoff; Peer chỉ handback evidence cho Lead.
 
-Completed hoặc canceled turn reset repeated-failure sequence. Canceled turn không được tính là failure.
-Unresolved native attention coalesce để tránh prompt storm.
+`turn_started` chỉ reset semantic state của turn mới; nó không xóa chuỗi terminal failure. Chỉ
+`turn_completed` hoặc `turn_canceled` reset failure episode, và canceled turn không được tính là failure.
+Context pressure phải xuống dưới threshold trước khi crossing sau re-arm. Automatic compaction mới và
+semantic fingerprint mới, kể cả trong cùng turn sau disposition, có thể tạo episode mới. Một occurrence
+mới của cùng fingerprint sau disposition cũng re-arm; chỉ khi exact episode còn pending thì occurrence
+evidence được merge thay vì tạo signal khác.
+Pending signal chỉ coalesce trong cùng exact rule/fingerprint lane; context pressure và compaction không
+được nuốt lẫn nhau.
 
 ### Cooling và corroboration
 

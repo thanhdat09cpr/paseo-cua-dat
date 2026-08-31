@@ -18,7 +18,7 @@ describe("Foundation role profiles", () => {
       "supervisor",
     ]);
     expect(catalog.profiles.find((profile) => profile.roleId === "peer")?.toolCeiling).toHaveLength(
-      10,
+      11,
     );
     expect(catalog.profiles.find((profile) => profile.roleId === "lead")?.toolCeiling).toContain(
       "list_profiles",
@@ -34,12 +34,14 @@ describe("Foundation role profiles", () => {
     ).toContain("read_room");
     expect(
       catalog.profiles.find((profile) => profile.roleId === "supervisor")?.toolCeiling,
-    ).toEqual(expect.arrayContaining(["create_agent", "send_agent_prompt"]));
+    ).toEqual(
+      expect.arrayContaining(["create_agent", "send_agent_prompt", "ask_attention_question"]),
+    );
     for (const profile of catalog.profiles) {
-      if (profile.roleId === "peer") {
-        expect(profile.effective.allowedTools).toEqual(profile.toolCeiling);
-      } else {
+      if (profile.roleId === "lead" || profile.roleId === "supervisor") {
         expect(profile.effective.allowedTools).not.toEqual(profile.toolCeiling);
+      } else {
+        expect(profile.effective.allowedTools).toEqual(profile.toolCeiling);
       }
       expect(profile.effective.allowedSkills).toEqual(profile.skillCeiling);
       expect(profile.instructions).toContain("Paseo");
@@ -51,12 +53,20 @@ describe("Foundation role profiles", () => {
         "signal_agent",
         "prepare_lead_handoff",
         "transition_lead_handoff",
-        "resolve_agent_signal",
       ]),
     );
     expect(
+      catalog.profiles.find((profile) => profile.roleId === "lead")?.effective.allowedTools,
+    ).toContain("resolve_agent_signal");
+    expect(
+      catalog.profiles.find((profile) => profile.roleId === "peer")?.effective.allowedTools,
+    ).toContain("resolve_agent_signal");
+    expect(
       catalog.profiles.find((profile) => profile.roleId === "supervisor")?.effective.allowedTools,
     ).toEqual(expect.not.arrayContaining(["create_agent", "send_agent_prompt", "signal_agent"]));
+    expect(
+      catalog.profiles.find((profile) => profile.roleId === "supervisor")?.effective.allowedTools,
+    ).toEqual(expect.arrayContaining(["ask_attention_question", "resolve_agent_signal"]));
   });
 
   test("materializes a deterministic, narrower immutable receipt", () => {
@@ -93,5 +103,34 @@ describe("Foundation role profiles", () => {
         },
       }),
     ).toThrow("cannot disable mandatory tool");
+  });
+
+  test("allows explicit opt-in inside the full role ceiling", () => {
+    const receipt = materializeRoleProfileBindingReceipt("supervisor", {
+      allowedTools: [...MANDATORY_ROLE_TOOLS, "signal_agent", "create_agent", "send_agent_prompt"],
+      allowedSkills: [...MANDATORY_ROLE_SKILLS],
+    });
+
+    expect(receipt.allowedTools).toEqual(
+      expect.arrayContaining(["signal_agent", "create_agent", "send_agent_prompt"]),
+    );
+    const leadReceipt = materializeRoleProfileBindingReceipt("lead", {
+      allowedTools: [
+        ...MANDATORY_ROLE_TOOLS,
+        "signal_agent",
+        "prepare_lead_handoff",
+        "transition_lead_handoff",
+      ],
+      allowedSkills: [...MANDATORY_ROLE_SKILLS],
+    });
+    expect(leadReceipt.allowedTools).toEqual(
+      expect.arrayContaining(["signal_agent", "prepare_lead_handoff", "transition_lead_handoff"]),
+    );
+    expect(() =>
+      materializeRoleProfileBindingReceipt("supervisor", {
+        allowedTools: [...MANDATORY_ROLE_TOOLS, "transition_lead_handoff"],
+        allowedSkills: [...MANDATORY_ROLE_SKILLS],
+      }),
+    ).toThrow("outside the Foundation ceiling");
   });
 });

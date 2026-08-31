@@ -15,10 +15,7 @@ import {
 } from "./role-binding.js";
 import { LaunchContractReceiptSchema } from "./launch-contract.js";
 import { RoleProfileCatalogSchema, RoleProfilePreferencesMapSchema } from "./role-profile.js";
-import {
-  CoordinationSignalSchema,
-  ManualCoordinationSignalKindSchema,
-} from "./coordination-signal.js";
+import { CoordinationSignalSchema } from "./coordination-signal.js";
 import { LeadHandoffPacketSchema } from "./lead-handoff.js";
 import { WORKSPACE_LABEL_COLORS } from "./workspace-labels.js";
 import {
@@ -968,6 +965,32 @@ const AgentActiveTurnPayloadSchema = z.object({
   startedAt: z.string().nullable(),
 });
 
+const AgentContinuityTaskSchema = z.object({
+  text: z.string(),
+  completed: z.boolean(),
+  id: z.string().optional(),
+  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  activeForm: z.string().optional(),
+});
+
+export const AgentContinuityAwarenessSchema = z.object({
+  remainingContextTokens: z.number().int().nonnegative().nullable(),
+  remainingContextRatio: z.number().min(0).max(1).nullable(),
+  contextWindowUsedTokens: z.number().int().nonnegative().nullable(),
+  contextWindowMaxTokens: z.number().int().positive().nullable(),
+  inputTokens: z.number().int().nonnegative().nullable(),
+  cachedInputTokens: z.number().int().nonnegative().nullable(),
+  outputTokens: z.number().int().nonnegative().nullable(),
+  compactionCount: z.number().int().nonnegative().nullable(),
+  compactionCountScope: z.literal("loaded_timeline").nullable(),
+  idleSince: z.string().datetime().nullable(),
+  idleSinceBasis: z.literal("agent_updated_at").nullable(),
+  idleDurationMs: z.number().int().nonnegative().nullable(),
+  currentTaskSnapshot: z.array(AgentContinuityTaskSchema).nullable(),
+  currentTaskSnapshotScope: z.literal("loaded_timeline").nullable(),
+  heldLocks: z.array(z.string()).nullable(),
+});
+
 export const AgentSnapshotPayloadSchema = z.object({
   id: z.string(),
   provider: AgentProviderSchema,
@@ -1001,6 +1024,7 @@ export const AgentSnapshotPayloadSchema = z.object({
   launchContract: LaunchContractReceiptSchema.optional(),
   coordinationSignals: z.array(CoordinationSignalSchema).optional(),
   leadHandoffs: z.array(LeadHandoffPacketSchema).optional(),
+  continuityAwareness: AgentContinuityAwarenessSchema.optional(),
 });
 
 export type AgentSnapshotPayload = z.infer<typeof AgentSnapshotPayloadSchema>;
@@ -2107,15 +2131,38 @@ export const AgentDetachResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
-export const AgentCoordinationSignalRequestMessageSchema = z.object({
-  type: z.literal("agent.coordination_signal.request"),
-  requestId: z.string(),
-  agentId: z.string(),
-  kind: ManualCoordinationSignalKindSchema,
-  reason: CoordinationSignalSchema.shape.reason,
-  relatedAgentId: z.string().min(1).optional(),
-  evidenceRefs: CoordinationSignalSchema.shape.evidenceRefs.optional(),
-});
+export const AgentCoordinationSignalRequestMessageSchema = z.discriminatedUnion("kind", [
+  z.object({
+    type: z.literal("agent.coordination_signal.request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    kind: z.literal("continuity_attention"),
+    reason: CoordinationSignalSchema.shape.reason,
+    observation: z.string().trim().min(1).max(1_000),
+    question: z.string().trim().min(1).max(1_000),
+    evidenceRefs: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
+  }),
+  z.object({
+    type: z.literal("agent.coordination_signal.request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    kind: z.literal("handoff_recommended"),
+    reason: CoordinationSignalSchema.shape.reason,
+    relatedAgentId: z.string().min(1).optional(),
+    evidenceRefs: CoordinationSignalSchema.shape.evidenceRefs.optional(),
+  }),
+  z.object({
+    type: z.literal("agent.coordination_signal.request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    kind: z.literal("detach_recommended"),
+    reason: CoordinationSignalSchema.shape.reason,
+    // COMPAT(coordinationSignal45Detach): .45 accepted this shape on the wire and
+    // enforced the detach-specific requirement in the server authority layer.
+    relatedAgentId: z.string().min(1).optional(),
+    evidenceRefs: CoordinationSignalSchema.shape.evidenceRefs.optional(),
+  }),
+]);
 
 export const AgentCoordinationSignalResponseMessageSchema = z.object({
   type: z.literal("agent.coordination_signal.response"),
@@ -3585,6 +3632,9 @@ export const ServerInfoStatusPayloadSchema = z
         providersSnapshot: z.boolean().optional(),
         // COMPAT(roleProfiles): host-owned role profile editor and catalog RPC.
         roleProfiles: z.boolean().optional(),
+        // COMPAT(attentionQuestions): added in v0.6.0-paseo.46; old daemons do not
+        // understand the continuity-attention question request branch.
+        attentionQuestions: z.boolean().optional(),
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: z.boolean().optional(),
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.

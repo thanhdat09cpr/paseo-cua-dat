@@ -12,7 +12,9 @@ import type {
 
 interface AgentSignalOptions extends CommandOptions {
   kind: string;
-  reason: string;
+  reason?: string;
+  observation?: string;
+  question?: string;
   relatedAgent?: string;
   evidence?: string[];
 }
@@ -25,6 +27,8 @@ interface AgentSignalResult {
   delivered: boolean;
 }
 
+type AgentSignalKind = "handoff" | "detach" | "question";
+
 const signalSchema: OutputSchema<AgentSignalResult> = {
   idField: "signalId",
   columns: [
@@ -35,6 +39,75 @@ const signalSchema: OutputSchema<AgentSignalResult> = {
     { header: "DELIVERED", field: "delivered" },
   ],
 };
+
+function parseSignalKind(kind: string): AgentSignalKind {
+  if (kind === "handoff" || kind === "detach" || kind === "question") return kind;
+  throw {
+    code: "INVALID_SIGNAL_KIND",
+    message: `Invalid signal kind: ${kind}. Use handoff, detach, or question.`,
+  } satisfies CommandError;
+}
+
+function validateRelatedAgent(
+  kind: AgentSignalKind,
+  requestedRelatedAgent: string | undefined,
+  relatedAgentId: string | undefined,
+): void {
+  if (requestedRelatedAgent && !relatedAgentId) {
+    throw {
+      code: "RELATED_AGENT_NOT_FOUND",
+      message: `Related agent not found: ${requestedRelatedAgent}`,
+    } satisfies CommandError;
+  }
+  if (kind === "detach" && !relatedAgentId) {
+    throw {
+      code: "RELATED_AGENT_REQUIRED",
+      message: "--related-agent is required for detach recommendations",
+    } satisfies CommandError;
+  }
+}
+
+async function requestSignal(
+  client: DaemonClient,
+  agentId: string,
+  relatedAgentId: string | undefined,
+  kind: AgentSignalKind,
+  options: AgentSignalOptions,
+): Promise<CoordinationSignal> {
+  if (kind === "question") {
+    if (!options.observation?.trim() || !options.question?.trim().endsWith("?")) {
+      throw {
+        code: "INVALID_ATTENTION_QUESTION",
+        message: "Question signals require --observation and an open --question ending in '?'.",
+      } satisfies CommandError;
+    }
+    if (!options.evidence || options.evidence.length === 0) {
+      throw {
+        code: "ATTENTION_EVIDENCE_REQUIRED",
+        message: "Question signals require at least one --evidence reference.",
+      } satisfies CommandError;
+    }
+    return client.askAttentionQuestion({
+      agentId,
+      observation: options.observation,
+      question: options.question,
+      evidenceRefs: options.evidence,
+    });
+  }
+  if (!options.reason?.trim()) {
+    throw {
+      code: "SIGNAL_REASON_REQUIRED",
+      message: "Handoff and detach recommendations require --reason.",
+    } satisfies CommandError;
+  }
+  return client.signalAgent({
+    agentId,
+    kind: kind === "handoff" ? "handoff_recommended" : "detach_recommended",
+    reason: options.reason,
+    relatedAgentId,
+    evidenceRefs: options.evidence,
+  });
+}
 
 export async function runSignalCommand(
   agentIdArg: string,
@@ -55,12 +128,7 @@ export async function runSignalCommand(
   }
 
   try {
-    if (options.kind !== "handoff" && options.kind !== "detach") {
-      throw {
-        code: "INVALID_SIGNAL_KIND",
-        message: `Invalid signal kind: ${options.kind}. Use handoff or detach.`,
-      } satisfies CommandError;
-    }
+    const kind = parseSignalKind(options.kind);
     const payload = await client.fetchAgents({ filter: { includeArchived: true } });
     const agents = payload.entries.map((entry) => entry.agent);
     const agentId = resolveAgentId(agentIdArg, agents);
@@ -71,27 +139,10 @@ export async function runSignalCommand(
       } satisfies CommandError;
     }
     const relatedAgentId = options.relatedAgent
-      ? resolveAgentId(options.relatedAgent, agents)
+      ? (resolveAgentId(options.relatedAgent, agents) ?? undefined)
       : undefined;
-    if (options.relatedAgent && !relatedAgentId) {
-      throw {
-        code: "RELATED_AGENT_NOT_FOUND",
-        message: `Related agent not found: ${options.relatedAgent}`,
-      } satisfies CommandError;
-    }
-    if (options.kind === "detach" && !relatedAgentId) {
-      throw {
-        code: "RELATED_AGENT_REQUIRED",
-        message: "--related-agent is required for detach recommendations",
-      } satisfies CommandError;
-    }
-    const signal = await client.signalAgent({
-      agentId,
-      kind: options.kind === "handoff" ? "handoff_recommended" : "detach_recommended",
-      reason: options.reason,
-      relatedAgentId: relatedAgentId ?? undefined,
-      evidenceRefs: options.evidence,
-    });
+    validateRelatedAgent(kind, options.relatedAgent, relatedAgentId);
+    const signal = await requestSignal(client, agentId, relatedAgentId, kind, options);
     return {
       type: "single",
       data: {

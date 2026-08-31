@@ -30,24 +30,30 @@ export interface RequestCoordinationSignalInput {
   requestedByAgentId: string | null;
   kind: CoordinationSignalKind;
   trigger?: CoordinationSignalTrigger;
+  customEvent?: string;
   severity?: CoordinationSignalSeverity;
   recipientRole?: CoordinationSignalRecipientRole;
   source?: CoordinationSignalSource;
+  coalescingKey?: string;
   reason: string;
+  observation?: string;
+  question?: string;
   relatedAgentId?: string;
   evidenceRefs?: string[];
   evidence?: Record<string, string | number | boolean | null>;
 }
 
-export type CoordinationPolicyState = NonNullable<StoredAgentRecord["coordinationPolicyState"]>;
+export interface EventPolicyStateSpec<TState extends Record<string, unknown>> {
+  policyId: string;
+  version: number;
+  initialState: TState;
+  parseState: (input: unknown) => TState;
+  migrateLegacy?: (record: StoredAgentRecord) => TState | null;
+}
 
-export const EMPTY_COORDINATION_POLICY_STATE: CoordinationPolicyState = {
-  consecutiveTurnFailures: 0,
-  failureAttentionSent: false,
-  automaticCompactionCount: 0,
-  automaticCompactionAttentionSent: false,
-  contextPressureAttentionSent: false,
-};
+export interface EventPolicyStateOwner {
+  stateNamespace: string;
+}
 
 const scheduledDeliveries = new Map<string, () => void>();
 const deliveryInFlight = new Set<string>();
@@ -91,13 +97,16 @@ function formatDelivery(signals: readonly CoordinationSignal[]): string {
         ? `\nEvidence refs:\n${signal.evidenceRefs.map((ref) => `- ${ref}`).join("\n")}`
         : "";
     const trigger = signal.trigger ? `\nTrigger: ${signal.trigger}` : "";
+    const customEvent = signal.customEvent ? `\nCustom event: ${signal.customEvent}` : "";
     const severity = signal.severity ? `\nSeverity: ${signal.severity}` : "";
+    const observation = signal.observation ? `\nObservation: ${signal.observation}` : "";
+    const question = signal.question ? `\nQuestion: ${signal.question}` : "";
     const observations = signal.evidence
       ? `\nObserved metrics:\n${Object.entries(signal.evidence)
           .map(([key, value]) => `- ${key}: ${String(value)}`)
           .join("\n")}`
       : "";
-    return `Signal ${signal.id}: ${signal.kind}${trigger}${severity}\nReason: ${signal.reason}${related}${evidence}${observations}`;
+    return `Signal ${signal.id}: ${signal.kind}${trigger}${customEvent}${severity}\nReason: ${signal.reason}${observation}${question}${related}${evidence}${observations}`;
   });
   const hasNativeAttention = signals.some(
     (signal) => signal.kind === "continuity_attention" && signal.source?.kind === "paseo",
@@ -105,7 +114,7 @@ function formatDelivery(signals: readonly CoordinationSignal[]): string {
   return [
     hasNativeAttention ? "Paseo coordination attention." : "Paseo coordination signal.",
     "This is advisory evidence. It does not transfer authority, prescribe handoff or detach, or require a report to another role.",
-    "Evaluate it at this safe boundary. You retain authority to continue, handoff, detach, or defer. Use resolve_agent_signal to record your disposition.",
+    "Evaluate it at this safe boundary within your existing lease. Resolving it does not grant handoff, detach, signaling, orchestration, or acceptance authority. Use resolve_agent_signal to record your disposition.",
     ...entries,
   ].join("\n\n");
 }
@@ -130,6 +139,89 @@ function sourcesMatch(
     return left.ruleId === right.ruleId && left.version === right.version;
   }
   return left.kind === "human" && right.kind === "human";
+}
+
+function signalsCoalesce(
+  candidate: CoordinationSignal,
+  input: RequestCoordinationSignalInput,
+  source: CoordinationSignalSource,
+): boolean {
+  const hasExplicitLane =
+    input.coalescingKey !== undefined || candidate.coalescingKey !== undefined;
+  const sameExplicitLane = hasExplicitLane && candidate.coalescingKey === input.coalescingKey;
+  const sameSource = candidate.source
+    ? sourcesMatch(candidate.source, source)
+    : candidate.requestedByAgentId === input.requestedByAgentId;
+  return (
+    candidate.status === "pending" &&
+    candidate.kind === input.kind &&
+    (hasExplicitLane ? sameExplicitLane : sameSource && candidate.trigger === input.trigger) &&
+    candidate.relatedAgentId === input.relatedAgentId
+  );
+}
+
+function mergeSignalOccurrence(
+  existing: CoordinationSignal,
+  input: RequestCoordinationSignalInput,
+): CoordinationSignal {
+  const occurredAt = new Date().toISOString();
+  const previousOccurrences = existing.occurrences ?? [
+    {
+      occurredAt: existing.createdAt,
+      evidenceRefs: existing.evidenceRefs,
+      ...(existing.evidence ? { evidence: existing.evidence } : {}),
+    },
+  ];
+  return {
+    ...existing,
+    evidenceRefs: [...new Set([...existing.evidenceRefs, ...(input.evidenceRefs ?? [])])].slice(
+      -20,
+    ),
+    ...(input.evidence ? { evidence: { ...existing.evidence, ...input.evidence } } : {}),
+    occurrenceCount: (existing.occurrenceCount ?? 1) + 1,
+    lastOccurredAt: occurredAt,
+    occurrences: [
+      ...previousOccurrences,
+      {
+        occurredAt,
+        evidenceRefs: input.evidenceRefs ?? [],
+        ...(input.evidence ? { evidence: input.evidence } : {}),
+      },
+    ].slice(-20),
+  };
+}
+
+function createCoordinationSignal(
+  record: StoredAgentRecord,
+  input: RequestCoordinationSignalInput,
+  source: CoordinationSignalSource,
+): CoordinationSignal {
+  const createdAt = new Date().toISOString();
+  return {
+    id: randomUUID(),
+    targetAgentId: input.targetAgentId,
+    requestedByAgentId: input.requestedByAgentId,
+    ...(record.workspaceId ? { workspaceId: record.workspaceId } : {}),
+    kind: input.kind,
+    ...(input.trigger ? { trigger: input.trigger } : {}),
+    ...(input.customEvent ? { customEvent: input.customEvent } : {}),
+    ...(input.severity ? { severity: input.severity } : {}),
+    ...(input.recipientRole ? { recipientRole: input.recipientRole } : {}),
+    source,
+    ...(input.coalescingKey ? { coalescingKey: input.coalescingKey } : {}),
+    reason: input.reason,
+    ...(input.observation ? { observation: input.observation } : {}),
+    ...(input.question ? { question: input.question } : {}),
+    ...(input.relatedAgentId ? { relatedAgentId: input.relatedAgentId } : {}),
+    evidenceRefs: input.evidenceRefs ?? [],
+    ...(input.evidence ? { evidence: input.evidence } : {}),
+    status: "pending",
+    occurrenceCount: 1,
+    lastOccurredAt: createdAt,
+    createdAt,
+    deliveredAt: null,
+    resolvedAt: null,
+  };
 }
 
 async function markDelivered(
@@ -206,46 +298,16 @@ export async function requestCoordinationSignal(
 ): Promise<CoordinationSignal> {
   const source = sourceForInput(input);
   const signal = await updateRecord(dependencies, input.targetAgentId, (record) => {
-    const existing = (record.coordinationSignals ?? []).find((candidate) => {
-      const sameNativeAttentionLane =
-        candidate.kind === "continuity_attention" &&
-        input.kind === "continuity_attention" &&
-        candidate.source?.kind === "paseo" &&
-        source.kind === "paseo" &&
-        candidate.recipientRole === input.recipientRole;
-      return (
-        candidate.status === "pending" &&
-        candidate.kind === input.kind &&
-        (sameNativeAttentionLane ||
-          (candidate.source
-            ? sourcesMatch(candidate.source, source)
-            : candidate.requestedByAgentId === input.requestedByAgentId)) &&
-        (sameNativeAttentionLane || candidate.trigger === input.trigger) &&
-        candidate.relatedAgentId === input.relatedAgentId
-      );
-    });
+    const existing = (record.coordinationSignals ?? []).find((candidate) =>
+      signalsCoalesce(candidate, input, source),
+    );
     if (existing) {
-      return { record, result: existing };
+      const merged = mergeSignalOccurrence(existing, input);
+      const signals = [...(record.coordinationSignals ?? [])];
+      signals[signals.indexOf(existing)] = merged;
+      return { record: { ...record, coordinationSignals: signals }, result: merged };
     }
-    const created: CoordinationSignal = {
-      id: randomUUID(),
-      targetAgentId: input.targetAgentId,
-      requestedByAgentId: input.requestedByAgentId,
-      ...(record.workspaceId ? { workspaceId: record.workspaceId } : {}),
-      kind: input.kind,
-      ...(input.trigger ? { trigger: input.trigger } : {}),
-      ...(input.severity ? { severity: input.severity } : {}),
-      ...(input.recipientRole ? { recipientRole: input.recipientRole } : {}),
-      source,
-      reason: input.reason,
-      ...(input.relatedAgentId ? { relatedAgentId: input.relatedAgentId } : {}),
-      evidenceRefs: input.evidenceRefs ?? [],
-      ...(input.evidence ? { evidence: input.evidence } : {}),
-      status: "pending",
-      createdAt: new Date().toISOString(),
-      deliveredAt: null,
-      resolvedAt: null,
-    };
+    const created = createCoordinationSignal(record, input, source);
     return {
       record: {
         ...record,
@@ -258,21 +320,38 @@ export async function requestCoordinationSignal(
   return signal;
 }
 
-export async function updateCoordinationPolicyState<T>(
+export async function updateEventPolicyState<TState extends Record<string, unknown>, TResult>(
   dependencies: CoordinationSignalDependencies,
   agentId: string,
-  update: (state: CoordinationPolicyState) => {
-    state: CoordinationPolicyState;
-    result: T;
+  owner: EventPolicyStateOwner,
+  spec: EventPolicyStateSpec<TState>,
+  update: (
+    state: TState,
+    record: StoredAgentRecord,
+  ) => {
+    state: TState;
+    result: TResult;
   },
-): Promise<T> {
+): Promise<TResult> {
   return updateRecord(dependencies, agentId, (record) => {
-    const next = update({
-      ...EMPTY_COORDINATION_POLICY_STATE,
-      ...record.coordinationPolicyState,
-    });
+    const stateKey = `${owner.stateNamespace}/${spec.policyId}`;
+    const persisted = record.eventPolicyStates?.[stateKey];
+    const state =
+      persisted?.version === spec.version
+        ? spec.parseState(persisted.state)
+        : (spec.migrateLegacy?.(record) ?? spec.parseState(spec.initialState));
+    const next = update(state, record);
     return {
-      record: { ...record, coordinationPolicyState: next.state },
+      record: {
+        ...record,
+        eventPolicyStates: {
+          ...record.eventPolicyStates,
+          [stateKey]: {
+            version: spec.version,
+            state: next.state,
+          },
+        },
+      },
       result: next.result,
     };
   });

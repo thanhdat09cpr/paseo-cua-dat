@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "distributionVersion": "0.1.0-dev.21",
+  "distributionVersion": "0.1.0-dev.22",
   "foundationSource": {
-    "commit": "a8fcb9f96965d51e358e187a7bcfb97bcfb6fe97",
-    "ref": "foundation-v0.1.0-dev.21"
+    "commit": "b91c43e528658f7f82029173f4d06146ca2db77e",
+    "ref": "foundation-v0.1.0-dev.22"
   },
   "files": [
     {
@@ -24,7 +24,7 @@
     {
       "path": "docs/ROLE_CONTRACTS.md",
       "mode": "0644",
-      "sha256": "53d50272d77b4da8eb65af8523722bd10bf1379a0c99621fb9b24dd66cb70090"
+      "sha256": "66203c09fc80c2ce5639022fbe44f017f2952cb638a5e5a77e7b6ba04c3d1c5c"
     },
     {
       "path": "docs/ROLE_INSTRUCTION_BINDING.md",
@@ -35,6 +35,16 @@
       "path": "docs/SUPERVISOR_NOTEBOOK.md",
       "mode": "0644",
       "sha256": "ed79252d96f76c94b6afd51618591cbb8af5953954fa75df20faf2cb1715bc2a"
+    },
+    {
+      "path": "docs/books/ai-agent-orchestration-doctrine.en.md",
+      "mode": "0644",
+      "sha256": "5dd1b07af90a13efd70bde6d96ffc05b6f30be41ea29ed67da779dcc560b6dbe"
+    },
+    {
+      "path": "docs/books/ai-agent-orchestration-doctrine.vi.md",
+      "mode": "0644",
+      "sha256": "c35ae013867b32398cc4ea55b6e13977a043acb8ddb8925432ec894d35446aa5"
     },
     {
       "path": "profiles/antigravity/agents/paseo-lead/agent.md",
@@ -49,12 +59,12 @@
     {
       "path": "profiles/antigravity/agents/paseo-supervisor/agent.md",
       "mode": "0644",
-      "sha256": "17ab1879629eae56ecbd5ba2e7f0cd9519110c3e35ae3d58e6db1883f8c3c193"
+      "sha256": "f390c2e1962b0c2778fbd1e7a115e9acaf3123fb1c6de6f0c80113a82bb949d7"
     },
     {
       "path": "profiles/claude-plugins/paseo-lead/.claude-plugin/plugin.json",
       "mode": "0644",
-      "sha256": "86da509be1add258c53505b1b5071c7bfabfefbf9c9c58514c05386d8a29db2f"
+      "sha256": "3e0033177550011c1bb76a10d6959ae32e38438dc604dbf517672e354876f00a"
     },
     {
       "path": "profiles/claude-plugins/paseo-lead/agents/paseo-lead.md",
@@ -99,7 +109,7 @@
     {
       "path": "profiles/claude-plugins/paseo-peer/.claude-plugin/plugin.json",
       "mode": "0644",
-      "sha256": "e76ea2ad600ec07d55e1672c619453f50495b94adcdbe8ea4119c066ed7c4402"
+      "sha256": "720c213941a98523ead4f21978b9c959f6ad62d35b335af4c5b4adeeef55dc9c"
     },
     {
       "path": "profiles/claude-plugins/paseo-peer/agents/paseo-peer.md",
@@ -124,12 +134,12 @@
     {
       "path": "profiles/claude-plugins/paseo-supervisor/.claude-plugin/plugin.json",
       "mode": "0644",
-      "sha256": "bbe2d4d86e44db5c15166377c7972c2ecd1efcce03120d4f71d835ee61885a4c"
+      "sha256": "db319a3dae80ff3258948b1279a37a216298657a73d1e101b006f1a0c9a91398"
     },
     {
       "path": "profiles/claude-plugins/paseo-supervisor/agents/paseo-supervisor.md",
       "mode": "0644",
-      "sha256": "ff75e1d210f322c9d3da5dedf39b8eb9acf767b3234b390ad13c9075264d0d25"
+      "sha256": "be6df5b06a98cb985de245d36575e43b1294c5c1bc90626110818a95bcd16722"
     },
     {
       "path": "profiles/claude-plugins/paseo-supervisor/skills/architecture-premise-audit/SKILL.md",
@@ -179,7 +189,7 @@
     {
       "path": "profiles/claude/paseo-supervisor.md",
       "mode": "0644",
-      "sha256": "ff75e1d210f322c9d3da5dedf39b8eb9acf767b3234b390ad13c9075264d0d25"
+      "sha256": "be6df5b06a98cb985de245d36575e43b1294c5c1bc90626110818a95bcd16722"
     },
     {
       "path": "profiles/codex/lead.config.toml",
@@ -194,7 +204,7 @@
     {
       "path": "profiles/codex/supervisor.config.toml",
       "mode": "0644",
-      "sha256": "01f582e6dc103e92118677b9a7a833ffd9a403ce4cc74e3178a8b0b838c418cd"
+      "sha256": "3323ecb0bdd67a8a0b05c617bf18d762ba2f6822f829e49071f36dc0d94d539c"
     },
     {
       "path": "profiles/cursor/paseo-lead/.cursor-plugin/plugin.json",
@@ -274,7 +284,7 @@
     {
       "path": "profiles/cursor/paseo-supervisor/rules/paseo-supervisor.mdc",
       "mode": "0644",
-      "sha256": "eee9d5c449df040c0c54142b3d32c01578ceb2c9a1d41f15bc37c5255a5e0fba"
+      "sha256": "49fbbe96ef379d1737ff58effa21ed0688bc9978f41505edca3bbff08178b708"
     },
     {
       "path": "profiles/cursor/paseo-supervisor/skills/architecture-premise-audit/SKILL.md",
@@ -319,7 +329,7 @@
     {
       "path": "profiles/native/role-definitions.json",
       "mode": "0644",
-      "sha256": "8d0f521248b2713b38fdcd8f13502e0f22cc6951da568aefd78447c010506e74"
+      "sha256": "ce87b2d0093117018567261e4564825280b2229e1292679defc51410e5f8e19e"
     },
     {
       "path": "profiles/omp/paseo-lead.md",
@@ -334,7 +344,7 @@
     {
       "path": "profiles/omp/paseo-supervisor.md",
       "mode": "0644",
-      "sha256": "24d8ce7ecacfe19bf9c0b085f4ca36a8357e9acb400371be42a47193e57d2d67"
+      "sha256": "ebefbf31aeab4b3d901efaf25ab02cac12da5ead904514700d6d3c91b5409ed0"
     },
     {
       "path": "profiles/omp/role.config.yml",
@@ -439,7 +449,7 @@
     {
       "path": "profiles/opencode/supervisor.config.json",
       "mode": "0644",
-      "sha256": "5410e42f64660de680275dea2a51221558d94a432df4798f0ed1e856e0f9523f"
+      "sha256": "b5c539d2f023f1f718e6d8cc1022ca531536436389ed0b4f16eaa2f455f13208"
     },
     {
       "path": "references/demonthorn-agent-orchestration-deep-dive.md",
@@ -555,6 +565,11 @@
       "path": "templates/WORKSPACE_PROTOCOL.md",
       "mode": "0644",
       "sha256": "042cc5937566b694e67b8f958063bf8b1aa60d71c0c7aa0fe4f54b7ffdfe6ecc"
+    },
+    {
+      "path": "templates/attention-question-examples.json",
+      "mode": "0644",
+      "sha256": "2313f7bf51151a07623167171830687cafac3571648e792952ed1b1f73a8f27c"
     },
     {
       "path": "templates/paseo-provider-overrides.example.json",

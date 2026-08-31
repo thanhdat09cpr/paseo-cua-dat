@@ -19,11 +19,26 @@ const signalAgent = vi.fn(async () => ({
   deliveredAt: null,
   resolvedAt: null,
 }));
+const askAttentionQuestion = vi.fn(async () => ({
+  id: "question-1",
+  targetAgentId: lead.id,
+  requestedByAgentId: null,
+  kind: "continuity_attention" as const,
+  reason: "Attention question",
+  observation: "The working stream reversed its ownership premise.",
+  question: "Does this decision need to return to the Lead boundary?",
+  evidenceRefs: ["timeline:lead-1:turn-7"],
+  status: "pending" as const,
+  createdAt: "2026-08-31T00:00:00.000Z",
+  deliveredAt: null,
+  resolvedAt: null,
+}));
 
 vi.mock("../../utils/client.js", () => ({
   connectToDaemon: vi.fn(async () => ({
     fetchAgents: vi.fn(async () => ({ entries: [{ agent: lead }] })),
     signalAgent,
+    askAttentionQuestion,
     close: vi.fn(async () => undefined),
   })),
   getDaemonHost: vi.fn(() => "ws://127.0.0.1:6767"),
@@ -51,6 +66,31 @@ describe("runSignalCommand", () => {
       signalId: "signal-1",
       agentId: lead.id,
       status: "pending",
+      delivered: false,
+    });
+  });
+
+  test("sends a structurally bounded attention question", async () => {
+    const result = await runSignalCommand(
+      "Lead",
+      {
+        kind: "question",
+        observation: "The working stream reversed its ownership premise.",
+        question: "Does this decision need to return to the Lead boundary?",
+        evidence: ["timeline:lead-1:turn-7"],
+      },
+      {} as never,
+    );
+
+    expect(askAttentionQuestion).toHaveBeenCalledWith({
+      agentId: lead.id,
+      observation: "The working stream reversed its ownership premise.",
+      question: "Does this decision need to return to the Lead boundary?",
+      evidenceRefs: ["timeline:lead-1:turn-7"],
+    });
+    expect(result.data).toMatchObject({
+      signalId: "question-1",
+      kind: "continuity_attention",
       delivered: false,
     });
   });

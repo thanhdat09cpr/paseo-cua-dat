@@ -9,6 +9,7 @@ import {
   resolveCoordinationSignal,
   type CoordinationSignalDependencies,
 } from "./coordination-signals.js";
+import { attentionQuestionCoalescingKey } from "../policy/bundled/slp/coordination-policy.js";
 
 function createScenario(
   options: {
@@ -188,6 +189,316 @@ describe("coordination signals", () => {
 
     expect(second.id).toBe(first.id);
     expect(scenario.getRecord().coordinationSignals).toHaveLength(1);
+    expect(second.occurrenceCount).toBe(2);
+    expect(second.occurrences).toHaveLength(2);
+  });
+
+  test("preserves pending occurrence evidence without swallowing different SLP rules", async () => {
+    const scenario = createScenario({ running: true });
+    const first = await requestCoordinationSignal(scenario.dependencies, {
+      targetAgentId: scenario.agentId,
+      requestedByAgentId: null,
+      kind: "continuity_attention",
+      trigger: "context_pressure",
+      recipientRole: "lead",
+      source: { kind: "paseo", ruleId: "lead_context_pressure", version: 3 },
+      coalescingKey: "lead_context_pressure",
+      reason: "Context pressure",
+      evidenceRefs: ["usage:1"],
+      evidence: { contextRatio: 0.86 },
+    });
+    const repeated = await requestCoordinationSignal(scenario.dependencies, {
+      targetAgentId: scenario.agentId,
+      requestedByAgentId: null,
+      kind: "continuity_attention",
+      trigger: "context_pressure",
+      recipientRole: "lead",
+      source: { kind: "paseo", ruleId: "lead_context_pressure", version: 3 },
+      coalescingKey: "lead_context_pressure",
+      reason: "Context pressure again",
+      evidenceRefs: ["usage:2"],
+      evidence: { contextRatio: 0.91 },
+    });
+    const compaction = await requestCoordinationSignal(scenario.dependencies, {
+      targetAgentId: scenario.agentId,
+      requestedByAgentId: null,
+      kind: "continuity_attention",
+      trigger: "automatic_compaction",
+      recipientRole: "lead",
+      source: { kind: "paseo", ruleId: "lead_automatic_compaction", version: 3 },
+      coalescingKey: "lead_automatic_compaction",
+      reason: "Automatic compaction",
+      evidenceRefs: ["timeline:compaction:1"],
+    });
+
+    expect(repeated.id).toBe(first.id);
+    expect(repeated.occurrenceCount).toBe(2);
+    expect(repeated.evidenceRefs).toEqual(["usage:1", "usage:2"]);
+    expect(repeated.occurrences).toEqual([
+      expect.objectContaining({ evidenceRefs: ["usage:1"], evidence: { contextRatio: 0.86 } }),
+      expect.objectContaining({ evidenceRefs: ["usage:2"], evidence: { contextRatio: 0.91 } }),
+    ]);
+    expect(compaction.id).not.toBe(first.id);
+    expect(scenario.getRecord().coordinationSignals).toHaveLength(2);
+  });
+
+  test("treats explicit coalescing keys as exclusive episode identity", async () => {
+    const scenario = createScenario({ running: true });
+    const semanticInput = {
+      targetAgentId: scenario.agentId,
+      requestedByAgentId: null,
+      kind: "continuity_attention" as const,
+      trigger: "custom" as const,
+      customEvent: "slp.semantic_friction",
+      recipientRole: "supervisor" as const,
+      source: {
+        kind: "paseo" as const,
+        ruleId: "semantic_friction:contract_conflict",
+        version: 4,
+      },
+      reason: "Semantic friction",
+    };
+    const first = await requestCoordinationSignal(scenario.dependencies, {
+      ...semanticInput,
+      coalescingKey: "semantic:turn-1:fingerprint-a",
+      evidenceRefs: ["timeline:1"],
+    });
+    const distinct = await requestCoordinationSignal(scenario.dependencies, {
+      ...semanticInput,
+      coalescingKey: "semantic:turn-1:fingerprint-b",
+      evidenceRefs: ["timeline:2"],
+    });
+    const repeated = await requestCoordinationSignal(scenario.dependencies, {
+      ...semanticInput,
+      coalescingKey: "semantic:turn-1:fingerprint-a",
+      evidenceRefs: ["timeline:3"],
+    });
+
+    expect(distinct.id).not.toBe(first.id);
+    expect(repeated.id).toBe(first.id);
+    expect(repeated.occurrenceCount).toBe(2);
+    expect(repeated.evidenceRefs).toEqual(["timeline:1", "timeline:3"]);
+    expect(scenario.getRecord().coordinationSignals).toHaveLength(2);
+  });
+
+  test.each([null, "supervisor-1"])(
+    "keeps distinct manual questions separate and merges only normalized recurrence for %s",
+    async (requestedByAgentId) => {
+      const scenario = createScenario({ running: true });
+      const q1 = {
+        observation: "The evidence conflicts with the current conclusion.",
+        question: "What evidence supports the current conclusion?",
+      };
+      const q2 = {
+        observation: "The current status omits the reviewed constraint.",
+        question: "Which constraint explains the observed delay?",
+      };
+      const base = {
+        targetAgentId: scenario.agentId,
+        requestedByAgentId,
+        kind: "continuity_attention" as const,
+        reason: "Bounded attention question",
+      };
+      const first = await requestCoordinationSignal(scenario.dependencies, {
+        ...base,
+        ...q1,
+        coalescingKey: attentionQuestionCoalescingKey({
+          ...q1,
+          requester: requestedByAgentId
+            ? { kind: "agent", agentId: requestedByAgentId }
+            : { kind: "human" },
+          targetAgentId: scenario.agentId,
+        }),
+        evidenceRefs: ["timeline:q1:first"],
+      });
+      const distinct = await requestCoordinationSignal(scenario.dependencies, {
+        ...base,
+        ...q2,
+        coalescingKey: attentionQuestionCoalescingKey({
+          ...q2,
+          requester: requestedByAgentId
+            ? { kind: "agent", agentId: requestedByAgentId }
+            : { kind: "human" },
+          targetAgentId: scenario.agentId,
+        }),
+        evidenceRefs: ["timeline:q2"],
+      });
+      const recurrence = await requestCoordinationSignal(scenario.dependencies, {
+        ...base,
+        observation: "  the EVIDENCE conflicts with the current conclusion. ",
+        question: " WHAT evidence supports the current conclusion? ",
+        coalescingKey: attentionQuestionCoalescingKey({
+          requester: requestedByAgentId
+            ? { kind: "agent", agentId: requestedByAgentId }
+            : { kind: "human" },
+          targetAgentId: scenario.agentId,
+          observation: "  the EVIDENCE conflicts with the current conclusion. ",
+          question: " WHAT evidence supports the current conclusion? ",
+        }),
+        evidenceRefs: ["timeline:q1:repeat"],
+      });
+
+      expect(distinct.id).not.toBe(first.id);
+      expect(recurrence.id).toBe(first.id);
+      expect(recurrence.occurrenceCount).toBe(2);
+      expect(recurrence.evidenceRefs).toEqual(["timeline:q1:first", "timeline:q1:repeat"]);
+      expect(scenario.getRecord().coordinationSignals).toHaveLength(2);
+    },
+  );
+
+  test("delivers a distinct Q2 after Q1 was already delivered", async () => {
+    const scenario = createScenario();
+    const q1 = {
+      observation: "The evidence conflicts with the current conclusion.",
+      question: "What evidence supports the current conclusion?",
+    };
+    const q2 = {
+      observation: "The status omits the reviewed constraint.",
+      question: "Which constraint explains the observed delay?",
+    };
+    const base = {
+      targetAgentId: scenario.agentId,
+      requestedByAgentId: null,
+      kind: "continuity_attention" as const,
+      reason: "Bounded attention question",
+      evidenceRefs: ["timeline:manual"],
+    };
+
+    await requestCoordinationSignal(scenario.dependencies, {
+      ...base,
+      ...q1,
+      coalescingKey: attentionQuestionCoalescingKey({
+        ...q1,
+        requester: { kind: "human" },
+        targetAgentId: scenario.agentId,
+      }),
+    });
+    await vi.waitFor(() => expect(scenario.sent).toHaveLength(1));
+    await requestCoordinationSignal(scenario.dependencies, {
+      ...base,
+      ...q2,
+      coalescingKey: attentionQuestionCoalescingKey({
+        ...q2,
+        requester: { kind: "human" },
+        targetAgentId: scenario.agentId,
+      }),
+    });
+    await vi.waitFor(() => expect(scenario.sent).toHaveLength(2));
+
+    expect(scenario.sent[0]?.message).toContain(q1.question);
+    expect(scenario.sent[1]?.message).toContain(q2.question);
+    expect(scenario.getRecord().coordinationSignals).toHaveLength(2);
+  });
+
+  test("keeps Human and distinct Supervisor requester lanes separate while pending", async () => {
+    const scenario = createScenario({ running: true });
+    const content = {
+      observation: "The evidence conflicts with the current conclusion.",
+      question: "What evidence supports the current conclusion?",
+    };
+    const request = async (requestedByAgentId: string | null) =>
+      requestCoordinationSignal(scenario.dependencies, {
+        targetAgentId: scenario.agentId,
+        requestedByAgentId,
+        kind: "continuity_attention",
+        reason: "Bounded attention question",
+        ...content,
+        coalescingKey: attentionQuestionCoalescingKey({
+          ...content,
+          requester: requestedByAgentId
+            ? { kind: "agent", agentId: requestedByAgentId }
+            : { kind: "human" },
+          targetAgentId: scenario.agentId,
+        }),
+        evidenceRefs: [`timeline:${requestedByAgentId ?? "human"}`],
+      });
+
+    const supervisorOne = await request("supervisor-1");
+    const human = await request(null);
+    const supervisorTwo = await request("supervisor-2");
+    const recurrence = await request("supervisor-1");
+
+    expect(new Set([supervisorOne.id, human.id, supervisorTwo.id]).size).toBe(3);
+    expect(recurrence.id).toBe(supervisorOne.id);
+    expect(recurrence.occurrenceCount).toBe(2);
+    expect(scenario.getRecord().coordinationSignals).toEqual([
+      expect.objectContaining({
+        id: supervisorOne.id,
+        requestedByAgentId: "supervisor-1",
+        source: { kind: "agent", agentId: "supervisor-1" },
+      }),
+      expect.objectContaining({
+        id: human.id,
+        requestedByAgentId: null,
+        source: { kind: "human" },
+      }),
+      expect.objectContaining({
+        id: supervisorTwo.id,
+        requestedByAgentId: "supervisor-2",
+        source: { kind: "agent", agentId: "supervisor-2" },
+      }),
+    ]);
+  });
+
+  test("delivers identical content again when the requester lane changes", async () => {
+    const scenario = createScenario();
+    const content = {
+      observation: "The evidence conflicts with the current conclusion.",
+      question: "What evidence supports the current conclusion?",
+    };
+    const request = async (
+      requestedByAgentId: string | null,
+      requester: { kind: "human" } | { kind: "agent"; agentId: string },
+    ) =>
+      requestCoordinationSignal(scenario.dependencies, {
+        targetAgentId: scenario.agentId,
+        requestedByAgentId,
+        kind: "continuity_attention",
+        reason: "Bounded attention question",
+        ...content,
+        coalescingKey: attentionQuestionCoalescingKey({
+          ...content,
+          requester,
+          targetAgentId: scenario.agentId,
+        }),
+        evidenceRefs: [`timeline:${requestedByAgentId ?? "human"}`],
+      });
+
+    const supervisor = await request("supervisor-1", {
+      kind: "agent",
+      agentId: "supervisor-1",
+    });
+    await vi.waitFor(() => expect(scenario.sent).toHaveLength(1));
+    const human = await request(null, { kind: "human" });
+    await vi.waitFor(() => expect(scenario.sent).toHaveLength(2));
+
+    expect(human.id).not.toBe(supervisor.id);
+    expect(scenario.getRecord().coordinationSignals).toEqual([
+      expect.objectContaining({ source: { kind: "agent", agentId: "supervisor-1" } }),
+      expect.objectContaining({ source: { kind: "human" } }),
+    ]);
+  });
+
+  test("persists the bounded observation, question, and evidence shape", async () => {
+    const scenario = createScenario();
+    const signal = await requestCoordinationSignal(scenario.dependencies, {
+      targetAgentId: scenario.agentId,
+      requestedByAgentId: "supervisor-1",
+      kind: "continuity_attention",
+      severity: "info",
+      reason: "Attention question at a safe boundary",
+      observation: "The working stream reversed its ownership premise.",
+      question: "Does this decision need to return to the Lead boundary?",
+      evidenceRefs: ["timeline:lead-1:turn-7"],
+    });
+
+    expect(signal).toMatchObject({
+      observation: "The working stream reversed its ownership premise.",
+      question: "Does this decision need to return to the Lead boundary?",
+      evidenceRefs: ["timeline:lead-1:turn-7"],
+    });
+    await vi.waitFor(() => expect(scenario.sent[0]?.message).toContain("Question:"));
+    expect(scenario.sent[0]?.message).toContain("does not grant handoff, detach, signaling");
   });
 
   test("records the Lead's autonomous disposition idempotently", async () => {

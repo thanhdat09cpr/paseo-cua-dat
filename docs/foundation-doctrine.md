@@ -14,9 +14,10 @@ doctrine theo góc nhìn Paseo product; nó không thay thế
 Doctrine, candidate implementation và qualified product capability là ba trạng thái riêng:
 
 - doctrine dưới `foundation/dist` định nghĩa intended authority và operating behavior;
-- manual coordination-signal slice là experimental product code, chưa phải standing workflow default
-  hoặc runtime-qualified capability;
-- automatic native-attention policy không được implement hoặc start;
+- coordination-signal và bundled automatic-attention là source candidate; default profile chỉ expose
+  bounded resolve/question surface tối thiểu;
+- source candidate mặc định bật bundled SLP attention nhưng chưa chứng minh release artifact hoặc
+  installed/live behavior;
 - stop condition và handback hiện là manual assignment/handback contracts;
 - adjacent-Lead handoff và Supervisor recovery/replacement vẫn là Human-driven workflow, chưa có automated
   state machine.
@@ -101,11 +102,15 @@ nào mà topology nhỏ hơn không giảm được.
 
 ### Sparse, event-driven supervision
 
-Doctrine yêu cầu event-driven attention thay cho polling. Current notification surfaces có thể đánh thức
-authority holder; durable manual coordination signal là một experimental slice. Signal chỉ mang advisory
-evidence và không tự quyết safe checkpoint, handoff, detach hoặc lifecycle action. Automatic native
-continuity attention là candidate flag-gated, default-off; standing role profile cũng không nhận các
-signal/handoff tools nếu Human chưa enable explicit. Xem
+Doctrine yêu cầu event-driven attention thay cho polling. Durable coordination signal chỉ mang advisory
+evidence và không tự quyết safe checkpoint, handoff, detach hoặc lifecycle action. Bundled SLP candidate
+sở hữu classifier/rules/routing và mặc định subscribe generic kernel events; emergency rollback dùng
+`PASEO_DISABLE_SLP_ATTENTION_POLICY=1`. Supervisor có bounded surface để hỏi Lead/Peer bằng observation,
+open question và evidence ở safe boundary; câu hỏi không tạo command chain, và Peer không có signal
+authority. Agent-scoped question chỉ hợp lệ trong cùng exact workspace và runtime reject wording mang
+hình dạng command/acceptance/ownership/handoff/write/recovery dù nó kết thúc bằng dấu hỏi. Canonical
+Foundation source đã align; `foundation/dist`, release, installed/live và multi-day effect vẫn chưa được
+chứng minh cho tới clean tagged import ở controller stage. Xem
 [SLP coordination/handoff](slp-coordination-handoff.md).
 
 ### Role và transport tách rời
@@ -153,7 +158,7 @@ learning, nhưng project repository vẫn sở hữu protocol, product truth và
 - coi status hoặc notification là acceptance;
 - poll agent thay cho native finish/attention event;
 - thêm reviewer, council hoặc protocol chỉ để đủ ceremony;
-- cho Supervisor direct Peer hoặc quyết định product ngoài recovery lease;
+- dùng bounded attention question của Supervisor như command chain tới Peer hoặc quyết định product;
 - coi provider/model/mode là authority;
 - expose mọi skill cho mọi role.
 

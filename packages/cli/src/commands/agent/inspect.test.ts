@@ -72,4 +72,35 @@ describe("agent inspect assignment receipt", () => {
     if (snapshot.roleBinding) delete snapshot.roleBinding.assignment;
     expect(toInspectData(snapshot).Assignment).toBeNull();
   });
+
+  test("keeps unsupported counters unknown and projects raw continuity awareness", () => {
+    const snapshot = snapshotWithAssignment();
+    snapshot.lastUsage = { inputTokens: 12 };
+    snapshot.continuityAwareness = {
+      remainingContextTokens: null,
+      remainingContextRatio: null,
+      contextWindowUsedTokens: null,
+      contextWindowMaxTokens: null,
+      inputTokens: 12,
+      cachedInputTokens: null,
+      outputTokens: null,
+      compactionCount: 2,
+      compactionCountScope: "loaded_timeline",
+      idleSince: "2026-08-08T00:01:00.000Z",
+      idleSinceBasis: "agent_updated_at",
+      idleDurationMs: 30_000,
+      currentTaskSnapshot: null,
+      currentTaskSnapshotScope: "loaded_timeline",
+      heldLocks: null,
+    };
+
+    const projected = toInspectData(snapshot);
+    expect(projected.LastUsage).toEqual({
+      InputTokens: 12,
+      OutputTokens: null,
+      CachedTokens: null,
+      CostUsd: null,
+    });
+    expect(projected.ContinuityAwareness).toEqual(snapshot.continuityAwareness);
+  });
 });

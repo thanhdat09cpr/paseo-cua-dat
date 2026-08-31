@@ -348,6 +348,29 @@ describe("agent detach RPC", () => {
 });
 
 describe("agent coordination signal RPC", () => {
+  test("keeps the .45 detach request shape wire-compatible", () => {
+    const request = SessionInboundMessageSchema.parse({
+      type: "agent.coordination_signal.request",
+      requestId: "req-detach-signal",
+      agentId: "lead-agent",
+      kind: "detach_recommended",
+      reason: "Review the attached candidate",
+    });
+
+    expect(request).toMatchObject({ kind: "detach_recommended" });
+    expect(request.relatedAgentId).toBeUndefined();
+  });
+
+  test("parses the bounded attention-question feature gate additively", () => {
+    const parsed = parseServerInfoStatusPayload({
+      status: "server_info",
+      serverId: "srv-test",
+      features: { attentionQuestions: true },
+    });
+
+    expect(parsed?.features?.attentionQuestions).toBe(true);
+  });
+
   test("parses a handoff recommendation request and response", () => {
     const request = SessionInboundMessageSchema.parse({
       type: "agent.coordination_signal.request",
@@ -393,6 +416,21 @@ describe("agent coordination signal RPC", () => {
         reason: "Native telemetry only",
       }),
     ).toThrow();
+
+    const question = SessionInboundMessageSchema.parse({
+      type: "agent.coordination_signal.request",
+      requestId: "req-question",
+      agentId: "peer-agent",
+      kind: "continuity_attention",
+      reason: "Evidence-backed attention question",
+      observation: "The working stream reversed its ownership premise.",
+      question: "Does this decision need to return to the Lead boundary?",
+      evidenceRefs: ["timeline:peer-agent:turn-7"],
+    });
+    expect(question).toMatchObject({
+      kind: "continuity_attention",
+      observation: "The working stream reversed its ownership premise.",
+    });
 
     const parsed = AgentSnapshotPayloadSchema.parse({
       id: "lead-agent",

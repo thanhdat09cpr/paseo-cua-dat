@@ -98,6 +98,13 @@ export const PASEO_TOOL_MANIFEST = [
     group: "Agents",
   },
   {
+    id: "ask_attention_question",
+    label: "Ask attention question",
+    description:
+      "Ask a role-bound Lead or Peer one evidence-backed open question at a safe boundary without transferring authority.",
+    group: "Agents",
+  },
+  {
     id: "prepare_lead_handoff",
     label: "Prepare Lead handoff",
     description: "Persist a complete adjacent-Lead handoff packet without transferring authority.",
@@ -114,7 +121,7 @@ export const PASEO_TOOL_MANIFEST = [
     id: "resolve_agent_signal",
     label: "Resolve agent signal",
     description:
-      "Acknowledge, defer, decline, or complete one of your coordination signals or native attention receipts.",
+      "Acknowledge, defer, decline, or complete one of your coordination signals or bundled attention receipts.",
     group: "Agents",
   },
   {

@@ -1710,6 +1710,9 @@ export class VoiceAssistantWebSocketServer {
         providersSnapshot: true,
         // COMPAT(roleProfiles): host-owned role profile editor and catalog RPC.
         roleProfiles: true,
+        // COMPAT(attentionQuestions): added in v0.6.0-paseo.46; clients gate the
+        // additive request branch when connected to older daemons.
+        attentionQuestions: true,
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: true,
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.1.106, remove old

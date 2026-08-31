@@ -4595,6 +4595,89 @@ test("signals a Lead through the namespaced coordination RPC", async () => {
   await expect(promise).resolves.toMatchObject({ id: "signal-1", status: "pending" });
 });
 
+test("asks a bounded attention question through the coordination RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features: { attentionQuestions: true } });
+  await connectPromise;
+
+  const promise = client.askAttentionQuestion({
+    agentId: "peer-agent",
+    observation: "The working stream reversed its ownership premise.",
+    question: "Does this decision need to return to the Lead boundary?",
+    evidenceRefs: ["timeline:peer-agent:turn-7"],
+  });
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "agent.coordination_signal.request",
+    agentId: "peer-agent",
+    kind: "continuity_attention",
+    observation: "The working stream reversed its ownership premise.",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.coordination_signal.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "peer-agent",
+        signal: {
+          id: "question-1",
+          targetAgentId: "peer-agent",
+          requestedByAgentId: null,
+          kind: "continuity_attention",
+          reason: "An evidence-backed attention question was raised for review at a safe boundary.",
+          observation: "The working stream reversed its ownership premise.",
+          question: "Does this decision need to return to the Lead boundary?",
+          evidenceRefs: ["timeline:peer-agent:turn-7"],
+          status: "pending",
+          createdAt: "2026-08-31T00:00:00.000Z",
+          deliveredAt: null,
+          resolvedAt: null,
+        },
+        error: null,
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toMatchObject({ id: "question-1", status: "pending" });
+});
+
+test("rejects attention questions before sending when the daemon lacks support", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  await expect(
+    client.askAttentionQuestion({
+      agentId: "peer-agent",
+      observation: "A scope premise changed.",
+      question: "Does this premise need another look?",
+      evidenceRefs: ["timeline:peer-agent:turn-7"],
+    }),
+  ).rejects.toThrow("Update the host");
+  expect(mock.sent).toHaveLength(0);
+});
+
 test("sends active-scoped fetch_agents_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

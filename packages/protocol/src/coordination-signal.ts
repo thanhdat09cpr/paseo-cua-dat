@@ -40,6 +40,12 @@ const CoordinationSignalEvidenceValueSchema = z.union([
   z.null(),
 ]);
 
+export const CoordinationSignalOccurrenceSchema = z.object({
+  occurredAt: z.string().datetime(),
+  evidenceRefs: z.array(z.string().trim().min(1).max(500)).max(20),
+  evidence: z.record(z.string(), CoordinationSignalEvidenceValueSchema).optional(),
+});
+
 export const CoordinationSignalResolutionSchema = z.enum([
   "acknowledged",
   "deferred",
@@ -59,13 +65,20 @@ export const CoordinationSignalSchema = z.object({
   workspaceId: z.string().min(1).optional(),
   kind: CoordinationSignalKindSchema,
   trigger: CoordinationSignalTriggerSchema.optional(),
+  customEvent: z.string().trim().min(1).max(200).optional(),
   severity: CoordinationSignalSeveritySchema.optional(),
   recipientRole: CoordinationSignalRecipientRoleSchema.optional(),
   source: CoordinationSignalSourceSchema.optional(),
+  coalescingKey: z.string().trim().min(1).max(500).optional(),
   reason: z.string().trim().min(1).max(1_000),
+  observation: z.string().trim().min(1).max(1_000).optional(),
+  question: z.string().trim().min(1).max(1_000).optional(),
   relatedAgentId: z.string().min(1).optional(),
   evidenceRefs: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
   evidence: z.record(z.string(), CoordinationSignalEvidenceValueSchema).optional(),
+  occurrenceCount: z.number().int().positive().optional(),
+  lastOccurredAt: z.string().datetime().optional(),
+  occurrences: z.array(CoordinationSignalOccurrenceSchema).max(20).optional(),
   status: CoordinationSignalStatusSchema,
   createdAt: z.string().datetime(),
   deliveredAt: z.string().datetime().nullable(),

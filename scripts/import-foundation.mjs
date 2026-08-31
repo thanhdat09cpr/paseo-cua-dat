@@ -26,6 +26,8 @@ const SOURCES_LOCK = path.join(REPO_ROOT, "foundation", "sources.lock.json");
 const FILES = [
   "AGENTS.md",
   "docs/ASSIGNMENT_AND_HANDBACK.md",
+  "docs/books/ai-agent-orchestration-doctrine.en.md",
+  "docs/books/ai-agent-orchestration-doctrine.vi.md",
   "docs/PORTABLE_BOOTSTRAP_AND_ROUTING.md",
   "docs/ROLE_CONTRACTS.md",
   "docs/ROLE_INSTRUCTION_BINDING.md",

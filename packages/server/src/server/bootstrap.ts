@@ -154,10 +154,7 @@ import {
   resumePendingCoordinationSignalDeliveries,
   type CoordinationSignalDependencies,
 } from "./agent/coordination-signals.js";
-import {
-  nativeCoordinationPolicyEnabled,
-  startNativeCoordinationPolicy,
-} from "./agent/native-coordination-policy.js";
+import { startEventPolicyRuntime } from "./agent/event-policy-runtime.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -1526,17 +1523,18 @@ export async function createPaseoDaemon(
     sendAtSafeBoundary: sendCoordinationMessageAtSafeBoundary,
     logger,
   };
-  const automaticCoordinationEnabled = nativeCoordinationPolicyEnabled();
-  const stopNativeCoordinationPolicy = automaticCoordinationEnabled
-    ? startNativeCoordinationPolicy({
-        ...coordinationSignalDependencies,
-        agentManager,
-        agentStorage,
-      })
-    : () => undefined;
+  const eventPolicyRuntime = startEventPolicyRuntime({
+    dependencies: {
+      ...coordinationSignalDependencies,
+      agentManager,
+      agentStorage,
+    },
+    advertisedPolicies: agentManager.listActiveBundledEventPolicies(),
+    resolvePolicies: (agentId) => agentManager.resolveBundledEventPoliciesForAgent(agentId),
+  });
   logger.info(
-    { enabled: automaticCoordinationEnabled, maturity: "candidate" },
-    "Native automatic coordination policy boundary resolved",
+    { enabledPolicies: eventPolicyRuntime.enabledPolicies, maturity: "candidate" },
+    "Bundled agent event policy boundary resolved",
   );
   const stopPendingCoordinationSignalDeliveries = await resumePendingCoordinationSignalDeliveries({
     ...coordinationSignalDependencies,
@@ -1970,7 +1968,7 @@ export async function createPaseoDaemon(
     };
 
     await attempt("plugins", () => pluginRuntime.stopAllPlugins());
-    await attempt("native-coordination-policy", () => stopNativeCoordinationPolicy());
+    await attempt("agent-event-policies", () => eventPolicyRuntime.stop());
     await attempt("pending-coordination-signals", () => stopPendingCoordinationSignalDeliveries());
     await attempt("hub-relationships", () => hubRelationships.stop());
     await attempt("workspace-reconciliation", () => workspaceReconciliation.dispose());

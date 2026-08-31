@@ -1466,8 +1466,63 @@ export class AgentManager {
       : LEGACY_CORE_OPERATIONAL_POLICY;
   }
 
+  assertAttentionQuestionTargetSupport(roleBinding: PersistedRoleBinding | undefined): void {
+    if (!roleBinding) {
+      throw new Error("attention_question_target_policy_owner_missing");
+    }
+    if (!roleBinding.policyOwner) {
+      throw new Error("attention_question_target_policy_owner_missing");
+    }
+    let owner: ReturnType<typeof policyOwnerForRoleBinding>;
+    try {
+      owner = policyOwnerForRoleBinding(roleBinding);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`attention_question_target_policy_owner_invalid: ${message}`, {
+        cause: error,
+      });
+    }
+    if (owner.kind !== "plugin" || owner.pluginId !== "slp") {
+      throw new Error("attention_question_target_generation_unsupported: legacy-or-non-slp owner");
+    }
+    let contribution: SlpBundledPolicyContribution;
+    try {
+      contribution = this.bundledPolicyPacks.resolvePinned(owner).contribution;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `attention_question_target_generation_unavailable: slp@${owner.generationDigest} (${owner.policyVersion}): ${message}`,
+        { cause: error },
+      );
+    }
+    if (!contribution.coordinationPolicy.supportsAttentionQuestions) {
+      throw new Error(
+        `attention_question_target_generation_unsupported: slp@${owner.generationDigest} (${owner.policyVersion})`,
+      );
+    }
+  }
+
   resolveActiveSlpPolicy(): SlpBundledPolicyContribution {
     return this.bundledPolicyPacks.resolveActive("slp").contribution;
+  }
+
+  listActiveBundledEventPolicies() {
+    return this.bundledPolicyPacks
+      .listActive()
+      .flatMap((generation) => generation.contribution.eventPolicies);
+  }
+
+  resolveBundledEventPoliciesForAgent(agentId: string) {
+    const agent = this.getAgent(agentId);
+    const roleBinding = agent?.roleBinding;
+    if (!roleBinding) return [];
+    const owner = policyOwnerForRoleBinding(roleBinding);
+    if (owner.kind !== "plugin") return [];
+    const generation = this.bundledPolicyPacks.resolvePinned(owner);
+    return generation.contribution.eventPolicies.map((policy) => ({
+      policy,
+      stateNamespace: `${owner.pluginId}@${owner.generationDigest}`,
+    }));
   }
 
   createAgent(

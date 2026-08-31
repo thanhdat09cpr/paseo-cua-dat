@@ -39,6 +39,13 @@ function liveSnapshot(): ManagedAgent {
     persistence: null,
     historyPrimed: true,
     lastUserMessageAt: now,
+    lastUsage: {
+      inputTokens: 80,
+      cachedInputTokens: 50,
+      outputTokens: 10,
+      contextWindowUsedTokens: 80,
+      contextWindowMaxTokens: 100,
+    },
     attention: { requiresAttention: false },
   } as ManagedAgent;
 }
@@ -91,9 +98,24 @@ test("live status merges durable coordination and handoff metadata", async () =>
     agentStorage,
     liveSnapshot(),
     pino({ level: "silent" }),
+    [
+      { type: "todo", items: [{ text: "Review continuity", completed: false }] },
+      { type: "compaction", status: "completed", trigger: "auto" },
+    ],
   );
 
   expect(serialized.title).toBe("Predecessor Lead");
   expect(serialized.coordinationSignals?.[0]?.id).toBe("signal-1");
   expect(serialized.leadHandoffs?.[0]?.id).toBe("handoff-1");
+  expect(serialized.continuityAwareness).toMatchObject({
+    remainingContextTokens: 20,
+    remainingContextRatio: 0.2,
+    cachedInputTokens: 50,
+    compactionCount: 1,
+    compactionCountScope: "loaded_timeline",
+    currentTaskSnapshot: [{ text: "Review continuity", completed: false }],
+    currentTaskSnapshotScope: "loaded_timeline",
+    idleSinceBasis: "agent_updated_at",
+    heldLocks: null,
+  });
 });

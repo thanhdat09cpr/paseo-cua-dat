@@ -94,6 +94,19 @@ const STORED_AGENT_SCHEMA = z.object({
   beadsStatusCheckpoint: BEADS_STATUS_CHECKPOINT_SCHEMA.optional(),
   coordinationSignals: z.array(CoordinationSignalSchema).optional(),
   leadHandoffs: z.array(LeadHandoffPacketSchema).optional(),
+  eventPolicyStates: z
+    .record(
+      z.string(),
+      z
+        .object({
+          version: z.number().int().positive(),
+          state: z.record(z.string(), z.unknown()),
+        })
+        .strict(),
+    )
+    .optional(),
+  // COMPAT(slpAttentionStateV1): added in v0.6.0-paseo.45; read only by the
+  // bundled SLP state migrator until the supported .45 persistence window ends.
   coordinationPolicyState: z
     .object({
       consecutiveTurnFailures: z.number().int().nonnegative().default(0),
@@ -132,6 +145,9 @@ function preserveCoordinationMetadata(
   }
   if (existing?.leadHandoffs !== undefined) {
     record.leadHandoffs = existing.leadHandoffs;
+  }
+  if (existing?.eventPolicyStates !== undefined) {
+    record.eventPolicyStates = existing.eventPolicyStates;
   }
   if (existing?.coordinationPolicyState !== undefined) {
     record.coordinationPolicyState = existing.coordinationPolicyState;

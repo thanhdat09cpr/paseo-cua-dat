@@ -105,6 +105,7 @@ import {
   updateAgentCommand,
 } from "./agent/lifecycle-command.js";
 import {
+  buildContinuityAwareness,
   buildStoredAgentPayload,
   resolveStoredAgentPayloadUpdatedAt,
   toAgentPayload,
@@ -1915,7 +1916,12 @@ export class Session {
   }
 
   private buildAgentPayload(agent: ManagedAgent): Promise<AgentSnapshotPayload> {
-    return this.enrichAgentPayload(toAgentPayload(agent));
+    const payload = toAgentPayload(agent);
+    payload.continuityAwareness = buildContinuityAwareness(
+      agent,
+      this.agentManager.getTimeline(agent.id),
+    );
+    return this.enrichAgentPayload(payload);
   }
 
   private buildStoredAgentPayload(
@@ -3092,13 +3098,29 @@ export class Session {
       if (!target || target.internal || target.archivedAt) {
         throw new Error(`Agent ${msg.agentId} is not available`);
       }
-      if (target.roleBinding?.roleId !== "lead") {
-        throw new Error(
-          `Coordination signals require a role-bound Lead target; ${msg.agentId} is not one`,
-        );
-      }
-      if (msg.kind === "detach_recommended" && !msg.relatedAgentId) {
-        throw new Error("detach_recommended requires relatedAgentId");
+      const coordinationPolicy = this.agentManager.resolveActiveSlpPolicy().coordinationPolicy;
+      if (msg.kind === "continuity_attention") {
+        coordinationPolicy.assertAttentionQuestionAuthority({
+          targetAgentId: msg.agentId,
+          targetRoleId: target.roleBinding?.roleId,
+          callerRoleId: undefined,
+          callerAgentId: undefined,
+          callerWorkspaceId: undefined,
+          targetWorkspaceId: target.workspaceId,
+          observation: msg.observation ?? "",
+          question: msg.question ?? "",
+          evidenceRefs: msg.evidenceRefs ?? [],
+        });
+        this.agentManager.assertAttentionQuestionTargetSupport(target.roleBinding);
+      } else {
+        coordinationPolicy.assertSignalAgentAuthority({
+          targetAgentId: msg.agentId,
+          targetRoleId: target.roleBinding?.roleId,
+          callerRoleId: undefined,
+          callerAgentId: undefined,
+          kind: msg.kind,
+          relatedAgentId: msg.relatedAgentId,
+        });
       }
       const signal = await requestCoordinationSignal(
         {
@@ -3125,8 +3147,19 @@ export class Session {
           requestedByAgentId: null,
           kind: msg.kind,
           reason: msg.reason,
-          relatedAgentId: msg.relatedAgentId,
           evidenceRefs: msg.evidenceRefs,
+          ...(msg.kind === "continuity_attention"
+            ? {
+                observation: msg.observation,
+                question: msg.question,
+                coalescingKey: coordinationPolicy.attentionQuestionCoalescingKey({
+                  requester: { kind: "human" },
+                  targetAgentId: msg.agentId,
+                  observation: msg.observation ?? "",
+                  question: msg.question ?? "",
+                }),
+              }
+            : { relatedAgentId: msg.relatedAgentId }),
         },
       );
       this.emit({

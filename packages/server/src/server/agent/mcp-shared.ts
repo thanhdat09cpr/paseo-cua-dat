@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Logger } from "pino";
 
-import type { AgentPermissionRequest } from "./agent-sdk-types.js";
+import type { AgentPermissionRequest, AgentTimelineItem } from "./agent-sdk-types.js";
 import type { AgentManager, ManagedAgent, WaitForAgentResult } from "./agent-manager.js";
 import { curateAgentActivity } from "./activity-curator.js";
 import { selectItemsByProjectedLimit } from "./timeline-projection.js";
@@ -9,6 +9,7 @@ import type { AgentStorage } from "./agent-storage.js";
 import { serializeAgentSnapshot } from "../messages.js";
 import { StoredScheduleSchema } from "@getpaseo/protocol/schedule/types";
 import type { AgentProvider } from "./agent-sdk-types.js";
+import { buildContinuityAwareness } from "./agent-projections.js";
 
 export const AgentProviderEnum = z.string();
 
@@ -214,6 +215,7 @@ export async function serializeSnapshotWithMetadata(
   agentStorage: AgentStorage,
   snapshot: ManagedAgent,
   logger: Logger,
+  timeline?: readonly AgentTimelineItem[],
 ) {
   const record = await agentStorage.get(snapshot.id).catch((error) => {
     logger.error({ err: error, agentId: snapshot.id }, "Failed to load agent metadata");
@@ -221,6 +223,7 @@ export async function serializeSnapshotWithMetadata(
   });
   return {
     ...serializeAgentSnapshot(snapshot, { title: record?.title ?? null }),
+    continuityAwareness: buildContinuityAwareness(snapshot, timeline),
     ...(record?.coordinationSignals ? { coordinationSignals: record.coordinationSignals } : {}),
     ...(record?.leadHandoffs ? { leadHandoffs: record.leadHandoffs } : {}),
   };

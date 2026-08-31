@@ -22,7 +22,7 @@ import { isSessionRpcAllowed, Session } from "./session.js";
 import { DownloadTokenStore } from "./file-download/token-store.js";
 import { StructuredAgentFallbackError } from "./agent/agent-response-loop.js";
 import type { StoredAgentRecord } from "./agent/agent-storage.js";
-import type { AgentManagerEvent } from "./agent/agent-manager.js";
+import { AgentManager, type AgentManagerEvent } from "./agent/agent-manager.js";
 import type { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
 import { WorkspaceLabelError, type WorkspaceLabelService } from "./workspace-labels/index.js";
 import { createPersistedProjectRecord } from "./workspace-registry.js";
@@ -51,6 +51,8 @@ import {
 } from "../services/github-service.js";
 import type { CheckDetails, ForgeService } from "../services/forge-service.js";
 import type { GitHubPullRequestStatusFacts } from "../services/github-facts.js";
+import { createDefaultSlpBundledPolicyRegistry } from "./policy/bundled/slp.js";
+import { attentionQuestionCoalescingKey } from "./policy/bundled/slp/coordination-policy.js";
 
 interface SessionHandlerInternals {
   interruptAgentIfRunning(agentId: string): Promise<void>;
@@ -430,6 +432,197 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
   };
   return new Session(sessionOptions);
 }
+
+describe("Human attention question requests", () => {
+  const boundedQuestion = {
+    observation: "The evidence conflicts with the current conclusion.",
+    question: "What evidence supports the current conclusion?",
+    evidenceRefs: ["timeline:q1"],
+  };
+
+  function setupHumanAttentionScenario(targetPolicyOwner: unknown, running = true) {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const messages: SessionOutboundMessage[] = [];
+    let target = {
+      id: "target-agent",
+      provider: "codex",
+      cwd: "/tmp/attention",
+      workspaceId: "wks_attention",
+      createdAt: "2026-08-31T00:00:00.000Z",
+      updatedAt: "2026-08-31T00:00:00.000Z",
+      labels: {},
+      lastStatus: "running",
+      config: null,
+      persistence: null,
+      archivedAt: null,
+      roleBinding: {
+        roleId: "lead",
+        policyOwner: targetPolicyOwner,
+      },
+      coordinationSignals: [],
+    } as unknown as StoredAgentRecord;
+    const upsert = vi.fn(async (record: StoredAgentRecord) => {
+      if (record.id === target.id) target = record;
+    });
+    const delivered: string[] = [];
+    const startAuthorizedAgentStream = vi.fn((_agentId: string, prompt: string) => {
+      delivered.push(prompt);
+      return (async function* emptyStream() {})();
+    });
+    const session = createSessionForTest({
+      messages,
+      agentStorage: {
+        get: vi.fn(async (agentId: string) => (agentId === target.id ? target : null)),
+        upsert,
+        list: vi.fn(async () => [target]),
+      },
+      agentManager: {
+        resolveActiveSlpPolicy: vi.fn(() => registry.resolveActive("slp").contribution),
+        assertAttentionQuestionTargetSupport: vi.fn((binding) =>
+          AgentManager.prototype.assertAttentionQuestionTargetSupport.call(
+            { bundledPolicyPacks: registry } as unknown as AgentManager,
+            binding,
+          ),
+        ),
+        getAgent: vi.fn((agentId: string) =>
+          agentId === target.id
+            ? ({ id: target.id, provider: target.provider, persistence: null } as never)
+            : null,
+        ),
+        waitForAgentClose: vi.fn(async () => undefined),
+        isAgentCloseInFlight: vi.fn(() => false),
+        hasInFlightRun: vi.fn(() => running),
+        tryRunOutOfBandAuthorized: vi.fn(async () => false),
+        startAuthorizedAgentStream,
+        notifyAgentState: vi.fn(),
+        subscribe: vi.fn(() => () => {}),
+      },
+    });
+    return {
+      session,
+      messages,
+      upsert,
+      delivered,
+      startAuthorizedAgentStream,
+      getTarget: () => target,
+    };
+  }
+
+  async function requestHumanAttention(
+    scenario: ReturnType<typeof setupHumanAttentionScenario>,
+    requestId: string,
+    input = boundedQuestion,
+  ) {
+    await scenario.session.handleMessage({
+      type: "agent.coordination_signal.request",
+      requestId,
+      agentId: "target-agent",
+      kind: "continuity_attention",
+      reason: "Bounded attention question",
+      ...input,
+    });
+    const response = scenario.messages.find(
+      (message) =>
+        message.type === "agent.coordination_signal.response" &&
+        message.payload.requestId === requestId,
+    );
+    if (response?.type !== "agent.coordination_signal.response") {
+      throw new Error(`missing attention response ${requestId}`);
+    }
+    return response.payload;
+  }
+
+  test("keeps Human Q1/Q2 distinct and merges only normalized recurrence for a .46 target", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupHumanAttentionScenario(registry.resolveActive("slp").owner);
+    const first = await requestHumanAttention(scenario, "q1");
+    const distinct = await requestHumanAttention(scenario, "q2", {
+      observation: "The current status omits the reviewed constraint.",
+      question: "Which constraint explains the observed delay?",
+      evidenceRefs: ["timeline:q2"],
+    });
+    const recurrence = await requestHumanAttention(scenario, "q1-repeat", {
+      observation: "  the EVIDENCE conflicts with the current conclusion. ",
+      question: " WHAT evidence supports the current conclusion? ",
+      evidenceRefs: ["timeline:q1:repeat"],
+    });
+
+    expect(first.error).toBeNull();
+    expect(distinct.signal?.id).not.toBe(first.signal?.id);
+    expect(recurrence.signal).toMatchObject({
+      id: first.signal?.id,
+      occurrenceCount: 2,
+      evidenceRefs: ["timeline:q1", "timeline:q1:repeat"],
+    });
+    expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
+    expect(scenario.getTarget().coordinationSignals?.[0]).toMatchObject({
+      requestedByAgentId: null,
+      source: { kind: "human" },
+      coalescingKey: attentionQuestionCoalescingKey({
+        ...boundedQuestion,
+        requester: { kind: "human" },
+        targetAgentId: "target-agent",
+      }),
+    });
+  });
+
+  test("delivers Human Q2 after a distinct Q1 was already delivered", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupHumanAttentionScenario(registry.resolveActive("slp").owner, false);
+
+    const first = await requestHumanAttention(scenario, "delivered-q1");
+    expect(first.error).toBeNull();
+    await vi.waitFor(() => expect(scenario.startAuthorizedAgentStream).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(scenario.delivered).toHaveLength(1));
+    await requestHumanAttention(scenario, "delivered-q2", {
+      observation: "The current status omits the reviewed constraint.",
+      question: "Which constraint explains the observed delay?",
+      evidenceRefs: ["timeline:q2"],
+    });
+    await vi.waitFor(() => expect(scenario.delivered).toHaveLength(2));
+
+    expect(scenario.delivered[0]).toContain(boundedQuestion.question);
+    expect(scenario.delivered[1]).toContain("Which constraint explains the observed delay?");
+    expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
+  });
+
+  test.each([
+    {
+      name: ".45",
+      owner: {
+        kind: "plugin",
+        pluginId: "slp",
+        policyVersion: "1.0.0",
+        generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
+      },
+      error: "target_generation_unsupported",
+    },
+    { name: "legacy", owner: { kind: "legacy-core" }, error: "legacy-or-non-slp" },
+    { name: "missing", owner: undefined, error: "owner_missing" },
+    { name: "corrupt", owner: { kind: "plugin", pluginId: "slp" }, error: "owner_invalid" },
+    {
+      name: "unknown",
+      owner: {
+        kind: "plugin",
+        pluginId: "slp",
+        policyVersion: "1.1.0",
+        generationDigest: "f".repeat(64),
+      },
+      error: "target_generation_unavailable",
+    },
+  ])(
+    "rejects a Human question to a $name target before persistence",
+    async ({ name, owner, error }) => {
+      const scenario = setupHumanAttentionScenario(owner);
+      const response = await requestHumanAttention(scenario, `reject-${name}`);
+
+      expect(response.signal).toBeNull();
+      expect(response.error).toContain(error);
+      expect(scenario.getTarget().coordinationSignals).toEqual([]);
+      expect(scenario.upsert).not.toHaveBeenCalled();
+    },
+  );
+});
 
 test("routes host-scoped agent skills requests through the daemon owner", async () => {
   const messages: SessionOutboundMessage[] = [];

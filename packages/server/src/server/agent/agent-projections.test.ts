@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { AGENT_LIFECYCLE_STATUSES } from "./agent-manager.js";
 import {
+  buildContinuityAwareness,
   buildStoredAgentPayload,
   toAgentPayload,
   toRecentProviderSessionDescriptorPayload,
@@ -110,6 +111,22 @@ it("projects the daemon-owned active turn identity", () => {
   expect(toAgentPayload(createManagedAgent({ lifecycle: "running" })).activeTurn).toEqual({
     turnId: "test-turn-id",
     startedAt: "2025-01-01T00:00:01.000Z",
+  });
+});
+
+it("keeps contradictory over-max context remainder unknown", () => {
+  const awareness = buildContinuityAwareness(
+    createManagedAgent({
+      lastUsage: { contextWindowUsedTokens: 120, contextWindowMaxTokens: 100 },
+    }),
+    [],
+  );
+
+  expect(awareness).toMatchObject({
+    contextWindowUsedTokens: 120,
+    contextWindowMaxTokens: 100,
+    remainingContextTokens: null,
+    remainingContextRatio: null,
   });
 });
 

@@ -176,10 +176,22 @@ CLI/client/tool, idle-boundary delivery và paid-provider integrated-runtime can
 được activate và chưa có multi-day operational proof, nên không dùng command trên như standing
 production dependency.
 
-Native context pressure, compaction và repeated-failure attention đã có candidate routing/coalescing
-policy nhưng daemon mặc định không start policy này. Chỉ exact internal pilot đặt
-`PASEO_ENABLE_NATIVE_COORDINATION_POLICY=1`; missing telemetry fail closed. Các attention này và manual
-signal đều không tự handoff, detach, replace Lead hoặc đổi authority.
+Automatic attention hiện là source candidate trong bundled SLP policy path và mặc định bật. SLP sở hữu
+threshold, routing, semantic-friction classifier, custom-event meaning và policy version; kernel chỉ giữ
+generic subscription, versioned state, persistence, safe-boundary delivery, coalescing và isolation.
+Emergency rollback đặt `PASEO_DISABLE_SLP_ATTENTION_POLICY=1`. Missing telemetry hoặc missing/ambiguous
+role target fail closed.
+
+Role-bound Supervisor có thể dùng bounded `ask_attention_question`, hoặc Human dùng CLI `--kind
+question`, để hỏi Lead/Peer tại safe boundary. Request bắt buộc tách observation, open question và
+evidence references. Nó không command, decide, accept hoặc transfer ownership; Peer không nhờ vậy có
+signal/orchestration authority. Agent-scoped caller/target phải cùng exact workspace; imperative trá
+hình hoặc wording command/acceptance/ownership/handoff/write/recovery bị reject. Attention đã
+resolve/defer/decline/complete có thể re-arm ở episode/fingerprint mới, trong khi pending duplicate cùng
+rule/fingerprint merge occurrence evidence thay vì phát prompt mới.
+
+Đây chỉ là source/test candidate. Release artifact, installed/live daemon behavior và multi-day effect
+vẫn `UNPROVEN`; không suy diễn các state đó từ focused tests.
 
 ## Manual stop conditions
 

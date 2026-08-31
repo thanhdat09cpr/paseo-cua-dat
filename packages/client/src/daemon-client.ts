@@ -2753,6 +2753,30 @@ export class DaemonClient {
     return payload.signal;
   }
 
+  async askAttentionQuestion(input: {
+    agentId: string;
+    observation: string;
+    question: string;
+    evidenceRefs: string[];
+  }) {
+    if (this.lastServerInfoMessage?.features?.attentionQuestions !== true) {
+      throw new Error("Update the host to ask bounded attention questions.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.coordination_signal.response">({
+        message: {
+          type: "agent.coordination_signal.request",
+          kind: "continuity_attention",
+          reason: "An evidence-backed attention question was raised for review at a safe boundary.",
+          ...input,
+        },
+      });
+    if (!payload.signal) {
+      throw new Error(payload.error ?? "askAttentionQuestion rejected");
+    }
+    return payload.signal;
+  }
+
   async updateAgent(
     agentId: string,
     updates: { name?: string; labels?: Record<string, string> },

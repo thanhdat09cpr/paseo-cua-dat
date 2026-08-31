@@ -753,6 +753,7 @@ function resolveCoordinationDescriptions(
     prepareLeadHandoff: unavailable,
     transitionLeadHandoff: unavailable,
     signalAgent: unavailable,
+    askAttentionQuestion: unavailable,
     resolveAgentSignal: unavailable,
   };
   if (!hasResolver) return fallback;
@@ -3410,6 +3411,79 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   );
 
   registerTool(
+    "ask_attention_question",
+    {
+      title: "Ask attention question",
+      description: coordinationDescriptions.askAttentionQuestion,
+      inputSchema: {
+        agentId: z.string().min(1),
+        observation: z.string().trim().min(1).max(1_000),
+        question: z.string().trim().min(1).max(1_000),
+        evidenceRefs: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
+      },
+      outputSchema: {
+        signal: CoordinationSignalSchema,
+      },
+    },
+    async ({ agentId, observation, question, evidenceRefs }) => {
+      if (!options.sendAgentMessageAtSafeBoundary) {
+        throw new Error("Attention question delivery is unavailable");
+      }
+      const target = await agentStorage.get(agentId);
+      if (!target || target.internal || target.archivedAt) {
+        throw new Error(`Agent ${agentId} is not available`);
+      }
+      let requesterRoleId: PaseoRoleId | undefined;
+      let requesterWorkspaceId: string | undefined;
+      if (callerAgentId) {
+        const caller = await agentStorage.get(callerAgentId);
+        requesterRoleId = caller?.roleBinding?.roleId;
+        requesterWorkspaceId = caller?.workspaceId;
+      }
+      const coordinationPolicy = resolveSlpPolicy().coordinationPolicy;
+      coordinationPolicy.assertAttentionQuestionAuthority({
+        targetAgentId: agentId,
+        targetRoleId: target.roleBinding?.roleId,
+        callerRoleId: requesterRoleId,
+        callerAgentId,
+        callerWorkspaceId: requesterWorkspaceId,
+        targetWorkspaceId: target.workspaceId,
+        observation,
+        question,
+        evidenceRefs,
+      });
+      agentManager.assertAttentionQuestionTargetSupport(target.roleBinding);
+      const signal = await requestCoordinationSignal(
+        {
+          agentManager,
+          agentStorage,
+          sendAtSafeBoundary: options.sendAgentMessageAtSafeBoundary,
+          logger: childLogger,
+        },
+        {
+          targetAgentId: agentId,
+          requestedByAgentId: callerAgentId ?? null,
+          kind: "continuity_attention",
+          severity: "info",
+          reason: "An evidence-backed attention question was raised for review at a safe boundary.",
+          observation,
+          question,
+          evidenceRefs,
+          coalescingKey: coordinationPolicy.attentionQuestionCoalescingKey({
+            requester: callerAgentId
+              ? { kind: "agent", agentId: callerAgentId }
+              : { kind: "human" },
+            targetAgentId: agentId,
+            observation,
+            question,
+          }),
+        },
+      );
+      return { content: [], structuredContent: ensureValidJson({ signal }) };
+    },
+  );
+
+  registerTool(
     "signal_agent",
     {
       title: "Signal agent",
@@ -3623,6 +3697,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           agentStorage,
           snapshot,
           childLogger,
+          agentManager.getTimeline(snapshot.id),
         );
         return {
           content: [],
@@ -3682,7 +3757,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       const liveSnapshots = agentManager.listAgents();
       const liveAgents = await Promise.all(
         liveSnapshots.map((snapshot) =>
-          serializeSnapshotWithMetadata(agentStorage, snapshot, childLogger),
+          serializeSnapshotWithMetadata(
+            agentStorage,
+            snapshot,
+            childLogger,
+            agentManager.getTimeline(snapshot.id),
+          ),
         ),
       );
       const liveIds = new Set(liveSnapshots.map((snapshot) => snapshot.id));

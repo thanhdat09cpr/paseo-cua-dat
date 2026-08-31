@@ -93,10 +93,12 @@ export function createAgentCommand(): Command {
   addJsonAndDaemonHostOptions(
     agent
       .command("signal")
-      .description("Send a non-interrupting handoff or detach recommendation to a Lead")
-      .argument("<id>", "Lead agent ID, prefix, or name")
-      .requiredOption("--kind <kind>", "Recommendation kind: handoff or detach")
-      .requiredOption("--reason <text>", "Concise material reason for the recommendation")
+      .description("Send a non-interrupting recommendation or bounded attention question")
+      .argument("<id>", "Target agent ID, prefix, or name")
+      .requiredOption("--kind <kind>", "Signal kind: handoff, detach, or question")
+      .option("--reason <text>", "Concise material reason for a recommendation")
+      .option("--observation <text>", "Concrete observation for an attention question")
+      .option("--question <text>", "Open question ending in '?' for an attention question")
       .option("--related-agent <id>", "Agent related to a detach recommendation")
       .option(
         "--evidence <ref>",

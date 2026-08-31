@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "examples": [
+    {
+      "id": "scope-premise",
+      "observation": "The current assumption conflicts with the current evidence.",
+      "question": "Which assumption remains uncertain?",
+      "evidenceRefs": ["timeline:<agent-id>:<turn-id>"]
+    },
+    {
+      "id": "plan-observation",
+      "observation": "The current plan conflicts with the current observation.",
+      "question": "Why does this observation conflict with the current plan?",
+      "evidenceRefs": ["timeline:<agent-id>:<turn-id>"]
+    },
+    {
+      "id": "contract-evidence",
+      "observation": "The evidence contradicts the current conclusion.",
+      "question": "What evidence supports the current conclusion?",
+      "evidenceRefs": ["timeline:<agent-id>:<turn-id>"]
+    }
+  ]
+}

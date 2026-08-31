@@ -57,10 +57,21 @@ export class BundledPolicyPackRegistry<TContribution> {
   private readonly generations = new Map<string, BundledPolicyPackGeneration<TContribution>>();
   private readonly activeOwners = new Map<string, Extract<PolicyOwner, { kind: "plugin" }>>();
   private readonly loadFailures = new Map<string, string>();
+  private readonly generationLoadFailures = new Map<string, string>();
 
   recordLoadFailure(pluginId: string, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     this.loadFailures.set(pluginId, message);
+  }
+
+  recordGenerationLoadFailure(
+    ownerInput: Extract<PolicyOwner, { kind: "plugin" }>,
+    error: unknown,
+  ): void {
+    const owner = PolicyOwnerSchema.parse(ownerInput);
+    if (owner.kind !== "plugin") throw new Error("Pinned policy owner must be plugin-owned");
+    const message = error instanceof Error ? error.message : String(error);
+    this.generationLoadFailures.set(generationKey(owner), message);
   }
 
   registerGeneration(
@@ -77,10 +88,12 @@ export class BundledPolicyPackRegistry<TContribution> {
     const generation = { owner, manifest, contribution: input.contribution };
     const key = generationKey(owner);
     const existing = this.generations.get(key);
-    if (existing) return existing;
-    this.generations.set(key, generation);
+    const registered = existing ?? generation;
+    if (!existing) this.generations.set(key, registered);
+    // Clear only after parsing, owner derivation, and generation-map invariants complete.
+    this.generationLoadFailures.delete(key);
     this.loadFailures.delete(manifest.id);
-    return generation;
+    return registered;
   }
 
   activate(owner: Extract<PolicyOwner, { kind: "plugin" }>): void {
@@ -111,16 +124,25 @@ export class BundledPolicyPackRegistry<TContribution> {
     return this.resolvePinned(owner);
   }
 
+  listActive(): BundledPolicyPackGeneration<TContribution>[] {
+    return Array.from(this.activeOwners.values(), (owner) => this.resolvePinned(owner));
+  }
+
   resolvePinned(
     ownerInput: Extract<PolicyOwner, { kind: "plugin" }>,
   ): BundledPolicyPackGeneration<TContribution> {
     const owner = PolicyOwnerSchema.parse(ownerInput);
     if (owner.kind !== "plugin") throw new Error("Pinned policy owner must be plugin-owned");
-    const generation = this.generations.get(generationKey(owner));
-    if (!generation || generation.owner.policyVersion !== owner.policyVersion) {
+    const key = generationKey(owner);
+    const failure = this.generationLoadFailures.get(key);
+    if (failure) {
       throw new Error(
-        `${BUNDLED_POLICY_PACK_MISSING_ERROR}: generation '${generationKey(owner)}' is unavailable`,
+        `${BUNDLED_POLICY_PACK_UNAVAILABLE_ERROR}: generation '${key}' (${owner.policyVersion}): ${failure}`,
       );
+    }
+    const generation = this.generations.get(key);
+    if (!generation || generation.owner.policyVersion !== owner.policyVersion) {
+      throw new Error(`${BUNDLED_POLICY_PACK_MISSING_ERROR}: generation '${key}' is unavailable`);
     }
     return generation;
   }

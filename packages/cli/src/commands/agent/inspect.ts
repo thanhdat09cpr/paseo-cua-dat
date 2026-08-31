@@ -63,11 +63,12 @@ interface AgentInspect {
   CreatedAt: string;
   UpdatedAt: string;
   LastUsage: {
-    InputTokens: number;
-    OutputTokens: number;
-    CachedTokens: number;
-    CostUsd: number;
+    InputTokens: number | null;
+    OutputTokens: number | null;
+    CachedTokens: number | null;
+    CostUsd: number | null;
   } | null;
+  ContinuityAwareness: AgentSnapshotPayload["continuityAwareness"] | null;
   Capabilities: {
     Streaming: boolean;
     Persistence: boolean;
@@ -146,11 +147,22 @@ function resolveModel(snapshot: AgentSnapshotPayload): string | null {
 function buildLastUsage(snapshot: AgentSnapshotPayload): AgentInspect["LastUsage"] {
   if (!snapshot.lastUsage) return null;
   return {
-    InputTokens: snapshot.lastUsage.inputTokens ?? 0,
-    OutputTokens: snapshot.lastUsage.outputTokens ?? 0,
-    CachedTokens: snapshot.lastUsage.cachedInputTokens ?? 0,
-    CostUsd: snapshot.lastUsage.totalCostUsd ?? 0,
+    InputTokens: snapshot.lastUsage.inputTokens ?? null,
+    OutputTokens: snapshot.lastUsage.outputTokens ?? null,
+    CachedTokens: snapshot.lastUsage.cachedInputTokens ?? null,
+    CostUsd: snapshot.lastUsage.totalCostUsd ?? null,
   };
+}
+
+function buildContinuityAwareness(
+  snapshot: AgentSnapshotPayload,
+): AgentInspect["ContinuityAwareness"] {
+  return snapshot.continuityAwareness ?? null;
+}
+
+function buildAvailableModes(snapshot: AgentSnapshotPayload): AgentInspect["AvailableModes"] {
+  if (!snapshot.availableModes) return null;
+  return snapshot.availableModes.map((mode) => ({ id: mode.id, label: mode.label }));
 }
 
 function buildCapabilities(snapshot: AgentSnapshotPayload): AgentInspect["Capabilities"] {
@@ -242,10 +254,9 @@ export function toInspectData(snapshot: AgentSnapshotPayload): AgentInspect {
     CreatedAt: snapshot.createdAt,
     UpdatedAt: snapshot.updatedAt,
     LastUsage: buildLastUsage(snapshot),
+    ContinuityAwareness: buildContinuityAwareness(snapshot),
     Capabilities: buildCapabilities(snapshot),
-    AvailableModes: snapshot.availableModes
-      ? snapshot.availableModes.map((m) => ({ id: m.id, label: m.label }))
-      : null,
+    AvailableModes: buildAvailableModes(snapshot),
     PendingPermissions: (snapshot.pendingPermissions ?? []).map((p) => ({
       id: p.id,
       tool: p.name ?? "unknown",
@@ -253,6 +264,29 @@ export function toInspectData(snapshot: AgentSnapshotPayload): AgentInspect {
     Worktree: snapshot.labels?.["paseo.worktree"] ?? null,
     ParentAgentId: snapshot.labels?.[PARENT_AGENT_ID_LABEL] ?? null,
   };
+}
+
+function formatLastUsage(usage: NonNullable<AgentInspect["LastUsage"]>): string {
+  const cost = usage.CostUsd === null ? "unknown" : formatCost(usage.CostUsd);
+  return `InputTokens: ${usage.InputTokens ?? "unknown"}, OutputTokens: ${usage.OutputTokens ?? "unknown"}, CachedTokens: ${usage.CachedTokens ?? "unknown"}, CostUsd: ${cost}`;
+}
+
+function appendContinuityAwarenessRow(
+  rows: InspectRow[],
+  awareness: AgentInspect["ContinuityAwareness"],
+): void {
+  if (!awareness) return;
+  const compactionScope = awareness.compactionCountScope
+    ? ` (${awareness.compactionCountScope})`
+    : "";
+  const currentTasks =
+    awareness.currentTaskSnapshot === null ? "unknown" : awareness.currentTaskSnapshot.length;
+  const heldLocks =
+    awareness.heldLocks === null ? "unknown" : awareness.heldLocks.join(", ") || "none";
+  rows.push({
+    key: "ContinuityAwareness",
+    value: `RemainingContextTokens: ${awareness.remainingContextTokens ?? "unknown"}, RemainingContextRatio: ${awareness.remainingContextRatio ?? "unknown"}, Compactions: ${awareness.compactionCount ?? "unknown"}${compactionScope}, IdleSince: ${awareness.idleSince ?? "null"}${awareness.idleSinceBasis ? ` (${awareness.idleSinceBasis})` : ""}, IdleDurationMs: ${awareness.idleDurationMs ?? "null"}, CurrentTasks: ${currentTasks}${awareness.currentTaskSnapshotScope ? ` (${awareness.currentTaskSnapshotScope})` : ""}, HeldLocks: ${heldLocks}`,
+  });
 }
 
 /** Convert agent to key-value rows for table display */
@@ -301,9 +335,11 @@ function toInspectRows(agent: AgentInspect): InspectRow[] {
   if (agent.LastUsage) {
     rows.push({
       key: "LastUsage",
-      value: `InputTokens: ${agent.LastUsage.InputTokens}, OutputTokens: ${agent.LastUsage.OutputTokens}, CachedTokens: ${agent.LastUsage.CachedTokens}, CostUsd: ${formatCost(agent.LastUsage.CostUsd)}`,
+      value: formatLastUsage(agent.LastUsage),
     });
   }
+
+  appendContinuityAwarenessRow(rows, agent.ContinuityAwareness);
 
   if (agent.Capabilities) {
     rows.push({

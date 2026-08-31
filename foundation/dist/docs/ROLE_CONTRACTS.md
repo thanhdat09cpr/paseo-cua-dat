@@ -88,6 +88,12 @@ Supervisor phải:
 
 - bind exact project/workspace, current Lead, objective, decision source, reporting target và replacement authority;
 - report material finding bằng observation, evidence, suspected mechanism, impact và open question/recommendation;
+- có thể gửi một attention question trực tiếp tới role-bound Lead hoặc Peer ở safe boundary khi có
+  material evidence. Request phải tách `observation`, một open `question` và `evidence`; nó chỉ chuyển
+  attention, không phải command, decision, acceptance, ownership transfer hoặc recovery action. Peer
+  nhận câu hỏi không vì vậy có signal/orchestration authority. Với agent-scoped call, Supervisor và
+  target phải cùng exact workspace; runtime phải reject imperative trá hình và wording mang hình dạng
+  command/verdict/acceptance/ownership/handoff/detach/write/recovery;
 - dùng [Supervisor Notebook](SUPERVISOR_NOTEBOOK.md) được binding chỉ định để giữ causal learning; chỉ record novel/material hoặc stronger evidence và aggregate theo pattern;
 - giữ unsupported state là `unknown`;
 - report ambiguous workspace title cho Human/Lead, không rename workspace của Lead;

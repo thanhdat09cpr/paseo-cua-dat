@@ -664,15 +664,15 @@ describe("native Foundation role materialization", () => {
         "record_council_seat",
       ]),
     });
-    expect(leadPolicy?.allowedTools).toHaveLength(28);
+    expect(leadPolicy?.allowedTools).toHaveLength(29);
     expect(leadPolicy?.allowedTools).toEqual(
       expect.not.arrayContaining([
         "signal_agent",
         "prepare_lead_handoff",
         "transition_lead_handoff",
-        "resolve_agent_signal",
       ]),
     );
+    expect(leadPolicy?.allowedTools).toContain("resolve_agent_signal");
     expect(
       applyRolePaseoToolPolicy("lead", undefined, ["beads_status", "beads_get", "beads_prime"]),
     ).toEqual({

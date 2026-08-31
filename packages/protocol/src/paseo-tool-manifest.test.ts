@@ -13,6 +13,7 @@ const EXPECTED_TOOL_IDS = [
   "create_agent",
   "send_agent_prompt",
   "signal_agent",
+  "ask_attention_question",
   "prepare_lead_handoff",
   "transition_lead_handoff",
   "resolve_agent_signal",
@@ -134,6 +135,6 @@ describe("Paseo tool manifest", () => {
     }
 
     expect(PASEO_TOOL_MANIFEST.filter((entry) => entry.browser)).toHaveLength(22);
-    expect(PASEO_TOOL_MANIFEST.filter((entry) => !entry.browser)).toHaveLength(58);
+    expect(PASEO_TOOL_MANIFEST.filter((entry) => !entry.browser)).toHaveLength(59);
   });
 });

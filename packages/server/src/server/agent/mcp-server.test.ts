@@ -64,6 +64,7 @@ import {
   type AssignmentEffectClass,
 } from "@getpaseo/protocol/assignment-contract";
 import { createDefaultSlpBundledPolicyRegistry } from "../policy/bundled/slp.js";
+import { attentionQuestionCoalescingKey } from "../policy/bundled/slp/coordination-policy.js";
 
 const REPO_CWD = resolvePath("/tmp/repo");
 const TARGET_CWD = resolvePath("/tmp/target");
@@ -245,6 +246,7 @@ function buildAgentManagerSpies() {
     preflightRoleCreate: vi.fn(),
     resolveSlpPolicyForRoleBinding: vi.fn(() => slpContribution),
     resolveActiveSlpPolicy: vi.fn(() => slpContribution),
+    assertAttentionQuestionTargetSupport: vi.fn(),
   };
 }
 
@@ -1317,6 +1319,223 @@ describe("terminal MCP tools", () => {
       lines: ["from worker scrollback"],
       totalLines: 42,
     });
+  });
+});
+
+describe("ask_attention_question MCP tool", () => {
+  const logger = createTestLogger();
+  const question = {
+    observation: "The evidence conflicts with the current conclusion.",
+    question: "What evidence supports the current conclusion?",
+    evidenceRefs: ["timeline:q1"],
+  };
+
+  function setupAttentionQuestionScenario(targetPolicyOwner: unknown, running = true) {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const caller = createManagedAgent({
+      id: "supervisor-46",
+      cwd: REPO_CWD,
+      workspaceId: "wks_attention",
+      roleBinding: createTestRoleBinding("supervisor"),
+    });
+    let target = createActiveStoredRecord({
+      id: "target-agent",
+      cwd: REPO_CWD,
+      workspaceId: "wks_attention",
+      roleBinding: {
+        ...createTestRoleBinding("lead"),
+        policyOwner: (targetPolicyOwner === null ? undefined : targetPolicyOwner) as never,
+      },
+      coordinationSignals: [],
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    spies.agentManager.hasInFlightRun.mockReturnValue(running);
+    spies.agentStorage.get.mockImplementation(async (agentId: string) => {
+      if (agentId === caller.id) {
+        return createActiveStoredRecord({
+          id: caller.id,
+          cwd: caller.cwd,
+          workspaceId: caller.workspaceId,
+          roleBinding: caller.roleBinding,
+        });
+      }
+      return agentId === target.id ? target : null;
+    });
+    spies.agentStorage.upsert.mockImplementation(async (record: StoredAgentRecord) => {
+      if (record.id === target.id) target = record;
+    });
+    spies.agentManager.assertAttentionQuestionTargetSupport.mockImplementation((binding) =>
+      AgentManager.prototype.assertAttentionQuestionTargetSupport.call(
+        { bundledPolicyPacks: registry } as unknown as AgentManager,
+        binding,
+      ),
+    );
+    return {
+      agentManager,
+      agentStorage,
+      spies,
+      registry,
+      caller,
+      getTarget: () => target,
+    };
+  }
+
+  it("keeps Q1/Q2 distinct and merges only exact normalized recurrence for a .46 target", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupAttentionQuestionScenario(registry.resolveActive("slp").owner);
+    const server = await createAgentMcpServer({
+      agentManager: scenario.agentManager,
+      agentStorage: scenario.agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: scenario.caller.id,
+      sendAgentMessageAtSafeBoundary: vi.fn(async () => undefined),
+      logger,
+    });
+    const tool = registeredTool(server, "ask_attention_question");
+
+    const first = await invokeToolWithParsedInput(tool, {
+      agentId: "target-agent",
+      ...question,
+    });
+    const distinct = await invokeToolWithParsedInput(tool, {
+      agentId: "target-agent",
+      observation: "The current status omits the reviewed constraint.",
+      question: "Which constraint explains the observed delay?",
+      evidenceRefs: ["timeline:q2"],
+    });
+    const recurrence = await invokeToolWithParsedInput(tool, {
+      agentId: "target-agent",
+      observation: "  the EVIDENCE conflicts with the current conclusion. ",
+      question: " WHAT evidence supports the current conclusion? ",
+      evidenceRefs: ["timeline:q1:repeat"],
+    });
+
+    expect(distinct.structuredContent.signal).not.toMatchObject({
+      id: (first.structuredContent.signal as { id: string }).id,
+    });
+    expect(recurrence.structuredContent.signal).toMatchObject({
+      id: (first.structuredContent.signal as { id: string }).id,
+      occurrenceCount: 2,
+      evidenceRefs: ["timeline:q1", "timeline:q1:repeat"],
+    });
+    expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
+    expect(scenario.getTarget().coordinationSignals?.[0]).toMatchObject({
+      requestedByAgentId: "supervisor-46",
+      source: { kind: "agent", agentId: "supervisor-46" },
+      coalescingKey: attentionQuestionCoalescingKey({
+        ...question,
+        requester: { kind: "agent", agentId: "supervisor-46" },
+        targetAgentId: "target-agent",
+      }),
+    });
+  });
+
+  it("delivers agent Q2 after a distinct Q1 was already delivered", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupAttentionQuestionScenario(registry.resolveActive("slp").owner, false);
+    const delivered: string[] = [];
+    const server = await createAgentMcpServer({
+      agentManager: scenario.agentManager,
+      agentStorage: scenario.agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: scenario.caller.id,
+      sendAgentMessageAtSafeBoundary: vi.fn(async (_agentId, message) => {
+        delivered.push(message);
+      }),
+      logger,
+    });
+    const tool = registeredTool(server, "ask_attention_question");
+
+    await invokeToolWithParsedInput(tool, { agentId: "target-agent", ...question });
+    await vi.waitFor(() => expect(delivered).toHaveLength(1));
+    await invokeToolWithParsedInput(tool, {
+      agentId: "target-agent",
+      observation: "The current status omits the reviewed constraint.",
+      question: "Which constraint explains the observed delay?",
+      evidenceRefs: ["timeline:q2"],
+    });
+    await vi.waitFor(() => expect(delivered).toHaveLength(2));
+
+    expect(delivered[0]).toContain(question.question);
+    expect(delivered[1]).toContain("Which constraint explains the observed delay?");
+    expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
+  });
+
+  it("preserves caller-generation authority when a .45 caller addresses a .46 target", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupAttentionQuestionScenario(registry.resolveActive("slp").owner);
+    const frozen = registry.resolvePinned({
+      kind: "plugin",
+      pluginId: "slp",
+      policyVersion: "1.0.0",
+      generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
+    });
+    scenario.spies.agentManager.resolveSlpPolicyForRoleBinding.mockReturnValue(frozen.contribution);
+    const server = await createAgentMcpServer({
+      agentManager: scenario.agentManager,
+      agentStorage: scenario.agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: scenario.caller.id,
+      sendAgentMessageAtSafeBoundary: vi.fn(async () => undefined),
+      logger,
+    });
+
+    await expect(
+      invokeToolWithParsedInput(registeredTool(server, "ask_attention_question"), {
+        agentId: "target-agent",
+        ...question,
+      }),
+    ).rejects.toThrow("attention_questions_unavailable_for_pinned_generation");
+    expect(scenario.spies.agentManager.assertAttentionQuestionTargetSupport).not.toHaveBeenCalled();
+    expect(scenario.getTarget().coordinationSignals).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: ".45",
+      owner: {
+        kind: "plugin",
+        pluginId: "slp",
+        policyVersion: "1.0.0",
+        generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
+      },
+      error: "target_generation_unsupported",
+    },
+    { name: "legacy", owner: { kind: "legacy-core" }, error: "legacy-or-non-slp" },
+    { name: "missing", owner: null, error: "owner_missing" },
+    { name: "corrupt", owner: { kind: "plugin", pluginId: "slp" }, error: "owner_invalid" },
+    {
+      name: "unknown",
+      owner: {
+        kind: "plugin",
+        pluginId: "slp",
+        policyVersion: "1.1.0",
+        generationDigest: "f".repeat(64),
+      },
+      error: "target_generation_unavailable",
+    },
+  ])("rejects a $name target generation before persistence", async ({ owner, error }) => {
+    const scenario = setupAttentionQuestionScenario(owner);
+    const server = await createAgentMcpServer({
+      agentManager: scenario.agentManager,
+      agentStorage: scenario.agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: scenario.caller.id,
+      sendAgentMessageAtSafeBoundary: vi.fn(async () => undefined),
+      logger,
+    });
+
+    await expect(
+      invokeToolWithParsedInput(registeredTool(server, "ask_attention_question"), {
+        agentId: "target-agent",
+        ...question,
+      }),
+    ).rejects.toThrow(error);
+    expect(scenario.getTarget().coordinationSignals).toEqual([]);
+    expect(scenario.spies.agentStorage.upsert).not.toHaveBeenCalled();
   });
 });
 

@@ -14,6 +14,7 @@ import type {
   AgentProvider,
   AgentSessionConfig,
   AgentRuntimeInfo,
+  AgentTimelineItem,
   AgentUsage,
   ImportableProviderSession,
 } from "./agent-sdk-types.js";
@@ -165,6 +166,98 @@ export function toAgentPayload(
   }
 
   return payload;
+}
+
+function nonNegativeInteger(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+type ContinuityAwareness = NonNullable<AgentSnapshotPayload["continuityAwareness"]>;
+
+function buildUsageAwareness(
+  usage: AgentUsage | undefined,
+): Pick<
+  ContinuityAwareness,
+  | "remainingContextTokens"
+  | "remainingContextRatio"
+  | "contextWindowUsedTokens"
+  | "contextWindowMaxTokens"
+  | "inputTokens"
+  | "cachedInputTokens"
+  | "outputTokens"
+> {
+  const used = nonNegativeInteger(usage?.contextWindowUsedTokens);
+  const maximum = nonNegativeInteger(usage?.contextWindowMaxTokens);
+  const validMaximum = maximum !== null && maximum > 0 ? maximum : null;
+  const remaining =
+    used !== null && validMaximum !== null && used <= validMaximum ? validMaximum - used : null;
+  return {
+    remainingContextTokens: remaining,
+    remainingContextRatio:
+      remaining !== null && validMaximum !== null
+        ? Number((remaining / validMaximum).toFixed(4))
+        : null,
+    contextWindowUsedTokens: used,
+    contextWindowMaxTokens: validMaximum,
+    inputTokens: nonNegativeInteger(usage?.inputTokens),
+    cachedInputTokens: nonNegativeInteger(usage?.cachedInputTokens),
+    outputTokens: nonNegativeInteger(usage?.outputTokens),
+  };
+}
+
+function buildTimelineAwareness(
+  timeline: readonly AgentTimelineItem[] | undefined,
+): Pick<
+  ContinuityAwareness,
+  "compactionCount" | "compactionCountScope" | "currentTaskSnapshot" | "currentTaskSnapshotScope"
+> {
+  if (!timeline) {
+    return {
+      compactionCount: null,
+      compactionCountScope: null,
+      currentTaskSnapshot: null,
+      currentTaskSnapshotScope: null,
+    };
+  }
+  const latestTasks = timeline.toReversed().find((item) => item.type === "todo");
+  return {
+    compactionCount: timeline.filter(
+      (item) => item.type === "compaction" && item.status === "completed",
+    ).length,
+    compactionCountScope: "loaded_timeline",
+    currentTaskSnapshot: latestTasks?.items ?? null,
+    currentTaskSnapshotScope: "loaded_timeline",
+  };
+}
+
+function buildIdleAwareness(
+  agent: ManagedAgent,
+  now: Date,
+): Pick<ContinuityAwareness, "idleSince" | "idleSinceBasis" | "idleDurationMs"> {
+  if (agent.lifecycle !== "idle") {
+    return { idleSince: null, idleSinceBasis: null, idleDurationMs: null };
+  }
+  return {
+    idleSince: agent.updatedAt.toISOString(),
+    // updatedAt is daemon-owned and advances on live events/state mutations. It is an
+    // explicit lower-bound observation for an idle snapshot, not a guessed provider fact.
+    idleSinceBasis: "agent_updated_at",
+    idleDurationMs: Math.max(0, now.getTime() - agent.updatedAt.getTime()),
+  };
+}
+
+export function buildContinuityAwareness(
+  agent: ManagedAgent,
+  timeline: readonly AgentTimelineItem[] | undefined,
+  now = new Date(),
+): NonNullable<AgentSnapshotPayload["continuityAwareness"]> {
+  return {
+    ...buildUsageAwareness(agent.lastUsage),
+    ...buildTimelineAwareness(timeline),
+    ...buildIdleAwareness(agent, now),
+    // Paseo does not currently own a cross-provider lock ledger. Keep the fact unknown.
+    heldLocks: null,
+  };
 }
 
 function buildStoredRuntimeInfo(record: StoredAgentRecord): AgentRuntimeInfo | undefined {

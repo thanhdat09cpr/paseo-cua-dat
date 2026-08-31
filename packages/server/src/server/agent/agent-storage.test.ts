@@ -354,6 +354,12 @@ describe("AgentStorage", () => {
         automaticCompactionAttentionSent: false,
         contextPressureAttentionSent: false,
       },
+      eventPolicyStates: {
+        "slp.attention": {
+          version: 2,
+          state: { consecutiveTurnFailures: 2 },
+        },
+      },
     });
 
     await storage.applySnapshot(
@@ -368,6 +374,10 @@ describe("AgentStorage", () => {
     expect(afterSnapshot?.coordinationSignals?.[0]?.id).toBe("signal-1");
     expect(afterSnapshot?.leadHandoffs?.[0]?.id).toBe("handoff-1");
     expect(afterSnapshot?.coordinationPolicyState?.consecutiveTurnFailures).toBe(2);
+    expect(afterSnapshot?.eventPolicyStates?.["slp.attention"]).toEqual({
+      version: 2,
+      state: { consecutiveTurnFailures: 2 },
+    });
     expect(afterSnapshot?.beadsStatusCheckpoint).toEqual({
       assignmentDigest: "a".repeat(64),
       version: "1.2.0",
