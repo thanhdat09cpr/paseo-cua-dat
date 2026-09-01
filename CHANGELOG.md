@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.7.0-paseo.48 - 2026-09-01
+
+Bản này tích hợp upstream `v0.7.0` sau hop bắt buộc `0.6.1-paseo.47`, đồng thời giữ nguyên
+authority, provider, updater và continuity-attention contracts của Paseo Product/Foundation.
+
+### Added
+
+- Nhận plugin Git sources, plugin timeline/composer-pill/host UI, SSH daemon connections, workspace
+  Command Center actions, row-based replica cache, smooth text reveal, image zoom/pan, Astro
+  highlighting và forge status improvements từ upstream.
+- Áp exhaustive inbound/outbound permission map cho cả downstream Beads, Council, Foundation
+  credentials/provider connection/Workspace Protocol, role profiles, distribution updater và
+  coordination signal operations.
+
+### Changed
+
+- Attention fanout chỉ tính client có matching agent/terminal directory subscription và
+  `workspace.read`; session không có authority không nhận event và không được tính vào presence plan.
+- OpenCode helper bridge giữ dormant trong shipped Product vì OpenCode không thuộc provider allowlist;
+  chỉ custom provider ID thực sự derived từ Codex mới được support.
+- Test daemon inject explicit no-Semble runtime; production bootstrap vẫn prepare pinned trusted Semble
+  runtime như trước, tránh cold-download làm broad bootstrap tests timeout giả.
+
+### Fixed
+
+- Giữ downstream Human-only lifecycle cho plugin và Hub permission mutation; read-only catalog/status/
+  logs dùng `daemon.read` thay vì đòi mutation authority.
+- Giữ Claude/Codex no-write enforcement, role/assignment/Beads/Topology semantics và active bundled SLP
+  Attention policy khi compose provider runtime, selective timeline replacement và authorization mới.
+- Desktop App updater mới của upstream tiếp tục ẩn/dormant; portable distribution updater vẫn là owner
+  duy nhất của install/apply/rollback trong downstream.
+- Nix dependency hash và cả Mattermost, React Native, OpenCode SDK patch sets được regenerate/verify từ
+  clean npm install thay vì nhận lock/hash hoặc `node_modules` cũ.
+
+### Compatibility
+
+- Client replica cache chuyển từ legacy blob sang row store rồi xoá cache cũ. Rollback về `.47` có thể
+  cần refetch timeline/directory cache, nhưng không xoá daemon agents, workspaces hoặc source checkout.
+- Persisted workspace layout version 2 từ `.47` giữ nguyên; Attention policy `slp.attention` generation
+  4 và downstream AGPL-3.0-or-later distribution không đổi.
+- Production npm audit có cùng `65` advisory và cùng hai critical transitive packages như `.47`; merge
+  không thêm production advisory, nhưng debt `shell-quote`/`tar` vẫn cần lane remediation riêng.
+
 ## Upstream 0.7.0 - 2026-08-31
 
 ### Changed

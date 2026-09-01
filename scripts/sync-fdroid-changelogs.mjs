@@ -195,7 +195,7 @@ export function syncFdroidChangelogs(argv = process.argv.slice(2), deps = {}) {
     throw new Error('Root package.json must contain a valid "version".');
   }
 
-  if (/-beta\.\d+$/.test(version)) {
+  if (/-beta\.\d+(?:\.paseo\.\d+)?$/.test(version)) {
     console.log(`Skipping F-Droid changelogs for beta ${version}.`);
     return { contents: null, version, versionCodes: [], written: [] };
   }

@@ -1,11 +1,6 @@
-Changed
-- Upstream changed to Apache-2.0; this downstream distribution remains AGPL-3.0-or-later
-- Changed Cmd/Ctrl+E to toggle Explorer visibility without selecting a view
-- Changed the default mobile content text size from 15px to 16px
+Bản này tích hợp upstream v0.7.0 sau hop bắt buộc 0.6.1-paseo.47, đồng thời giữ nguyên authority, provider, updater và continuity-attention contracts của Paseo Product/Foundation.
 
 Added
-- Added plugin installation and updates directly from Git repositories
-- Added plugin-defined timeline transformations and rendering
-- Added SSH connections to existing remote daemons from Desktop and CLI
+- Nhận plugin Git sources, plugin timeline/composer-pill/host UI, SSH daemon connections, workspace Command Center actions, row-based replica cache, smooth text reveal, image zoom/pan, Astro highlighting và forge status improvements từ upstream.
 
 Full notes: https://paseo.sh/changelog

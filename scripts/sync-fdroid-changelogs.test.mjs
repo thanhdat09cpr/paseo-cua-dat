@@ -42,18 +42,75 @@ test("derives one version code per published ABI", () => {
 });
 
 test("does not write or validate F-Droid changelogs for beta releases", () => {
+  for (const version of ["0.2.3-beta.1", "0.2.3-beta.1.paseo.7"]) {
+    withTempRepo(
+      (dir) => {
+        const result = syncFdroidChangelogs([], { cwd: dir });
+        assert.deepEqual(result, {
+          contents: null,
+          version,
+          versionCodes: [],
+          written: [],
+        });
+        assert.equal(existsSync(path.join(dir, "fastlane")), false);
+      },
+      { changelog: "", version },
+    );
+  }
+});
+
+test("joins wrapped Markdown bullet lines before applying the store limit", () => {
+  const contents = formatFdroidChangelog([
+    "### Fixed",
+    "",
+    "- Preserved downstream authorization while integrating upstream selective timeline",
+    "  delivery and replica-cache changes.",
+  ]);
+
+  assert.match(
+    contents,
+    /- Preserved downstream authorization while integrating upstream selective timeline delivery and replica-cache changes\./,
+  );
+  assert.equal(contents.includes("\n\ndelivery and"), false);
+});
+
+test("joins wrapped standalone prose into one release notice", () => {
+  const contents = formatFdroidChangelog([
+    "This release keeps downstream authority while integrating upstream",
+    "timeline and replica-cache changes.",
+  ]);
+
+  assert.match(
+    contents,
+    /This release keeps downstream authority while integrating upstream timeline and replica-cache changes\./,
+  );
+  assert.equal(contents.includes("\n\ntimeline and"), false);
+});
+
+test("treats prefixed Upstream entries as release boundaries", () => {
+  const changelog = [
+    "## 0.2.3 - 2026-07-27",
+    "",
+    "### Fixed",
+    "",
+    "- Current downstream fix.",
+    "",
+    "## Upstream 0.2.2 - 2026-07-26",
+    "",
+    "### Added",
+    "",
+    "- Older upstream feature.",
+    "",
+  ].join("\n");
+
   withTempRepo(
     (dir) => {
-      const result = syncFdroidChangelogs([], { cwd: dir });
-      assert.deepEqual(result, {
-        contents: null,
-        version: "0.2.3-beta.1",
-        versionCodes: [],
-        written: [],
-      });
-      assert.equal(existsSync(path.join(dir, "fastlane")), false);
+      const { contents } = syncFdroidChangelogs([], { cwd: dir });
+      assert.match(contents, /Current downstream fix/);
+      assert.equal(contents.includes("Older upstream feature"), false);
+      assert.equal(contents.includes("Upstream 0.2.2"), false);
     },
-    { changelog: "", version: "0.2.3-beta.1" },
+    { changelog },
   );
 });
 

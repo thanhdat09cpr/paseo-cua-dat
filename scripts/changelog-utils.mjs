@@ -1,9 +1,11 @@
 // One definition of how CHANGELOG.md is structured. Consumed by the GitHub release
 // notes sync and by the F-Droid changelog sync, which need the same section bodies
 // rendered two different ways.
-const headingPattern = /^##\s+\[?([^\]\s]+)\]?\s*-\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*$/;
+const headingPattern =
+  /^##\s+\[?((?:Upstream\s+)?[^\]\s]+)\]?\s*-\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*$/;
 const sectionHeadingPattern = /^###\s+(.+?)\s*$/;
 const bulletPattern = /^\s*[-*]\s+(.+?)\s*$/;
+const bulletContinuationPattern = /^\s{2,}(\S.*?)\s*$/;
 const blockquotePattern = /^\s*>\s?(.*)$/;
 
 // Returns entries newest-first, matching the order they appear in the file.
@@ -103,6 +105,8 @@ export function parseChangelogBody(bodyLines) {
   const sections = [];
   let current = { bullets: [], title: null };
   let quotedLines = null;
+  let canContinueBullet = false;
+  let canContinueProse = false;
 
   const flushQuote = () => {
     if (quotedLines === null) {
@@ -118,6 +122,8 @@ export function parseChangelogBody(bodyLines) {
   for (const line of bodyLines) {
     const quoteMatch = line.match(blockquotePattern);
     if (quoteMatch) {
+      canContinueBullet = false;
+      canContinueProse = false;
       if (quotedLines === null) {
         quotedLines = [];
       }
@@ -131,6 +137,8 @@ export function parseChangelogBody(bodyLines) {
 
     const sectionMatch = line.match(sectionHeadingPattern);
     if (sectionMatch) {
+      canContinueBullet = false;
+      canContinueProse = false;
       if (current.bullets.length > 0) {
         sections.push(current);
       }
@@ -143,14 +151,39 @@ export function parseChangelogBody(bodyLines) {
       const bullet = stripChangelogMarkup(bulletMatch[1]);
       if (bullet.length > 0) {
         current.bullets.push(bullet);
+        canContinueBullet = true;
+        canContinueProse = false;
       }
+      continue;
+    }
+
+    const continuationMatch = canContinueBullet ? line.match(bulletContinuationPattern) : null;
+    if (continuationMatch && current.bullets.length > 0) {
+      const continuation = stripChangelogMarkup(continuationMatch[1]);
+      if (continuation.length > 0) {
+        const bulletIndex = current.bullets.length - 1;
+        current.bullets[bulletIndex] = `${current.bullets[bulletIndex]} ${continuation}`;
+      }
+      continue;
+    }
+
+    if (line.trim() === "") {
+      canContinueBullet = false;
+      canContinueProse = false;
       continue;
     }
 
     const prose = stripChangelogMarkup(line);
     if (prose.length > 0) {
-      notes.push(prose);
+      if (canContinueProse && notes.length > 0) {
+        const noteIndex = notes.length - 1;
+        notes[noteIndex] = `${notes[noteIndex]} ${prose}`;
+      } else {
+        notes.push(prose);
+      }
+      canContinueProse = true;
     }
+    canContinueBullet = false;
   }
 
   flushQuote();
