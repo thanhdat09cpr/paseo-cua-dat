@@ -19,6 +19,11 @@
       "source": "./src/server.ts",
       "default": "./dist/server.js"
     },
+    "./react-native": {
+      "types": "./dist/react-native.d.ts",
+      "source": "./src/react-native.ts",
+      "default": "./dist/react-native.js"
+    },
     "./host": {
       "types": "./dist/host.d.ts",
       "source": "./src/host.ts",
@@ -41,6 +46,7 @@
   },
   "devDependencies": {
     "@getpaseo/client": "*",
+    "@getpaseo/protocol": "*",
     "@types/node": "^20.9.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",
@@ -50,6 +56,7 @@
   },
   "peerDependencies": {
     "@getpaseo/client": "*",
+    "@getpaseo/protocol": "*",
     "react": "19.1.0",
     "zod": "^4.4.3"
   }

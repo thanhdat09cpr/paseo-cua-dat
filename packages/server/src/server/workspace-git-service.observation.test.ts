@@ -1396,7 +1396,11 @@ describe("WorkspaceGitService checkout observation", () => {
     await vi.waitFor(() => {
       expect(runGitFetch).toHaveBeenCalledTimes(2);
     });
-    expect(runGitFetch).toHaveBeenLastCalledWith(worktrees[1], expect.anything());
+    expect(runGitFetch).toHaveBeenLastCalledWith(
+      worktrees[1],
+      expect.anything(),
+      expect.anything(),
+    );
 
     for (const subscription of subscriptions.slice(1)) {
       subscription.unsubscribe();

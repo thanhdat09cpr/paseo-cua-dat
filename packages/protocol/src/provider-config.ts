@@ -186,5 +186,9 @@ export function isPaseoSupportedProvider(
   providerId: string,
   override?: Pick<ProviderOverride, "extends">,
 ): boolean {
-  return PASEO_SUPPORTED_PROVIDER_IDS.has(providerId) || override?.extends === "codex";
+  return (
+    PASEO_SUPPORTED_PROVIDER_IDS.has(providerId) ||
+    (!BUILTIN_PROVIDER_IDS.includes(providerId as (typeof BUILTIN_PROVIDER_IDS)[number]) &&
+      override?.extends === "codex")
+  );
 }

@@ -14,7 +14,10 @@ import pino from "pino";
 
 import { withTimeout } from "../../utils/promise-timeout.js";
 import { hashDaemonPassword } from "../auth.js";
-import { createPaseoDaemon, type PaseoDaemonConfig } from "../bootstrap.js";
+import {
+  createPaseoDaemon as createProductionPaseoDaemon,
+  type PaseoDaemonConfig,
+} from "../bootstrap.js";
 import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
 import { buildWorkspaceProtocolTemplate } from "../../utils/workspace-protocol-file.js";
 import type {
@@ -43,6 +46,11 @@ interface McpClient {
   callTool: (input: { name: string; args?: StructuredContent }) => Promise<McpToolResult>;
   close: () => Promise<void>;
 }
+
+const createPaseoDaemon = (
+  config: PaseoDaemonConfig,
+  logger: Parameters<typeof createProductionPaseoDaemon>[1],
+) => createProductionPaseoDaemon(config, logger, { trustedSembleRuntime: null });
 
 async function waitForPathExists(options: {
   targetPath: string;

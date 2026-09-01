@@ -354,7 +354,6 @@ export const fr: TranslationResources = {
         added: "Ajoutée",
         started: "Commencée",
         completed: "Terminée",
-        reopened: "Rouverte",
       },
     },
     compaction: {
@@ -425,6 +424,7 @@ export const fr: TranslationResources = {
     },
     fileActions: {
       openFile: "Ouvrir le fichier",
+      openIn: "Ouvrir dans {{target}}",
       openToSide: "Ouvrir sur le côté",
       copyPath: "Copier le chemin",
       copyRelativePath: "Copier le chemin relatif",
@@ -975,6 +975,16 @@ export const fr: TranslationResources = {
         accessibility: {
           pullRequest: "Demande de tirage #{{number}}",
           pullRequest_mr: "Demande de fusion !{{number}}",
+          checkStatus: {
+            passed: "Réussi",
+            failed: "Échec",
+            warning: "Avertissement",
+            actionRequired: "Action requise",
+            manual: "Manuel",
+            pending: "En attente",
+            skipped: "Ignoré",
+            cancelled: "Annulé",
+          },
         },
         states: {
           draft: "Brouillon",
@@ -1169,6 +1179,14 @@ export const fr: TranslationResources = {
         serviceRunning: "Service {{name}} en cours",
         serviceUnhealthy: "Service {{name}} en échec",
         creating: "Création...",
+      },
+      checks: {
+        passed: "Réussis : {{count}}",
+        failed: "Échecs : {{count}}",
+        warning: "Avertissements : {{count}}",
+        actionRequired: "Action requise : {{count}}",
+        manual: "Manuels : {{count}}",
+        pending: "En attente : {{count}}",
       },
       actions: {
         menu: "ActionsWorkspace",
@@ -1599,6 +1617,10 @@ export const fr: TranslationResources = {
         title: "Connexion directe",
         description: "Réseau local ou VPN.",
       },
+      remoteSsh: {
+        title: "SSH distant",
+        description: "Connectez-vous avec le client SSH de bureau.",
+      },
       scanQr: {
         title: "Scanner le codeQR",
         description: "Connexion relais cryptée.",
@@ -1649,6 +1671,23 @@ export const fr: TranslationResources = {
         unableToConnect:
           "Impossible de se connecter. Vérifiez l'hôte/portet que le démon est accessible.",
         details: "Détails:{{detail}}",
+      },
+    },
+    remoteSsh: {
+      title: "SSH distant",
+      helper: "Connectez-vous à un daemon Paseo sur l’hôte distant.",
+      fields: {
+        target: "Hôte SSH",
+      },
+      actions: {
+        cancel: "Annuler",
+        connect: "Connecter",
+        connecting: "Connexion...",
+      },
+      errors: {
+        targetRequired: "L’hôte SSH est requis",
+        invalidTarget: "Saisissez un hôte ssh:// valide",
+        failedToConnect: "Connexion SSH impossible. {{detail}}",
       },
     },
     link: {
@@ -2293,6 +2332,7 @@ export const fr: TranslationResources = {
       badges: {
         relay: "Relais",
         local: "Locale",
+        remoteSsh: "SSH distant",
       },
       connections: {
         title: "Relations",

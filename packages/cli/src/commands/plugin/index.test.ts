@@ -6,6 +6,9 @@ const reloadPlugin = vi.fn(async () => ({ id: "example" }));
 const enablePlugin = vi.fn(async () => ({ id: "example" }));
 const disablePlugin = vi.fn(async () => ({ id: "example" }));
 const removePlugin = vi.fn(async () => undefined);
+const installPluginSource = vi.fn(async () => ({ id: "example" }));
+const getPluginSourceStatus = vi.fn(async () => []);
+const updatePluginSources = vi.fn(async () => []);
 const getPluginLogs = vi.fn(async () => [
   {
     sequence: 1,
@@ -15,7 +18,11 @@ const getPluginLogs = vi.fn(async () => [
   },
 ]);
 const close = vi.fn(async () => undefined);
-const features: { pluginManagement?: boolean; pluginLogs?: boolean } = {};
+const features: {
+  pluginManagement?: boolean;
+  pluginLogs?: boolean;
+  pluginGitManagement?: boolean;
+} = {};
 
 vi.mock("../../utils/client.js", () => ({
   connectToDaemon: vi.fn(async () => ({
@@ -26,6 +33,9 @@ vi.mock("../../utils/client.js", () => ({
     enablePlugin,
     disablePlugin,
     removePlugin,
+    installPluginSource,
+    getPluginSourceStatus,
+    updatePluginSources,
     getPluginLogs,
     close,
   })),
@@ -40,12 +50,15 @@ import {
   runPluginListCommand,
   runPluginLogsCommand,
   runPluginRemoveCommand,
+  runPluginStatusCommand,
+  runPluginUpdateCommand,
 } from "./index.js";
 
 describe("plugin management commands", () => {
   beforeEach(() => {
     features.pluginManagement = false;
     features.pluginLogs = false;
+    features.pluginGitManagement = false;
     vi.clearAllMocks();
     vi.unstubAllEnvs();
   });
@@ -103,21 +116,29 @@ describe("plugin management commands", () => {
     await expect(runPluginRemoveCommand("example", {}, {} as never)).rejects.toMatchObject(
       expected,
     );
+    await expect(runPluginUpdateCommand("example", {}, {} as never)).rejects.toMatchObject(
+      expected,
+    );
 
     expect(installDirectoryPlugin).not.toHaveBeenCalled();
     expect(reloadPlugin).not.toHaveBeenCalled();
     expect(enablePlugin).not.toHaveBeenCalled();
     expect(disablePlugin).not.toHaveBeenCalled();
     expect(removePlugin).not.toHaveBeenCalled();
+    expect(updatePluginSources).not.toHaveBeenCalled();
   });
 
   it("keeps read-only listing and logs available in agent context", async () => {
     vi.stubEnv("PASEO_AGENT_ID", "agent-123");
     features.pluginManagement = true;
     features.pluginLogs = true;
+    features.pluginGitManagement = true;
 
     await expect(runPluginListCommand({}, {} as never)).resolves.toMatchObject({ type: "list" });
     await expect(runPluginLogsCommand("example", {}, {} as never)).resolves.toMatchObject({
+      type: "list",
+    });
+    await expect(runPluginStatusCommand(undefined, {}, {} as never)).resolves.toMatchObject({
       type: "list",
     });
   });

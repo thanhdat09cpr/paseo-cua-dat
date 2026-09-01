@@ -169,11 +169,16 @@ function createSessionWithActivity(
     appVisible: boolean;
     appVisibilityChangedAt?: Date;
   } | null,
+  subscribed = true,
+  authorized = true,
 ) {
   return {
     getClientActivity: vi.fn(() => activity),
     supports: () => false,
     supportsForSource: () => false,
+    allowsPermission: vi.fn(() => authorized),
+    allowsOutbound: vi.fn(() => authorized),
+    subscribesToAgent: vi.fn(async () => subscribed),
   };
 }
 
@@ -186,11 +191,16 @@ function connectClient(
     appVisible: boolean;
     appVisibilityChangedAt?: Date;
   } | null,
+  options: { subscribed?: boolean; authorized?: boolean } = {},
 ) {
   const ws = createOpenSocket();
   asInternals<WebSocketServerInternals>(server).sessions.set(ws, {
     kind: "trusted",
-    session: createSessionWithActivity(activity),
+    session: createSessionWithActivity(
+      activity,
+      options.subscribed ?? true,
+      options.authorized ?? true,
+    ),
     clientId: "client-test",
     appVersion: null,
     connectionLogger: createLogger(),
@@ -214,6 +224,53 @@ function readAttentionRequiredMessage(ws: ReturnType<typeof createOpenSocket>) {
 describe("VoiceAssistantWebSocketServer notification payloads", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("does not emit attention or include presence without an agent-directory subscription", async () => {
+    const { server, pushNotifications } = createServer();
+    const now = new Date();
+    const unsubscribed = connectClient(
+      server,
+      {
+        deviceType: "web",
+        appVisible: true,
+        focusedAgentId: "agent-1",
+        lastActivityAt: now,
+      },
+      { subscribed: false },
+    );
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "agent-1",
+      provider: "claude",
+      reason: "finished",
+    });
+
+    expect(unsubscribed.send).not.toHaveBeenCalled();
+    expect(pushNotifications.sent).toHaveLength(1);
+  });
+
+  it("does not emit attention or include presence without workspace read authority", async () => {
+    const { server, pushNotifications } = createServer();
+    const unauthorized = connectClient(
+      server,
+      {
+        deviceType: "web",
+        appVisible: true,
+        focusedAgentId: "agent-1",
+        lastActivityAt: new Date(),
+      },
+      { authorized: false },
+    );
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "agent-1",
+      provider: "claude",
+      reason: "finished",
+    });
+
+    expect(unauthorized.send).not.toHaveBeenCalled();
+    expect(pushNotifications.sent).toHaveLength(1);
   });
 
   it("uses assistant preview text for push notifications with markdown removed", async () => {

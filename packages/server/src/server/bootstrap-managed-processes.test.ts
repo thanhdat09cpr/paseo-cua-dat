@@ -47,6 +47,7 @@ describe("daemon managed process bootstrap", () => {
         managedProcesses,
       } as PaseoDaemonConfig,
       pino({ level: "silent" }),
+      { trustedSembleRuntime: null },
     );
 
     try {

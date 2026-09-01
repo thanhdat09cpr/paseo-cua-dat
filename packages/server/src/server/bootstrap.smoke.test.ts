@@ -48,6 +48,8 @@ type WebSocketProbeResult =
   | { status: "connected" }
   | { status: "rejected"; statusCode: number | null };
 
+const TEST_DAEMON_DEPENDENCIES = { trustedSembleRuntime: null } as const;
+
 describe("paseo daemon bootstrap", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -124,7 +126,11 @@ describe("paseo daemon bootstrap", () => {
         voiceTts: { provider: "local", explicit: true, enabled: false },
       },
     };
-    const daemon = await createPaseoDaemon(config, pino({ level: "silent" }));
+    const daemon = await createPaseoDaemon(
+      config,
+      pino({ level: "silent" }),
+      TEST_DAEMON_DEPENDENCIES,
+    );
     let client: DaemonClient | null = null;
     let proxyUpstream: http.Server | null = null;
 
@@ -401,7 +407,11 @@ describe("paseo daemon bootstrap", () => {
         standaloneListen: `127.0.0.1:${address.port}`,
       },
     };
-    const daemon = await createPaseoDaemon(config, pino({ level: "silent" }));
+    const daemon = await createPaseoDaemon(
+      config,
+      pino({ level: "silent" }),
+      TEST_DAEMON_DEPENDENCIES,
+    );
 
     try {
       await expect(daemon.start()).rejects.toThrow();
@@ -484,9 +494,12 @@ describe("paseo daemon bootstrap", () => {
         await enrollmentReleased;
         return {
           daemonId: input.daemonId,
-          scopes: input.scopes,
+          permissions: input.permissions,
           webSocketUrl: "wss://hub.test/daemon",
         };
+      },
+      async updatePermissions(input) {
+        return { permissions: input.permissions };
       },
       async revoke(_input: HubRevocation): Promise<void> {},
       openSocket(_input: HubSocketCredentials, _events: HubSocketEvents): HubSocketConnection {
@@ -511,6 +524,7 @@ describe("paseo daemon bootstrap", () => {
       speech: undefined,
     };
     const daemon = await createPaseoDaemon(config, pino({ level: "silent" }), {
+      ...TEST_DAEMON_DEPENDENCIES,
       hubRelationshipRemote: remote,
     });
     const starting = daemon.start();
@@ -648,7 +662,11 @@ export default function contribute(plugin: unknown) {
         ? {}
         : { "startup-rollback": { source: "directory", path: pluginDirectory } },
     };
-    const daemon = await createPaseoDaemon(config, pino({ level: "silent" }));
+    const daemon = await createPaseoDaemon(
+      config,
+      pino({ level: "silent" }),
+      TEST_DAEMON_DEPENDENCIES,
+    );
 
     try {
       await expect(daemon.start()).rejects.toThrow();
@@ -740,7 +758,11 @@ export default function contribute(plugin: unknown) {
     };
 
     try {
-      const daemon = await createPaseoDaemon(config, pino({ level: "silent" }));
+      const daemon = await createPaseoDaemon(
+        config,
+        pino({ level: "silent" }),
+        TEST_DAEMON_DEPENDENCIES,
+      );
       try {
         await daemon.start();
         expect(daemon.getListenTarget()).toBeDefined();
@@ -871,7 +893,7 @@ export default function contribute(plugin: unknown) {
         speech: undefined,
       };
 
-      const daemon = await createPaseoDaemon(config, logger);
+      const daemon = await createPaseoDaemon(config, logger, TEST_DAEMON_DEPENDENCIES);
 
       try {
         await daemon.start();

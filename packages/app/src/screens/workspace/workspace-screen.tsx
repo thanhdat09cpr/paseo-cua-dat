@@ -39,7 +39,7 @@ import {
 import { SplitContainer } from "@/components/split-container";
 import { RetainedPanel } from "@/components/retained-panel";
 import { WorkspaceActions } from "@/git/workspace-actions";
-import { WorkspaceOpenInEditorButton } from "@/screens/workspace/workspace-open-in-editor-button";
+import { WorkspaceOpenInEditorButton } from "@/workspace/open-in-editor/button";
 import { WorkspaceScriptsButton } from "@/screens/workspace/workspace-scripts-button";
 import { ImportSessionSheet } from "@/components/import-session-sheet";
 import { useToast } from "@/contexts/toast-context";
@@ -57,6 +57,7 @@ import {
   openPreferredWorkspaceTarget,
   openWorkspaceTargetBeside,
 } from "@/workspace-tabs/open-beside";
+import { openWorkspacePullRequest } from "@/workspace-tabs/open-supporting-view";
 import { type ExplorerCheckoutContext } from "@/stores/explorer-checkout-context";
 import { traceInstant } from "@/performance/native-trace";
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
@@ -1174,7 +1175,7 @@ function renderWorkspaceContent(input: RenderWorkspaceContentInput): React.React
       </View>
     );
   }
-  if (!hasHydratedAgents || !hasLoadedTerminals) {
+  if (!activeTabDescriptor && (!hasHydratedAgents || !hasLoadedTerminals)) {
     return (
       <View style={styles.emptyState}>
         <ThemedLoadingSpinner uniProps={mutedColorMapping} />
@@ -1631,6 +1632,12 @@ function WorkspaceScreenContent({
   );
   const workspaceDescriptor = useWorkspace(normalizedServerId, normalizedWorkspaceId);
   const workspaceProjectId = getWorkspaceProjectId(workspaceDescriptor);
+  useEffect(() => {
+    if (!normalizedServerId || !normalizedWorkspaceId || workspaceDescriptor) return;
+    void getHostRuntimeStore()
+      .prepareWorkspaceRoute(normalizedServerId, normalizedWorkspaceId)
+      .catch(() => undefined);
+  }, [normalizedServerId, normalizedWorkspaceId, workspaceDescriptor]);
   const workspaceScripts = getWorkspaceScripts(workspaceDescriptor);
   const { handleRetryHost, handleManageHost, handleDismissMissingWorkspace } =
     useWorkspaceRouteActions(normalizedServerId);
@@ -1915,6 +1922,7 @@ function WorkspaceScreenContent({
     [openTab],
   );
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
+  const pullRequestOpenLocation = useSettings((settings) => settings.pullRequestOpenLocation);
   const focusWorkspaceTab = useWorkspaceLayoutStore((state) => state.focusTab);
   const selectWorkspaceTabInPane = useWorkspaceLayoutStore((state) => state.selectTabInPane);
   const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
@@ -1992,6 +2000,13 @@ function WorkspaceScreenContent({
     routeFocused: isRouteFocused,
     focusedPaneOnly: syncFocusedPaneOnly,
   });
+  useEffect(() => {
+    for (const agentId of visibleAgentIds) {
+      void getHostRuntimeStore()
+        .prepareAgentTimeline(normalizedServerId, agentId)
+        .catch(() => undefined);
+    }
+  }, [normalizedServerId, visibleAgentIds]);
   useLayoutEffect(() => {
     if (!persistenceKey || !viewedTimelineSync) {
       return;
@@ -3084,6 +3099,15 @@ function WorkspaceScreenContent({
           });
           return true;
         }
+        if (action.target === "pull-request") {
+          openWorkspacePullRequest({
+            isCompact: isMobile,
+            workspaceKey: persistenceKey,
+            checkout: activeExplorerCheckout,
+            destination: pullRequestOpenLocation,
+          });
+          return true;
+        }
         openWorkspaceTabFocused(persistenceKey, target, FOCUSED_PANE_PLACEMENT);
         return true;
       }
@@ -3108,6 +3132,7 @@ function WorkspaceScreenContent({
       isMobile,
       openWorkspaceTabFocused,
       persistenceKey,
+      pullRequestOpenLocation,
     ],
   );
 
@@ -3379,7 +3404,8 @@ function WorkspaceScreenContent({
     ],
   );
 
-  const workspaceKeyboardActionsEnabled = Boolean(
+  // Shared by every handler below: these actions only exist on a focused workspace route.
+  const workspaceActionsEnabled = Boolean(
     isRouteFocused && normalizedServerId && normalizedWorkspaceId,
   );
 
@@ -3398,7 +3424,7 @@ function WorkspaceScreenContent({
       "workspace.browser.new",
       "workspace.tab.menu.open",
     ] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspaceTabAction,
@@ -3416,7 +3442,7 @@ function WorkspaceScreenContent({
       "workspace.tab.target.changes",
       "workspace.tab.target.files",
     ] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspaceDirectTargetAction,
@@ -3429,7 +3455,7 @@ function WorkspaceScreenContent({
       workspaceId: normalizedWorkspaceId,
     }),
     actions: ["workspace.tab.open"] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspacePanelOpenAction,
@@ -3448,7 +3474,7 @@ function WorkspaceScreenContent({
       "workspace.tab.copy-id",
       "workspace.tab.copy-file-path",
     ] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspaceCurrentTabMetadataAction,
@@ -3465,7 +3491,7 @@ function WorkspaceScreenContent({
       "workspace.tab.close-right",
       "workspace.tab.close-others",
     ] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspaceCurrentTabCloseAction,
@@ -3491,7 +3517,7 @@ function WorkspaceScreenContent({
       "workspace.pane.close",
       "workspace.focus.toggle",
     ] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspacePaneAction,
@@ -3504,10 +3530,26 @@ function WorkspaceScreenContent({
       workspaceId: normalizedWorkspaceId,
     }),
     actions: ["sidebar.toggle.right", "sidebar.toggle.both"] as const,
-    enabled: workspaceKeyboardActionsEnabled,
+    enabled: workspaceActionsEnabled,
     priority: 100,
     isActive: () => true,
     handle: handleWorkspaceSidebarAction,
+  });
+
+  // Gated on the same predicate as the header menu item, so the command center never lists a
+  // Show setup entry the menu would hide.
+  // Gated by isActive so the handler is only dispatched when the workspace has visible setup;
+  // the command center contribution is separately gated by canShowSetup in workspace-registration.
+  useKeyboardActionHandler({
+    handlerId: `workspace-setup-show:${normalizedServerId}:${normalizedWorkspaceId}`,
+    actions: ["workspace.setup.show"] as const,
+    enabled: workspaceActionsEnabled,
+    priority: 100,
+    isActive: () => showWorkspaceSetup,
+    handle: () => {
+      handleOpenSetupTab();
+      return true;
+    },
   });
 
   const activeTabDescriptor = useMemo(() => activeTab?.descriptor ?? null, [activeTab]);
@@ -4103,11 +4145,6 @@ function WorkspaceScreenContent({
       ) : null}
 
       {shouldRenderDesktopPaneFallback ? (
-        // The splits path renders tab rows inside WorkspacePanelContent, which is what
-        // provides NewTabLauncherProvider. This fallback row sits outside it, and its
-        // new-tab menu content mounts eagerly, so without its own provider every
-        // non-compact native layout (tablets, foldables in landscape) crashed on mount
-        // with "NewTabLauncherProvider is required" (#3750).
         <NewTabLauncherProvider value={newTabLauncher}>
           <WorkspaceDesktopTabsRow
             paneId={focusedPaneIdOrUndefined}

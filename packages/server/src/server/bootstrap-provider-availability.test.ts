@@ -93,7 +93,9 @@ describe("bootstrap provider availability", () => {
     process.on("unhandledRejection", onUnhandledRejection);
     process.on("uncaughtException", onUncaughtException);
 
-    const daemon = await createPaseoDaemon(config, pino({ level: "silent" }));
+    const daemon = await createPaseoDaemon(config, pino({ level: "silent" }), {
+      trustedSembleRuntime: null,
+    });
     try {
       await expect(daemon.agentStorage.list()).resolves.toHaveLength(1);
       await expect(daemon.agentManager.listProviderAvailability()).resolves.toContainEqual({

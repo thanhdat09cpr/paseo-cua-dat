@@ -829,12 +829,14 @@ function buildExtensionUiResponse(
 function createRuntime(
   logger: Logger,
   runtimeSettings: ProviderRuntimeSettings | undefined,
+  requestTimeoutMs: number,
 ): OmpRuntime {
   return new OmpCliRuntime({
     logger,
     runtimeSettings,
     command: ["omp"],
     commandsRpcName: "get_available_commands",
+    requestTimeoutMs,
   });
 }
 
@@ -2214,7 +2216,9 @@ export class OmpAgentClient implements AgentClient {
     this.providerIdleScheduler = options.providerIdleScheduler;
     this.noTurnScheduler = options.noTurnScheduler;
     this.usagePollScheduler = options.usagePollScheduler;
-    this.runtime = options.runtime ?? createRuntime(options.logger, runtimeSettings);
+    this.runtime =
+      options.runtime ??
+      createRuntime(options.logger, runtimeSettings, this.providerParams.rpcTimeoutMs);
   }
 
   private async configureNativePaseoTools(

@@ -58,7 +58,7 @@ interface RoomComposerState {
   cursor: number;
   replyToMessageId: string | null;
   // Bumped on every programmatic (not user-typed) text change, so the shared
-  // MessageInput primitive knows to resync its native text via textReplacementKey.
+  // MessageInput primitive knows to resync its native-owned text.
   inputRevision: number;
 }
 
@@ -666,6 +666,10 @@ function RoomComposer({
     () => new Map(eligibleAgents.map((agent) => [agent.id, agent])),
     [eligibleAgents],
   );
+  const textReplacement = useMemo(
+    () => ({ key: String(state.inputRevision), text: state.text }),
+    [state.inputRevision, state.text],
+  );
 
   const postMutation = useMutation({
     mutationFn: async (body: string) => {
@@ -783,7 +787,7 @@ function RoomComposer({
           defaultSendBehavior="interrupt"
           isAgentRunning={false}
           inputMode="room"
-          textReplacementKey={String(state.inputRevision)}
+          textReplacement={textReplacement}
           submitButtonTestID="room-send"
           inputTestID="room-composer-input"
         />

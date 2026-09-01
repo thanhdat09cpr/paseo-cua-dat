@@ -1,5 +1,11 @@
 import { Command } from "commander";
-import type { PluginListItem, PluginLogEntry } from "@getpaseo/protocol/messages";
+import path from "node:path";
+import type {
+  PluginListItem,
+  PluginLogEntry,
+  PluginSourceStatusItem,
+  PluginSourceUpdateItem,
+} from "@getpaseo/protocol/messages";
 import type {
   CommandError,
   CommandOptions,
@@ -10,11 +16,18 @@ import type {
 import { withOutput } from "../../output/index.js";
 import { addJsonAndDaemonHostOptions, addJsonOption } from "../../utils/command-options.js";
 import { scaffoldPluginDirectory, type PluginScaffold } from "./scaffold.js";
-import { withPluginLogsClient, withPluginManagementClient } from "./shared.js";
+import {
+  withPluginLogsClient,
+  withPluginManagementClient,
+  withPluginSourceClient,
+} from "./shared.js";
 
 interface PluginOptions extends CommandOptions {
   host?: string;
   id?: string;
+  ref?: string;
+  path?: string;
+  all?: boolean;
 }
 
 const pluginSchema: OutputSchema<PluginListItem> = {
@@ -53,10 +66,37 @@ export function assertPluginLifecycleHumanContext(
   throw {
     code: "PLUGIN_LIFECYCLE_HUMAN_REQUIRED",
     message:
-      "Plugin lifecycle is Human-owned. Paseo agents cannot initialize, install, reload, enable, disable, or remove plugins.",
+      "Plugin lifecycle is Human-owned. Paseo agents cannot initialize, install, update, reload, enable, disable, or remove plugins.",
     details: `Caller agent: ${callerAgentId}`,
   } satisfies CommandError;
 }
+
+function shortCommit(commit: string | undefined): string {
+  return commit?.slice(0, 12) ?? "-";
+}
+
+const pluginStatusSchema: OutputSchema<PluginSourceStatusItem> = {
+  idField: "id",
+  columns: [
+    { header: "PLUGIN", field: "id", width: 20 },
+    { header: "SOURCE", field: "source", width: 10 },
+    { header: "CURRENT", field: (plugin) => shortCommit(plugin.currentCommit), width: 14 },
+    { header: "LATEST", field: (plugin) => shortCommit(plugin.latestCommit), width: 14 },
+    { header: "COMMITS", field: (plugin) => String(plugin.commitsBehind ?? 0), width: 8 },
+    { header: "REF", field: (plugin) => plugin.ref ?? "-", width: 24 },
+  ],
+};
+
+const pluginUpdateSchema: OutputSchema<PluginSourceUpdateItem> = {
+  idField: "id",
+  columns: [
+    { header: "PLUGIN", field: "id", width: 20 },
+    { header: "PREVIOUS", field: (plugin) => shortCommit(plugin.previousCommit), width: 14 },
+    { header: "CURRENT", field: (plugin) => shortCommit(plugin.currentCommit), width: 14 },
+    { header: "COMMITS", field: (plugin) => String(plugin.commits), width: 8 },
+    { header: "UPDATED", field: (plugin) => (plugin.updated ? "yes" : "no"), width: 8 },
+  ],
+};
 
 export async function runPluginInitCommand(
   directory: string,
@@ -89,15 +129,59 @@ export async function runPluginLogsCommand(
 }
 
 export async function runPluginInstallCommand(
-  directory: string,
+  source: string,
   options: PluginOptions,
   _command: Command,
 ): Promise<SingleResult<PluginListItem>> {
   assertPluginLifecycleHumanContext();
-  const data = await withPluginManagementClient(options.host, (client) =>
-    client.installDirectoryPlugin(directory, options.id),
-  );
+  const isExplicitPath =
+    path.isAbsolute(source) ||
+    source === "." ||
+    source === ".." ||
+    source.startsWith("./") ||
+    source.startsWith("../") ||
+    source.startsWith(".\\") ||
+    source.startsWith("..\\");
+  const canUseLegacyDirectoryInstall = isExplicitPath && !options.ref && !options.path;
+  const data = canUseLegacyDirectoryInstall
+    ? await withPluginManagementClient(options.host, (client) =>
+        client.installDirectoryPlugin(source, options.id),
+      )
+    : await withPluginSourceClient(options.host, (client) =>
+        client.installPluginSource({
+          source,
+          ...(options.id ? { id: options.id } : {}),
+          ...(options.ref ? { ref: options.ref } : {}),
+          ...(options.path ? { pluginPath: options.path } : {}),
+        }),
+      );
   return { type: "single", data, schema: pluginSchema };
+}
+
+export async function runPluginStatusCommand(
+  pluginId: string | undefined,
+  options: PluginOptions,
+  _command: Command,
+): Promise<ListResult<PluginSourceStatusItem>> {
+  const data = await withPluginSourceClient(options.host, (client) =>
+    client.getPluginSourceStatus(pluginId),
+  );
+  return { type: "list", data, schema: pluginStatusSchema };
+}
+
+export async function runPluginUpdateCommand(
+  pluginId: string | undefined,
+  options: PluginOptions,
+  _command: Command,
+): Promise<ListResult<PluginSourceUpdateItem>> {
+  assertPluginLifecycleHumanContext();
+  if ((pluginId === undefined) === (options.all !== true)) {
+    throw new Error("Choose one plugin ID or pass --all");
+  }
+  const data = await withPluginSourceClient(options.host, (client) =>
+    client.updatePluginSources(pluginId),
+  );
+  return { type: "list", data, schema: pluginUpdateSchema };
 }
 
 export async function runPluginActionCommand(
@@ -128,7 +212,7 @@ export async function runPluginRemoveCommand(
 }
 
 export function createPluginCommand(): Command {
-  const plugin = new Command("plugin").description("Manage trusted local plugins");
+  const plugin = new Command("plugin").description("Manage trusted plugins");
   addJsonOption(
     plugin
       .command("init")
@@ -145,13 +229,26 @@ export function createPluginCommand(): Command {
   addJsonAndDaemonHostOptions(
     plugin
       .command("install")
-      .description("Install a local plugin directory")
-      .argument("<directory>", "Host filesystem directory")
-      .option("--id <id>", "Runtime plugin ID (defaults to paseo-plugin.json id)"),
+      .alias("add")
+      .description("Install a plugin from a directory or Git repository")
+      .argument("<source>", "Host directory, owner/repo shorthand, or Git URL")
+      .option("--id <id>", "Runtime plugin ID (defaults to paseo-plugin.json id)")
+      .option("--ref <ref>", "Git branch, tag, or commit")
+      .option("--path <path>", "Plugin directory within the repository"),
   ).action(withOutput(runPluginInstallCommand));
+  addJsonAndDaemonHostOptions(
+    plugin.command("status").description("Check plugin source updates").argument("[id]"),
+  ).action(withOutput(runPluginStatusCommand));
+  addJsonAndDaemonHostOptions(
+    plugin
+      .command("update")
+      .description("Update a Git-managed plugin")
+      .argument("[id]")
+      .option("--all", "Update every Git-managed plugin"),
+  ).action(withOutput(runPluginUpdateCommand));
   for (const action of ["reload", "enable", "disable"] as const) {
     addJsonAndDaemonHostOptions(
-      plugin.command(action).description(`${action} a local plugin`).argument("<id>"),
+      plugin.command(action).description(`${action} a plugin`).argument("<id>"),
     ).action(
       withOutput((id: string, options: PluginOptions, _command: Command) =>
         runPluginActionCommand(action, id, options),
