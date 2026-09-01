@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.1-paseo.47 - 2026-09-01
+
+Bản này tích hợp tuần tự upstream `v0.6.1` trước lane `v0.7.0`, đồng thời đưa source-test baseline
+của continuity attention trở lại trạng thái qualified.
+
+### Improved
+
+- Nhận upstream Command Center token matching/ranking, Settings Escape, pull-request auto-archive
+  safety và one-time workspace layout v1-to-v2 migration.
+- Giữ downstream provider support policy trong model/profile E2E.
+
+### Fixed
+
+- Protocol compatibility tests không còn giả định mọi top-level message option là một object schema;
+  nested coordination-signal union tiếp tục giữ nguyên wire shape.
+- Role/tool and bundled-policy assertions pin current `resolve_agent_signal` inventory và active SLP
+  generation thay vì stale literals.
+- Session/wire test doubles implement continuity timeline contract thay vì để `getTimeline` fail rồi
+  bị handler che thành empty/error response.
+- Agent profile đổi provider không còn làm cleanup race xoá `featureValues` trước
+  `create_agent_request`; unsupported provider và feature-query error vẫn fail closed.
+
+### Compatibility
+
+- Persisted workspace layout được nâng lên version 2; rollback về `.46` có thể reset local layout or
+  draft-tab state, nhưng không xoá daemon agents hoặc workspaces.
+- Frozen `.45` SLP generation và active `.46` Attention generation không đổi trong hop này.
+
 ## Upstream 0.6.1 - 2026-08-25
 
 ### Improved
