@@ -177,6 +177,9 @@ test.describe("Agent profiles repair modeless preferences within provider policy
       });
 
       await openModelPicker(page);
+      await expect(page.getByTestId(`model-provider-${featureProviderId}`)).toBeVisible({
+        timeout: 30_000,
+      });
       await applyProfileFromPicker(page, "Fast profile");
       await expect
         .poll(() => readProviderFeaturePreferences(page, featureProviderId), { timeout: 10_000 })

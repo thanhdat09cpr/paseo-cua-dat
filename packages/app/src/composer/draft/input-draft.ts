@@ -32,7 +32,7 @@ import {
   isAssignmentEffectAllowedForRole,
   type AssignmentEffectClass,
 } from "@getpaseo/protocol/assignment-contract";
-import type { AgentFeature } from "@getpaseo/protocol/agent-types";
+import type { AgentFeature, AgentProvider } from "@getpaseo/protocol/agent-types";
 import { AfterPaintPublication } from "@/composer/after-paint-publication";
 import { isWeb } from "@/constants/platform";
 import {
@@ -548,7 +548,7 @@ export function useAgentInputDraft(input: UseAgentInputDraftInput): AgentInputDr
   const applyDraftAgentProfile = useCallback(
     (profile: Parameters<typeof formState.applyProfileFromUser>[0]) => {
       formState.applyProfileFromUser(profile);
-      applyProfileFeatureValues(profile.featureValues);
+      applyProfileFeatureValues(profile.provider as AgentProvider, profile.featureValues);
     },
     [applyProfileFeatureValues, formState],
   );
