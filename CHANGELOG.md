@@ -1,5 +1,21 @@
 # Changelog
 
+## Upstream 0.6.1 - 2026-08-25
+
+### Improved
+
+- Command Center matches partial multi-word queries in any order and ranks visible results by
+  relevance ([#2971](https://github.com/getpaseo/paseo/pull/2971)).
+
+### Fixed
+
+- Persisted Side panel tabs migrate into an ordinary side pane instead of Explorer
+  ([#3861](https://github.com/getpaseo/paseo/pull/3861)).
+- Escape closes Settings on desktop and web
+  ([#2828](https://github.com/getpaseo/paseo/pull/2828)).
+- Branch switches no longer hide the current pull request or arm auto-archive from an already merged
+  pull request ([#3799](https://github.com/getpaseo/paseo/pull/3799)).
+
 ## 0.6.0-paseo.46 - 2026-08-31
 
 Bản này hoàn thiện continuity attention theo Foundation doctrine: kernel chỉ giữ event/state,
