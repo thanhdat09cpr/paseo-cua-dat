@@ -313,6 +313,46 @@ describe("native Foundation role materialization", () => {
     expect(() => assertPersistedRoleAdmissionCurrent(binding, cwd)).not.toThrow();
   });
 
+  test("materializes Supervisor delegation tools without widening a read-only receipt", async () => {
+    const cwd = await createWorkspace();
+    const readOnly = await materializeRoleBinding({
+      roleId: "supervisor",
+      provider: "codex",
+      cwd,
+      ...assignmentBinding("supervisor", cwd),
+      assignment: assignmentFor("supervisor", "read-only"),
+    });
+    const delegation = await materializeRoleBinding({
+      roleId: "supervisor",
+      provider: "codex",
+      cwd,
+      ...assignmentBinding("supervisor", cwd),
+      assignment: assignmentFor("supervisor", "delegation"),
+    });
+
+    const readOnlyTools = readOnly.roleProfile?.allowedTools ?? [];
+    const delegationTools = delegation.roleProfile?.allowedTools ?? [];
+    expect(readOnlyTools).not.toEqual(
+      expect.arrayContaining(["create_agent", "send_agent_prompt"]),
+    );
+    expect(delegationTools.filter((tool) => !readOnlyTools.includes(tool))).toEqual([
+      "create_agent",
+      "send_agent_prompt",
+    ]);
+    expect(delegationTools).toEqual(
+      expect.arrayContaining(["ask_attention_question", "resolve_agent_signal"]),
+    );
+
+    const persistedReadOnlyTools = toRoleBindingReceipt(readOnly).roleProfile?.allowedTools;
+    expect(
+      applyRolePaseoToolPolicy("supervisor", undefined, persistedReadOnlyTools, "delegation")
+        ?.allowedTools,
+    ).toEqual(persistedReadOnlyTools);
+    expect(
+      applyRolePaseoToolPolicy("supervisor", undefined, undefined, "delegation")?.allowedTools,
+    ).not.toEqual(expect.arrayContaining(["create_agent", "send_agent_prompt"]));
+  });
+
   test("still blocks external effects when the protocol has not been bootstrapped", async () => {
     const cwd = await createWorkspace();
     await expect(

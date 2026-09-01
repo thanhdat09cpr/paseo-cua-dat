@@ -85,10 +85,13 @@ sai hoặc evidence thiếu thì REOPEN_REQUEST/BLOCKED và nói thẳng.
 Receipt phải chứng minh Peer là direct child của exact Lead, role binding immutable, assignment digest
 đúng và no-write mode được daemon pin khi assignment không cho mutation.
 
-## 6. Dùng Supervisor như governance observer
+## 6. Dùng Supervisor để observe hoặc coordinate Lead
 
-Human tạo Supervisor trong assignment riêng. Mặc định là `observe + advise only`; Supervisor không quản
-lý task thường ngày, direct Peer, implement product hoặc accept engineering.
+Human tạo Supervisor trong assignment riêng. **Coordinate Leads** là mặc định `delegation` cho Supervisor
+mới; nó cấp đúng `create_agent` và `send_agent_prompt` để Supervisor tạo, brief và tiếp tục trao đổi với
+Lead con trực tiếp. Human vẫn có thể chọn **Observe** (`read-only`) để chỉ quan sát và tư vấn. Cả hai mode
+đều không cho Supervisor direct Peer, implement product, sửa workspace, accept engineering hoặc tạo
+external effect. CLI không suy diễn default này và vẫn yêu cầu `--assignment-effect delegation` explicit.
 
 Prompt mẫu:
 
@@ -102,7 +105,8 @@ Lead/Peer messages và verdict chain. `list_profiles` vẫn là Lead routing cap
 đọc effective role/profile receipts từ exact agent status và giữ current approval state là `UNKNOWN`
 nếu Human mandate cần fact đó nhưng không có authoritative receipt.
 
-Chỉ exact Human recovery/replacement lease mới mở bounded `STOP`, `FREEZE` hoặc Lead replacement flow.
+Coordinate Leads không tự cấp recovery/replacement. Chỉ exact Human recovery/replacement lease mới mở
+bounded `STOP`, `FREEZE` hoặc Lead replacement flow.
 
 ## 7. Room và Council
 

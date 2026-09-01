@@ -32,6 +32,7 @@ bounded assignment hoặc handback. Không coi lifecycle status là handback ho�
 | Bounded implementation có material judgment              | Human → Lead → một Peer Owner                                        |
 | Stable candidate cần independent falsification           | Human → Lead → Owner, rồi fresh Peer Reviewer                        |
 | Architecture-sensitive slice                             | Human → Lead → Architect/Owner theo phase; Reviewer khi risk yêu cầu |
+| Project/workstream mới cần Supervisor giữ context        | Human → Supervisor (Coordinate Leads) → Lead                         |
 | Nhiều project cần process observation                    | Human → Supervisor quan sát các Lead                                 |
 | Lead mất continuity hoặc workflow tạo material risk      | Human cấp exact recovery/replacement lease cho Supervisor            |
 
@@ -68,9 +69,11 @@ paseo run \
   "<bounded Human assignment>"
 ```
 
-Tạo Supervisor bằng `--role supervisor` trong một governance assignment riêng. Lead tạo Peer bằng
-Paseo `create_agent` với `role=peer`, exact workspace, discovered provider/model và bounded assignment.
-Không dùng provider alias hoặc initial prompt để giả lập role.
+Trong WebUI, Supervisor mới mặc định effect `delegation` (Coordinate Leads), cho phép tạo/prompt Lead con
+trực tiếp; Human có thể chọn `read-only` để dùng mode Observe. CLI cố ý không suy diễn effect: khi tạo
+Supervisor phải truyền `--role supervisor --assignment-effect delegation` hoặc explicit `read-only`.
+Lead tạo Peer bằng Paseo `create_agent` với `role=peer`, exact workspace, discovered provider/model và
+bounded assignment. Không dùng provider alias hoặc initial prompt để giả lập role.
 
 Agent profile là route shortlist do Human cấu hình, không phải role profile. Lead có thể gọi
 `list_profiles`, đọc routing notes, bỏ qua preset thiếu model, rồi verify candidate bằng
@@ -78,9 +81,9 @@ Agent profile là route shortlist do Human cấu hình, không phải role profi
 `provider/model` vào `provider` và đặt mode, thinking, features dưới `settings`. Preset không cấp
 assignment authority và không được apply lên live role-bound agent; đổi route cần create replacement.
 
-Ở agent-scoped action boundary, Lead đã bind role chỉ được tạo `role=peer` và chỉ được
-`send_agent_prompt` tới direct child có `paseo.parent-agent-id` trỏ về chính Lead. Peer hoặc Supervisor
-đã bind role bị từ chối nếu tool bị expose nhầm; session cũ không có `RoleBinding` giữ behavior hiện tại.
+Ở agent-scoped action boundary, Lead đã bind role chỉ được tạo `role=peer` và prompt direct Peer child.
+Supervisor với delegation lease chỉ được tạo `role=lead` và prompt direct Lead child. Observe Supervisor
+và Peer không có create/prompt authority; session cũ không có `RoleBinding` giữ behavior hiện tại.
 
 Sau create, đọc effective binding từ daemon:
 
@@ -138,10 +141,11 @@ lease.
 - quan sát causal episode, không đọc rộng theo curiosity;
 - tách observation, evidence, suspected mechanism, impact và unknown;
 - gửi smallest correction cho Lead hoặc Human;
-- không plan/staff product work, direct Peer, review product như Peer hoặc accept engineering.
+- trong Coordinate Leads lease, tạo/prompt duy nhất Lead con trực tiếp theo bounded objective;
+- không direct Peer, review product như Peer, mutate workspace hoặc accept engineering.
 
-Thiếu recovery/replacement lease nghĩa là `observe + advise only`. Exact recovery lease chỉ cho phép
-bounded `STOP`/`FREEZE` hoặc relay Human decision trong stated condition. Lead replacement là flow riêng:
+Coordinate Leads không tự cấp recovery/replacement authority. Exact recovery lease mới cho phép bounded
+`STOP`/`FREEZE` hoặc relay Human decision trong stated condition. Lead replacement là flow riêng:
 checkpoint, handoff, revoke old Lead, activate new Lead, rồi reconcile/ACK.
 
 ## Completion và manual handback

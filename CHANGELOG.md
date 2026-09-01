@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — Paseo của Đạt
+
+### Changed
+
+- Supervisor mới tạo từ WebUI mặc định dùng `delegation` (**Coordinate Leads**) thay vì `read-only`.
+  Immutable assignment receipt chỉ thêm `create_agent` và `send_agent_prompt` để Supervisor quản lý
+  Lead con trực tiếp; **Observe** vẫn là lựa chọn explicit và không nhận hai tool này.
+- Giữ nguyên authority boundary: Supervisor không direct Peer, mutate workspace, accept engineering,
+  tạo external effect hoặc tự nhận recovery/replacement authority. CLI vẫn yêu cầu
+  `--assignment-effect` explicit.
+- Giữ attention engine event-driven mặc định của downstream `.48`; không port lại detector/coordination
+  engine cũ của fork để tránh duplicate signal và prompt storm.
+
 ## 0.7.0-paseo.48 - 2026-09-01
 
 Bản này tích hợp upstream `v0.7.0` sau hop bắt buộc `0.6.1-paseo.47`, đồng thời giữ nguyên

@@ -101,12 +101,38 @@ const DEFAULT_DISABLED_ROLE_TOOLS = {
   supervisor: new Set(["create_agent", "send_agent_prompt", "signal_agent"]),
 } as const satisfies Record<PaseoRoleId, ReadonlySet<string>>;
 
+const SUPERVISOR_DELEGATION_TOOLS = new Set<string>(["create_agent", "send_agent_prompt"]);
+
 export const ROLE_DEFAULT_TOOLS = Object.fromEntries(
   PASEO_ROLE_IDS.map((roleId) => [
     roleId,
     ROLE_TOOL_CEILINGS[roleId].filter((tool) => !DEFAULT_DISABLED_ROLE_TOOLS[roleId].has(tool)),
   ]),
 ) as Record<PaseoRoleId, string[]>;
+
+function roleDefaultToolsForAssignment(
+  roleId: PaseoRoleId,
+  assignmentEffectClass: AssignmentEffectClass | undefined,
+): string[] {
+  if (roleId !== "supervisor" || assignmentEffectClass !== "delegation") {
+    return ROLE_DEFAULT_TOOLS[roleId];
+  }
+  return ROLE_TOOL_CEILINGS.supervisor.filter(
+    (tool) =>
+      !DEFAULT_DISABLED_ROLE_TOOLS.supervisor.has(tool) || SUPERVISOR_DELEGATION_TOOLS.has(tool),
+  );
+}
+
+function applyAssignmentToolBoundary(
+  roleId: PaseoRoleId,
+  assignmentEffectClass: AssignmentEffectClass | undefined,
+  selectedTools: string[],
+): string[] {
+  if (roleId !== "supervisor" || assignmentEffectClass === "delegation") {
+    return selectedTools;
+  }
+  return selectedTools.filter((tool) => !SUPERVISOR_DELEGATION_TOOLS.has(tool));
+}
 
 export const MANDATORY_ROLE_TOOLS = ["beads_status", "beads_get", "beads_prime"] as const;
 export const MANDATORY_ROLE_SKILLS = ["beads-issue-tracker"] as const;
@@ -173,10 +199,13 @@ export function materializeRoleProfileBindingReceipt(
   const preferences = RoleProfilePreferencesSchema.parse(input ?? {});
   const toolCeiling = ROLE_TOOL_CEILINGS[roleId];
   const skillCeiling = roleSkillCeiling(roleId);
-  const selectedTools = canonicalSelection(
+  const configuredTools = canonicalSelection(
     preferences.allowedTools,
-    preferences.allowedTools ? toolCeiling : ROLE_DEFAULT_TOOLS[roleId],
+    preferences.allowedTools
+      ? toolCeiling
+      : roleDefaultToolsForAssignment(roleId, assignmentEffectClass),
   );
+  const selectedTools = applyAssignmentToolBoundary(roleId, assignmentEffectClass, configuredTools);
   const allowedTools =
     roleId === "peer" && assignmentEffectClass === "read-only"
       ? selectedTools.filter((tool) => !PEER_MUTATING_BEADS_TOOLS.has(tool))

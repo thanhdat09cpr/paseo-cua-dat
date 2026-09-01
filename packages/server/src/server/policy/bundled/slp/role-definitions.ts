@@ -37,7 +37,7 @@ const ROLE_DESCRIPTORS = {
   supervisor: {
     label: "Supervisor",
     description:
-      "Observes orchestration and advises Human without becoming a super-Lead. Reads protocol only under a governance mandate.",
+      "Coordinates its own direct role-bound Leads by default when authorized, and advises Human without becoming a super-Lead. Reads protocol only under a governance mandate.",
     protocolReadership: "governance-only",
   },
 } as const satisfies Record<

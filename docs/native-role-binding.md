@@ -156,9 +156,12 @@ hoặc packaged proxy thiếu thì trusted Semble không được inject; daemon
 
 Role ceiling và default projection là hai khái niệm khác nhau. Candidate SLP tools
 `signal_agent`, `resolve_agent_signal`, `prepare_lead_handoff`, `transition_lead_handoff` nằm trong
-ceiling để Human có thể bật explicit, nhưng không nằm trong default Lead profile. Supervisor cũng không
-nhận mặc định `create_agent`, `send_agent_prompt` hoặc coordination-signal tools; exact governance
-profile phải enable chúng có chủ đích. Provider policy không thể tự bật capability đã default-off.
+ceiling để Human có thể bật explicit, nhưng không nằm trong default Lead profile. Với Supervisor mới từ
+WebUI, assignment effect `delegation` (Coordinate Leads) là mặc định và immutable role receipt thêm đúng
+`create_agent` và `send_agent_prompt` để staffing Lead con trực tiếp. Human vẫn có thể chọn Observe
+(`read-only`), receipt Observe không có hai tool này và không tự widen. Cả hai mode đều không cấp
+coordination-signal, `list_profiles`, direct Peer control, mutation, acceptance hoặc external effect;
+provider policy không thể tự bật capability ngoài receipt.
 
 - Cả ba role phải có `beads_status` và `beads_get`; thiếu MCP/native Paseo-tool transport là launch
   blocker, không phải lý do bỏ checkpoint hoặc dùng direct Central.
@@ -177,9 +180,9 @@ profile phải enable chúng có chủ đích. Provider policy không thể tự
   tools và vẫn bắt buộc exact daemon-verified issue grant.
   Peer có `post_room` như một communication capability để trả lời exact Lead-relayed Council challenge;
   Peer không có `read_room`, nên sealed seat không tự đọc Room history hoặc sibling positions.
-- Supervisor chỉ có observation/governance và Beads read-only subset. Exact governance mandate cho
-  phép `read_room` để audit trực tiếp Lead ↔ Peer evidence, nhưng không cấp `post_room`,
-  `record_council_seat`, `list_profiles`, mutation hoặc acceptance authority; recovery/replacement vẫn
+- Supervisor giữ Beads read-only subset. Observe chỉ có observation/governance. Coordinate Leads thêm
+  quyền tạo/prompt Lead con trực tiếp nhưng không cấp `post_room`, `record_council_seat`,
+  `list_profiles`, direct Peer control, mutation hoặc acceptance authority; recovery/replacement vẫn
   cần exact Human lease.
 
 `full-access` là runtime capability, không phải write lease, ownership, external-effect hoặc acceptance authority; đồng thời nó không được dùng làm fallback cho mutation boundary `no-write`.

@@ -42,14 +42,15 @@ const ORDINARY_ASSIGNMENT_AUTHORITY_BY_ROLE = {
   ],
   supervisor: [
     {
+      id: "delegation",
+      label: "Coordinate Leads",
+      description:
+        "Create and prompt only your own direct role-bound Lead children through Paseo; no workspace writes, Peer control, acceptance, or external effects.",
+    },
+    {
       id: "read-only",
       label: "Observe",
       description: "Inspect project activity and evidence without changing files or routing work.",
-    },
-    {
-      id: "delegation",
-      label: "Coordinate Leads",
-      description: "Create and prompt bounded Lead children without changing workspace files.",
     },
   ],
 } as const satisfies Record<PaseoRoleId, readonly AssignmentAuthorityOption[]>;

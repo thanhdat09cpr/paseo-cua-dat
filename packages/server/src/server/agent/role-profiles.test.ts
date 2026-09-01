@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   MANDATORY_ROLE_SKILLS,
   MANDATORY_ROLE_TOOLS,
+  ROLE_DEFAULT_TOOLS,
   buildRoleProfileCatalog,
   materializeRoleProfileBindingReceipt,
   validateRoleProfilePreferencesMap,
@@ -85,6 +86,39 @@ describe("Foundation role profiles", () => {
     expect(first.profileDigest).toMatch(/^[a-f0-9]{64}$/u);
   });
 
+  test("adds only direct-Lead topology tools for a delegated Supervisor", () => {
+    const observe = materializeRoleProfileBindingReceipt("supervisor", undefined, "read-only");
+    const delegation = materializeRoleProfileBindingReceipt("supervisor", undefined, "delegation");
+
+    expect(observe.allowedTools).toEqual(ROLE_DEFAULT_TOOLS.supervisor);
+    expect(observe.allowedTools).not.toEqual(
+      expect.arrayContaining(["create_agent", "send_agent_prompt"]),
+    );
+    expect(delegation.allowedTools.filter((tool) => !observe.allowedTools.includes(tool))).toEqual([
+      "create_agent",
+      "send_agent_prompt",
+    ]);
+    expect(delegation.allowedTools).toEqual(
+      expect.arrayContaining(["ask_attention_question", "resolve_agent_signal"]),
+    );
+    expect(delegation.allowedTools).not.toContain("signal_agent");
+    expect(delegation.profileDigest).not.toBe(observe.profileDigest);
+
+    const narrowedDelegation = materializeRoleProfileBindingReceipt(
+      "supervisor",
+      { allowedTools: ["list_agents", ...MANDATORY_ROLE_TOOLS] },
+      "delegation",
+    );
+    expect(narrowedDelegation.allowedTools).toEqual(["list_agents", ...MANDATORY_ROLE_TOOLS]);
+
+    const narrowedObserve = materializeRoleProfileBindingReceipt(
+      "supervisor",
+      { allowedTools: ["create_agent", "send_agent_prompt", ...MANDATORY_ROLE_TOOLS] },
+      "read-only",
+    );
+    expect(narrowedObserve.allowedTools).toEqual([...MANDATORY_ROLE_TOOLS]);
+  });
+
   test("rejects ceiling expansion and mandatory capability removal", () => {
     expect(() =>
       validateRoleProfilePreferencesMap({
@@ -105,14 +139,40 @@ describe("Foundation role profiles", () => {
     ).toThrow("cannot disable mandatory tool");
   });
 
-  test("allows explicit opt-in inside the full role ceiling", () => {
-    const receipt = materializeRoleProfileBindingReceipt("supervisor", {
-      allowedTools: [...MANDATORY_ROLE_TOOLS, "signal_agent", "create_agent", "send_agent_prompt"],
-      allowedSkills: [...MANDATORY_ROLE_SKILLS],
-    });
+  test("allows explicit opt-in inside the full role ceiling without bypassing assignment authority", () => {
+    const receipt = materializeRoleProfileBindingReceipt(
+      "supervisor",
+      {
+        allowedTools: [
+          ...MANDATORY_ROLE_TOOLS,
+          "signal_agent",
+          "create_agent",
+          "send_agent_prompt",
+        ],
+        allowedSkills: [...MANDATORY_ROLE_SKILLS],
+      },
+      "delegation",
+    );
 
     expect(receipt.allowedTools).toEqual(
       expect.arrayContaining(["signal_agent", "create_agent", "send_agent_prompt"]),
+    );
+    const observeReceipt = materializeRoleProfileBindingReceipt(
+      "supervisor",
+      {
+        allowedTools: [
+          ...MANDATORY_ROLE_TOOLS,
+          "signal_agent",
+          "create_agent",
+          "send_agent_prompt",
+        ],
+        allowedSkills: [...MANDATORY_ROLE_SKILLS],
+      },
+      "read-only",
+    );
+    expect(observeReceipt.allowedTools).toContain("signal_agent");
+    expect(observeReceipt.allowedTools).not.toEqual(
+      expect.arrayContaining(["create_agent", "send_agent_prompt"]),
     );
     const leadReceipt = materializeRoleProfileBindingReceipt("lead", {
       allowedTools: [

@@ -107,7 +107,10 @@ describe("immutable assignment contract", () => {
     expect(buildSlpAssignmentInstruction(supervisor)).toContain("Remain read-only");
     expect(buildSlpAssignmentInstruction(supervisor)).toContain("material handoff");
     expect(buildSlpAssignmentInstruction(delegatingSupervisor)).toContain(
-      "create and prompt only your own direct role-bound Lead children",
+      "staffing your own direct role-bound Lead children is explicitly authorized",
+    );
+    expect(buildSlpAssignmentInstruction(delegatingSupervisor)).toContain(
+      "create and prompt only those Leads through Paseo",
     );
   });
 
