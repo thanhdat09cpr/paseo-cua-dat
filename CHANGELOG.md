@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0-paseo.49 - 2026-09-02
+
+Bản này xử lý debt dependency còn lại sau merge upstream `v0.7.0`, giữ nguyên protocol,
+persistence, authority và continuity-attention contracts của `.48`.
+
+### Fixed
+
+- Nâng các dependency nằm trên shipped paths của WebSocket daemon/CLI/Desktop/Relay, desktop updater,
+  YAML, MCP HTTP, URI/IP parsing và Markdown parser lên fixed versions trong supported range.
+- Nâng Cloudflare Vite plugin, Wrangler, Miniflare, Sharp và Vite tới fixed floor tương thích Node.js 22;
+  website client/SSR tiếp tục build từ cùng cấu hình hiện tại.
+- Giữ `react-native-markdown-display` ở contract Markdown-It 10 của upstream, đồng thời inject parser
+  Markdown-It 14 đã vá cho mọi Product surface và kiểm tra compatibility qua native AST adapter.
+- Pin các transitive build dependencies có safe same-major fix, gồm `tar`, `shell-quote`, `ws`,
+  `undici`, `brace-expansion`, `picomatch`, `node-forge`, `nanoid`, `xmldom` 0.8 và PostCSS của Vite.
+
+### Security
+
+- Loại bỏ cả hai production critical findings ở `.48` và các high findings trên shipped runtime paths.
+- Các high còn lại thuộc Expo 54/Metro build graph quanh `image-size` và Expo-pinned PostCSS; npm chỉ
+  đề xuất Expo 57 major nên lane này được giữ lại để migrate cùng native stack thay vì override vượt
+  support range.
+
+### Compatibility
+
+- Không đổi database, workspace-layout, coordination-signal hoặc updater ownership schema.
+- Attention policy `slp.attention` generation 4 và Human-only lifecycle boundaries giữ nguyên.
+
 ## 0.7.0-paseo.48 - 2026-09-01
 
 Bản này tích hợp upstream `v0.7.0` sau hop bắt buộc `0.6.1-paseo.47`, đồng thời giữ nguyên

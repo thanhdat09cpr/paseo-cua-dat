@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/server",
-  "version": "0.7.0-paseo.48",
+  "version": "0.7.0-paseo.49",
   "private": true,
   "description": "Paseo backend server",
   "files": [
@@ -107,7 +107,7 @@
     "tree-kill": "^1.2.2",
     "uuid": "^9.0.1",
     "which": "^5.0.0",
-    "ws": "^8.14.2",
+    "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
