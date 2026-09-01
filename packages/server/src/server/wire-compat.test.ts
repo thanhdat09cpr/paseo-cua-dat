@@ -110,6 +110,10 @@ class InMemoryAgentManager {
     return this.timeline.fetch("agent-1", options);
   }
 
+  getTimeline(_agentId: string) {
+    return this.timeline.getItems("agent-1");
+  }
+
   listAgents() {
     return [];
   }

@@ -1,17 +1,12 @@
-import { z } from "zod";
 import { describe, expect, test } from "vitest";
 import { SessionInboundMessageSchema, SessionOutboundMessageSchema } from "./messages.js";
 
-type SessionMessageOption = z.ZodDiscriminatedUnionOption<"type">;
-
 function schemaWithoutMessageTypes(
-  schema: { options: SessionMessageOption[] },
+  schema: typeof SessionInboundMessageSchema | typeof SessionOutboundMessageSchema,
   excludedTypes: string[],
 ) {
   const excluded = new Set(excludedTypes);
-  const options = schema.options.filter((option) => !excluded.has(option.shape.type.value));
-
-  return z.discriminatedUnion("type", options as [SessionMessageOption, ...SessionMessageOption[]]);
+  return schema.refine((message) => !excluded.has(message.type));
 }
 
 describe("rename entity message schemas", () => {

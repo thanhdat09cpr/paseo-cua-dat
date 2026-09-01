@@ -58,6 +58,7 @@ import { materializeLaunchContract } from "./launch-contract.js";
 import { BundledPolicyPackRegistry } from "../policy/bundled-policy-pack.js";
 import {
   createDefaultSlpBundledPolicyRegistry,
+  SLP_BUNDLED_POLICY_VERSION,
   type SlpBundledPolicyContribution,
 } from "../policy/bundled/slp.js";
 
@@ -11627,7 +11628,7 @@ test("role-bound create persists immutable binding and passes only launch instru
     expect(created.roleBinding?.policyOwner).toMatchObject({
       kind: "plugin",
       pluginId: "slp",
-      policyVersion: "1.0.0",
+      policyVersion: SLP_BUNDLED_POLICY_VERSION,
       generationDigest: expect.stringMatching(/^[a-f0-9]{64}$/u),
     });
     expect(created.roleBinding?.instructions).toContain("Role: Lead");
