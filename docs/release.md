@@ -9,7 +9,9 @@ Release feed configured in `packages/desktop/electron-builder.yml`. Desktop
 releases are driven by `desktop-v<version>` tags. Manual macOS releases default
 to the personal ad-hoc lane: it builds Apple Silicon `arm64`, creates a DMG plus
 SHA-256 and source metadata, skips Apple notarization, and keeps the release
-draft until packaged smoke passes. The signed lane remains available for a
+draft until packaged smoke passes. This lane disables Hardened Runtime because
+ad-hoc signatures have no Team ID for macOS library validation; the signed lane
+keeps Hardened Runtime enabled. The signed lane remains available for a
 future Developer ID release and requires the Apple signing/notarization secrets.
 Personal ad-hoc releases are installed and updated manually; they do not publish
 an auto-update manifest. The app's updater admits signed fork `-paseo.N`

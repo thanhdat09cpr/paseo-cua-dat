@@ -225,7 +225,9 @@ jobs:
           if [[ "$MACOS_ADHOC" == "true" ]]; then
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             export CSC_IDENTITY_AUTO_DISCOVERY=false
-            build_args+=("-c.mac.identity=-" "-c.mac.notarize=false")
+            # Ad-hoc signatures have no Team ID. Hardened Runtime library validation
+            # would reject Electron Framework even when the bundle verifies cleanly.
+            build_args+=("-c.mac.identity=-" "-c.mac.notarize=false" "-c.mac.hardenedRuntime=false")
           fi
           npm run build:desktop "${build_args[@]}"
 
