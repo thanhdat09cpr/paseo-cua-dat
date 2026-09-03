@@ -137,6 +137,21 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
           scope: "@boudra"
 
+      - name: Setup sidecar toolchain
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.15"
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.2"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.0"
+
       - name: Install JS dependencies
         run: node scripts/npm-retry.mjs ci
         env:
