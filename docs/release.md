@@ -6,11 +6,15 @@ All workspaces share one version and release together.
 
 The packaged Electron app in `thanhdat09cpr/paseo-cua-dat` uses the fork GitHub
 Release feed configured in `packages/desktop/electron-builder.yml`. Desktop
-releases are driven by `desktop-v<version>` tags; the workflow builds host-native
-artifacts, keeps the release draft until manifests are assembled, requires the
-macOS signing/notarization secrets for publish runs, and only then publishes the
-qualified release. The app's updater admits the fork's `-paseo.N` versions while
-continuing to keep arbitrary prerelease versions out of the stable channel.
+releases are driven by `desktop-v<version>` tags. Manual macOS releases default
+to the personal ad-hoc lane: it builds Apple Silicon `arm64`, creates a DMG plus
+SHA-256 and source metadata, skips Apple notarization, and keeps the release
+draft until packaged smoke passes. The signed lane remains available for a
+future Developer ID release and requires the Apple signing/notarization secrets.
+Personal ad-hoc releases are installed and updated manually; they do not publish
+an auto-update manifest. The app's updater admits signed fork `-paseo.N`
+versions while continuing to keep arbitrary prerelease versions out of the
+stable channel.
 
 This lane is separate from the portable `paseo-v<version>` downstream release.
 Do not publish either lane to the upstream `webplode` repository or use upstream
