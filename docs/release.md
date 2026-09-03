@@ -2,6 +2,20 @@
 
 All workspaces share one version and release together.
 
+## Fork Desktop App lane
+
+The packaged Electron app in `thanhdat09cpr/paseo-cua-dat` uses the fork GitHub
+Release feed configured in `packages/desktop/electron-builder.yml`. Desktop
+releases are driven by `desktop-v<version>` tags; the workflow builds host-native
+artifacts, keeps the release draft until manifests are assembled, requires the
+macOS signing/notarization secrets for publish runs, and only then publishes the
+qualified release. The app's updater admits the fork's `-paseo.N` versions while
+continuing to keep arbitrary prerelease versions out of the stable channel.
+
+This lane is separate from the portable `paseo-v<version>` downstream release.
+Do not publish either lane to the upstream `webplode` repository or use upstream
+`vX.Y.Z` tags as a substitute for fork provenance.
+
 ## Downstream Foundation release
 
 Repository `webplode/paseo-doctrine-downstream` không publish các package dưới upstream npm scope.

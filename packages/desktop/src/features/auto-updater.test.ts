@@ -28,6 +28,7 @@ const { autoUpdaterMock } = vi.hoisted(() => {
 vi.mock("electron", () => ({
   app: {
     getPath: vi.fn(),
+    getVersion: vi.fn(() => "0.7.0-paseo.48"),
     isPackaged: true,
   },
 }));
@@ -41,9 +42,30 @@ import {
   checkForAppUpdate,
   resolveStagingUserId,
   rolloutManifestSchema,
+  shouldAllowPrereleaseUpdates,
   shouldAdmitToRollout,
   shouldInstallAppUpdateOnQuit,
 } from "./auto-updater";
+
+describe("shouldAllowPrereleaseUpdates", () => {
+  it("admits beta and downstream fork versions without admitting arbitrary prereleases", () => {
+    expect(shouldAllowPrereleaseUpdates({ releaseChannel: "beta", currentVersion: "1.0.0" })).toBe(
+      true,
+    );
+    expect(
+      shouldAllowPrereleaseUpdates({
+        releaseChannel: "stable",
+        currentVersion: "0.7.0-paseo.48",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAllowPrereleaseUpdates({
+        releaseChannel: "stable",
+        currentVersion: "1.0.0-canary.1",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("checkForAppUpdate", () => {
   it("treats an unpublished channel manifest as an unavailable update", async () => {

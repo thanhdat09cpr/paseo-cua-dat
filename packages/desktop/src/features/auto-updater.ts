@@ -35,6 +35,13 @@ let cachedStagingUserIdPromise: Promise<string> | null = null;
 
 const UPDATE_CHANNEL_NOT_PUBLISHED_CODE = "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND";
 
+export function shouldAllowPrereleaseUpdates(input: {
+  releaseChannel: AppReleaseChannel;
+  currentVersion: string;
+}): boolean {
+  return input.releaseChannel === "beta" || /-paseo\.\d+$/u.test(input.currentVersion);
+}
+
 function isUpdateChannelNotPublished(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -106,7 +113,10 @@ class ElectronAppUpdateRuntime implements AppUpdateRuntime {
     // Electron's built-in handler would install an older download without checking
     // whether a newer release has superseded it.
     autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.allowPrerelease = input.releaseChannel === "beta";
+    autoUpdater.allowPrerelease = shouldAllowPrereleaseUpdates({
+      releaseChannel: input.releaseChannel,
+      currentVersion: app.getVersion(),
+    });
     autoUpdater.channel = input.releaseChannel === "beta" ? "beta" : "latest";
     autoUpdater.allowDowngrade = false;
     autoUpdater.isUserWithinRollout = async (info) => {

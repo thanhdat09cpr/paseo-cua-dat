@@ -48,6 +48,22 @@ test("emits beta release info from tags", () => {
   });
 });
 
-test("rejects non-beta prerelease versions", () => {
-  assert.throws(() => parseReleaseVersion("0.1.60-canary.1"), /Expected beta prerelease versions/);
+test("parses downstream desktop release metadata", () => {
+  assert.deepEqual(getReleaseInfoFromSourceTag("desktop-v0.7.0-paseo.48"), {
+    sourceTag: "desktop-v0.7.0-paseo.48",
+    releaseTag: "v0.7.0-paseo.48",
+    version: "0.7.0-paseo.48",
+    baseVersion: "0.7.0",
+    prerelease: "paseo.48",
+    isPrerelease: true,
+    isBeta: false,
+    betaNumber: null,
+    releaseType: "prerelease",
+    releaseChannel: "latest",
+    isSmokeTag: false,
+  });
+});
+
+test("rejects unsupported prerelease versions", () => {
+  assert.throws(() => parseReleaseVersion("0.1.60-canary.1"), /Expected beta or downstream versions/);
 });

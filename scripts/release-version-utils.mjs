@@ -23,11 +23,12 @@ export function parseReleaseVersion(version) {
   const patch = Number.parseInt(match.groups.patch, 10);
   const prerelease = match.groups.prerelease ?? null;
   const betaMatch = prerelease?.match(/^beta\.(?<beta>\d+)$/) ?? null;
+  const downstreamMatch = prerelease?.match(/^paseo\.(?<release>\d+)$/) ?? null;
   const betaNumber = betaMatch?.groups?.beta ? Number.parseInt(betaMatch.groups.beta, 10) : null;
 
-  if (prerelease !== null && betaNumber === null) {
+  if (prerelease !== null && betaNumber === null && downstreamMatch === null) {
     throw new Error(
-      `Unsupported release version "${version}". Expected beta prerelease versions like 0.1.41-beta.1.`,
+      `Unsupported release version "${version}". Expected beta or downstream versions like 0.1.41-beta.1 or 0.7.0-paseo.48.`,
     );
   }
 

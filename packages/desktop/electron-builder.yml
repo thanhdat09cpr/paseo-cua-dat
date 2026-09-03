@@ -35,8 +35,8 @@ extraResources:
     to: beads-central
 publish:
   provider: github
-  owner: webplode
-  repo: paseo-doctrine-downstream
+  owner: thanhdat09cpr
+  repo: paseo-cua-dat
 mac:
   artifactName: "Paseo-${version}-${arch}.${ext}"
   category: public.app-category.developer-tools

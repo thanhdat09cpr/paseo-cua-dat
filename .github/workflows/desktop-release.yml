@@ -48,6 +48,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  EXPECTED_DESKTOP_RELEASE_REPOSITORY: "thanhdat09cpr/paseo-cua-dat"
   SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
   CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.checkout_ref || github.ref_name) || github.ref_name }}
   SHOULD_PUBLISH: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish != 'false' }}
@@ -70,6 +71,15 @@ jobs:
         shell: bash
         run: node scripts/emit-release-env.mjs --source-tag "$SOURCE_TAG" >> "$GITHUB_ENV"
 
+      - name: Verify fork release repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.repository }}" != "$EXPECTED_DESKTOP_RELEASE_REPOSITORY" ]]; then
+            echo "::error::Desktop fork releases must run in $EXPECTED_DESKTOP_RELEASE_REPOSITORY"
+            exit 1
+          fi
+
       - name: Create GitHub release
         if: env.IS_SMOKE_TAG != 'true'
         env:
@@ -86,6 +96,7 @@ jobs:
               --repo "${{ github.repository }}" \
               --title "Paseo $RELEASE_TAG" \
               --notes "" \
+              --draft \
               $prerelease_flag || {
                 echo "Release creation raced with another workflow; continuing."
               }
@@ -146,6 +157,28 @@ jobs:
           packageJson.version = version;
           fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
           NODE
+
+      - name: Validate macOS release credentials
+        if: env.SHOULD_PUBLISH == 'true' && env.IS_SMOKE_TAG != 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf '::error::Missing required macOS release secret: %s\n' "${missing[@]}"
+            exit 1
+          fi
 
       - name: Build desktop release
         shell: bash
@@ -537,3 +570,18 @@ jobs:
             }
           ' "${files[@]}"
           gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "${{ github.repository }}"
+
+      - name: Publish qualified desktop release
+        if: env.IS_SMOKE_TAG != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_args=(--draft=false --repo "${{ github.repository }}")
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease --latest=false)
+          else
+            release_args+=(--prerelease=false --latest)
+          fi
+          gh release edit "$RELEASE_TAG" "${release_args[@]}"
