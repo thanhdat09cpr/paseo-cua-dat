@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0-paseo.51 - 2026-09-04
+
+Bản follow-up này giữ pane lịch sử đọc được sau khi SLP generation đổi trong `.50`.
+
+### Fixed
+
+- `logs`, timeline pagination và prompt index của agent đã đóng nay đọc durable timeline khi exact
+  pinned SLP generation không còn trong daemon mới, thay vì cố resume provider rồi trả
+  `bundled_policy_pack_missing`.
+- Read-only fallback không áp dụng cho send, reload, mode change hoặc action khác có thể resume/mutate;
+  các action đó vẫn fail closed nếu exact historical policy generation không khả dụng.
+
+### Compatibility
+
+- Không đổi snapshot/storage schema. Existing `.49` Lead/Peer panes đọc lại được trên `.51`; receipt
+  policy cũ vẫn không được nâng cấp ngầm thành current policy.
+
 ## 0.7.0-paseo.50 - 2026-09-04
 
 Bản này sửa cách Product biểu diễn và thực thi topology role-bound: quan hệ ownership, exact Agent
