@@ -1,7 +1,12 @@
-# Audit source-level SLP thành bundled policy plugin
+# Audit source-level SLP thành bundled first-party policy pack
 
 Snapshot gốc được audit: Product commit `d5162f7972b210452b0069998300e78a26883c35`.
 Implementation branch: `codex/slp-bundled-policy-plugin`.
+
+> **Thuật ngữ:** bundled `slp` là first-party policy pack được Product compile và đăng ký nội bộ,
+> không phải installable/local plugin đi qua `PluginService`, plugin loader hay trang Settings Plugins.
+> Owner receipt dạng `plugin:slp@<generation-digest>` và reserved plugin ID là wire-format/namespace
+> lịch sử để pin provenance và ngăn shadowing; chúng không cấp lifecycle hoặc replaceability của plugin.
 
 ## Phân loại
 
