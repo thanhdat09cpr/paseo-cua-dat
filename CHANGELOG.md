@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.0-paseo.55 - 2026-09-04
+
+Bản này hoàn tất tranche usability của doctrine audit: đưa coordination signal đã persist vào agent
+detail, bổ sung disposition controls có capability gate, và sửa structural parser để version/path có
+dấu chấm không còn bị hiểu nhầm là câu thứ hai.
+
+### Added
+
+- Agent detail hiển thị đầy đủ `reason`, `observation`, `question`, evidence refs, structured evidence,
+  occurrence metadata và status của coordination signal.
+- Mọi signal `pending` luôn hiện trước; history đã resolve được giới hạn ở năm mục gần nhất và có
+  hidden-count, tránh lịch sử không giới hạn chiếm toàn bộ composer area.
+- Human có thể ghi disposition `acknowledged`, `deferred`, `declined` hoặc `completed` qua additive
+  coordination RPC. Controls chỉ hiện với daemon quảng bá `coordinationSignalResolution`, chỉ áp dụng
+  cho signal `pending`, serialize mutation và có accessible loading/error feedback.
+
+### Fixed
+
+- Snapshot/directory/timeline projection giữ `coordinationSignals` từ persisted agent record, nên app
+  không còn làm mất field này trên compact update.
+- Attention-question structural parser chấp nhận numeric dotted versions và slash-containing paths,
+  gồm absolute path, `.worktrees` và các compound suffix repo dùng, nhưng vẫn reject multi-sentence
+  payload nối liền bằng dấu chấm, kể cả các bypass chữ thường như `.risk` và `.gaps`.
+
+### Verification
+
+- 510 focused protocol/client/server/app tests pass; repo format-check, lint và toàn bộ workspace
+  typecheck đều sạch ở source candidate. Installed daemon, WebUI interaction và live Supervisor→Lead
+  journey được qualification riêng sau release activation; multi-day effectiveness vẫn `UNKNOWN`.
+
 ## 0.7.0-paseo.54 - 2026-09-04
 
 Bản này xử lý tranche tự động của doctrine audit: gỡ coupling prose khỏi attention question và bỏ
