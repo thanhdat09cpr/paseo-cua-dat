@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — Paseo của Đạt
+## 0.7.0-paseo.49 - 2026-09-04
+
+### Added
+
+- Personal macOS ARM64 releases now publish the verified ZIP, blockmaps and fork-owned
+  `latest-mac.yml`, so an installed Paseo của Đạt app can check, download and install a newer
+  `-paseo.N` build from its Update button.
 
 ### Changed
 
@@ -12,6 +18,8 @@
   `--assignment-effect` explicit.
 - Giữ attention engine event-driven mặc định của downstream `.48`; không port lại detector/coordination
   engine cũ của fork để tránh duplicate signal và prompt storm.
+- Personal release CI uploads updater assets before the channel manifest, validates exact version,
+  architecture, SHA-512, size and source provenance, then publishes the draft Release.
 
 ## 0.7.0-paseo.48 - 2026-09-01
 

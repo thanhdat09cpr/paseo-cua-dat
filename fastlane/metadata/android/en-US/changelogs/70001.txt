@@ -1,6 +1,4 @@
-Bản này tích hợp upstream v0.7.0 sau hop bắt buộc 0.6.1-paseo.47, đồng thời giữ nguyên authority, provider, updater và continuity-attention contracts của Paseo Product/Foundation.
-
 Added
-- Nhận plugin Git sources, plugin timeline/composer-pill/host UI, SSH daemon connections, workspace Command Center actions, row-based replica cache, smooth text reveal, image zoom/pan, Astro highlighting và forge status improvements từ upstream.
+- Personal macOS ARM64 releases now publish the verified ZIP, blockmaps and fork-owned latest-mac.yml, so an installed Paseo của Đạt app can check, download and install a newer -paseo.N build from its Update button.
 
 Full notes: https://paseo.sh/changelog
