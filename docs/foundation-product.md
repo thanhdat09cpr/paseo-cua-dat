@@ -110,7 +110,10 @@ paseo-foundation uninstall
   `config.json`, `server-id`, `paseo.pid`, live supervisor PID và status JSON. Live RPC phải trả đúng
   `serverId`, `listen`, một daemon-worker PID đang chạy và `daemonVersion`; một daemon khác reachable trên
   default port không thể làm gate xanh. Worker PID có thể khác supervisor PID trong `paseo.pid`.
-- `ORCHESTRATION_READY`: route `providers.audit` phải tồn tại trong live catalog, model phải được
+- `ORCHESTRATION_READY`: `providers.audit` là qualification route optional. Khi không còn một audit
+  provider đã qualify, operator bỏ field này và doctor giữ gate ở `UNKNOWN` với evidence
+  `audit route qualification is not configured`; doctor không tự chọn provider thay thế và không biến
+  thiếu route thành `PASS`. Khi route được cấu hình, nó phải tồn tại trong live catalog, model phải được
   configure và provider-connection receipt phải khớp exact daemon version, base URL, credential ref và
   credential digest hiện tại. Receipt cũ trả `UNKNOWN` với `verification stale`; provider/model sai trả
   `FAIL`.

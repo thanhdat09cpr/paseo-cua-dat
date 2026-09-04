@@ -300,8 +300,23 @@ describe("Foundation runtime qualification receipts", () => {
     startedAt: "2026-08-16T00:00:00.000Z",
     sourceCommit: "1".repeat(40),
     sourceFingerprint: "2".repeat(64),
-    availableProviders: ["codex-zetscan"],
+    availableProviders: ["codex-audit-fixture"],
   };
+
+  it("keeps an intentionally omitted audit route explicit and unknown", () => {
+    const home = temporaryHome();
+    const paseoHome = path.join(home, ".paseo");
+    mkdirSync(paseoHome, { recursive: true });
+    writeFileSync(
+      path.join(paseoHome, "orchestration-preferences.json"),
+      JSON.stringify({ providers: {} }),
+    );
+
+    expect(inspectAuditRoute({ home, daemonIdentity })).toEqual({
+      status: "UNKNOWN",
+      evidence: ["audit route qualification is not configured"],
+    });
+  });
 
   it("distinguishes a current audit route from a stale daemon-version receipt", () => {
     const home = temporaryHome();
@@ -313,10 +328,10 @@ describe("Foundation runtime qualification receipts", () => {
           JSON.stringify({
             schemaVersion: 1,
             daemonVersion,
-            provider: "codex-zetscan",
+            provider: "codex-audit-fixture",
             model: "gpt-5.6-sol",
             baseUrl: "https://example.invalid/v1",
-            credentialRef: "codex-zetscan",
+            credentialRef: "codex-audit-fixture",
             credentialDigest: createHash("sha256").update(apiKey).digest("hex"),
           }),
         )
@@ -324,22 +339,22 @@ describe("Foundation runtime qualification receipts", () => {
     mkdirSync(paseoHome, { recursive: true });
     writeFileSync(
       path.join(paseoHome, "orchestration-preferences.json"),
-      JSON.stringify({ providers: { audit: "codex-zetscan/gpt-5.6-sol" } }),
+      JSON.stringify({ providers: { audit: "codex-audit-fixture/gpt-5.6-sol" } }),
     );
     writeFileSync(
       path.join(paseoHome, "config.json"),
       JSON.stringify({
         agents: {
           providers: {
-            "codex-zetscan": {
+            "codex-audit-fixture": {
               enabled: true,
               extends: "codex",
-              credentialRef: "codex-zetscan",
+              credentialRef: "codex-audit-fixture",
               env: { OPENAI_BASE_URL: "https://example.invalid/v1" },
               additionalModels: [{ id: "gpt-5.6-sol" }],
             },
           },
-          credentials: { "codex-zetscan": { OPENAI_API_KEY: apiKey } },
+          credentials: { "codex-audit-fixture": { OPENAI_API_KEY: apiKey } },
         },
       }),
     );
@@ -350,8 +365,8 @@ describe("Foundation runtime qualification receipts", () => {
         JSON.stringify({
           schemaVersion: 1,
           receipts: {
-            "codex-zetscan": {
-              provider: "codex-zetscan",
+            "codex-audit-fixture": {
+              provider: "codex-audit-fixture",
               model: "gpt-5.6-sol",
               fingerprint: target(daemonVersion),
               qualifiedAt: "2026-08-16T00:01:00.000Z",
@@ -366,7 +381,7 @@ describe("Foundation runtime qualification receipts", () => {
     writeReceipt(daemonIdentity.version);
     expect(inspectAuditRoute({ home, daemonIdentity })).toMatchObject({
       status: "PASS",
-      route: { provider: "codex-zetscan", model: "gpt-5.6-sol" },
+      route: { provider: "codex-audit-fixture", model: "gpt-5.6-sol" },
     });
   });
 
@@ -409,7 +424,7 @@ describe("Foundation runtime qualification receipts", () => {
         sourceFingerprint: daemonIdentity.sourceFingerprint,
       },
       route: {
-        provider: "codex-zetscan",
+        provider: "codex-audit-fixture",
         model: "gpt-5.6-sol",
         providerConnectionQualifiedAt: "2026-08-16T00:01:00.000Z",
       },
@@ -417,7 +432,7 @@ describe("Foundation runtime qualification receipts", () => {
         roleId,
         agentId: `agent-${roleId}`,
         workspaceId: "workspace-canary",
-        provider: "codex-zetscan",
+        provider: "codex-audit-fixture",
         model: "gpt-5.6-sol",
         assignmentEffect: "read-only",
         definitionDigest: definitionDigest(roleId),
@@ -436,7 +451,7 @@ describe("Foundation runtime qualification receipts", () => {
       status: "PASS" as const,
       evidence: ["qualified"],
       route: {
-        provider: "codex-zetscan",
+        provider: "codex-audit-fixture",
         model: "gpt-5.6-sol",
         qualifiedAt: "2026-08-16T00:01:00.000Z",
       },
