@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { relative as relativePath } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const repoRoot = new URL("../", import.meta.url);
 const ciWorkflowPath = new URL(".github/workflows/ci.yml", repoRoot);
@@ -9,6 +10,7 @@ const dockerWorkflowPath = new URL(".github/workflows/docker.yml", repoRoot);
 const nixWorkflowPath = new URL(".github/workflows/nix.yml", repoRoot);
 const nixUpdateHashWorkflowPath = new URL(".github/workflows/nix-update-hash.yml", repoRoot);
 const websiteWorkflowPath = new URL(".github/workflows/deploy-website.yml", repoRoot);
+const desktopReleaseWorkflowPath = new URL(".github/workflows/desktop-release.yml", repoRoot);
 const portableReleaseCoreWorkflowPath = new URL(
   ".github/workflows/downstream-portable-release-core.yml",
   repoRoot,
@@ -85,10 +87,11 @@ function loadFilters(path) {
 
 function filesUnder(relativeDirectory, predicate) {
   const directory = new URL(`${relativeDirectory}/`, repoRoot);
-  return readdirSync(directory, { recursive: true, withFileTypes: true })
+  const directoryPath = fileURLToPath(directory);
+  return readdirSync(directoryPath, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) =>
-      [relativeDirectory, relativePath(directory.pathname, entry.parentPath), entry.name]
+      [relativeDirectory, relativePath(directoryPath, entry.parentPath), entry.name]
         .filter(Boolean)
         .join("/")
         .replaceAll("\\", "/"),
@@ -125,6 +128,22 @@ test("change gating allows superseded workflow runs to cancel", () => {
       "always() keeps jobs alive after concurrency cancellation; use !cancelled() for fail-open gating",
     );
   }
+});
+
+test("personal macOS releases publish verified updater assets before the manifest", () => {
+  const source = readFileSync(desktopReleaseWorkflowPath, "utf8");
+  const verifyIndex = source.indexOf("node scripts/verify-macos-update-manifest.mjs");
+  const assetsIndex = source.indexOf("gh release upload", verifyIndex);
+  const manifestStepIndex = source.indexOf("Upload personal update manifest last", assetsIndex);
+  const manifestUploadIndex = source.indexOf("gh release upload", manifestStepIndex);
+  const publishIndex = source.indexOf("Publish personal macOS release", manifestUploadIndex);
+
+  assert.ok(verifyIndex > 0, "personal manifest must be verified");
+  assert.match(source, /-name '\*\.zip'/);
+  assert.match(source, /-name '\*\.zip\.blockmap'/);
+  assert.ok(assetsIndex > verifyIndex, "release assets must upload after verification");
+  assert.ok(manifestUploadIndex > assetsIndex, "channel manifest must upload after release assets");
+  assert.ok(publishIndex > manifestUploadIndex, "draft release must publish after the manifest");
 });
 
 test("focused contracts stay inside existing required checks", () => {
