@@ -30,7 +30,7 @@ describe("bundled policy pack registry", () => {
       kind: "plugin",
       pluginId: "slp",
       policyVersion: "1.1.0",
-      generationDigest: "02607618aea9fee766b468c7063ad17dc270ca7a7bba868d0ed8b436821ec172",
+      generationDigest: "87182e67fd3b45df93cae23cd8b30f7f9752e4249323a4cc77d297f6a59beada",
     });
     expect(first.contribution.eventPolicies).toHaveLength(1);
     expect(first.contribution.eventPolicies[0]?.id).toBe("slp.attention");
@@ -281,7 +281,7 @@ describe("bundled policy pack registry", () => {
       policyVersion: "1.1.0",
     });
     expect(freshRegistry.resolveActive("slp").owner.generationDigest).not.toBe(
-      "02607618aea9fee766b468c7063ad17dc270ca7a7bba868d0ed8b436821ec172",
+      "87182e67fd3b45df93cae23cd8b30f7f9752e4249323a4cc77d297f6a59beada",
     );
     expect(
       freshRegistry

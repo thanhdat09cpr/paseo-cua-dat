@@ -21,6 +21,11 @@
 - Personal release CI uploads updater assets before the channel manifest, validates exact version,
   architecture, SHA-512, size and source provenance, then publishes the draft Release.
 
+### Fixed
+
+- Refresh the active SLP generation provenance and Nix dependency hash after the downstream role
+  profile and release dependency changes.
+
 ## 0.7.0-paseo.48 - 2026-09-01
 
 Bản này tích hợp upstream `v0.7.0` sau hop bắt buộc `0.6.1-paseo.47`, đồng thời giữ nguyên
