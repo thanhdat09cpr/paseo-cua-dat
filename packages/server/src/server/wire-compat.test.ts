@@ -15,6 +15,7 @@ import { OWNER_PERMISSIONS } from "./authorization/index.js";
 import { DirectorySyncService } from "./directory-sync/index.js";
 import { createProviderSnapshotManagerStub } from "./test-utils/session-stubs.js";
 import type { AgentTimelineRow } from "./agent/agent-manager.js";
+import type { StoredAgentRecord } from "./agent/agent-storage.js";
 import { InMemoryAgentTimelineStore } from "./agent/agent-timeline-store.js";
 import type { AgentTimelineFetchOptions } from "./agent/agent-timeline-store-types.js";
 import { handleCreatePaseoWorktreeRequest } from "./worktree-session.js";
@@ -55,7 +56,10 @@ interface SessionInternals {
 class InMemoryAgentManager {
   private readonly timeline = new InMemoryAgentTimelineStore();
 
-  constructor(rows: AgentTimelineRow[]) {
+  constructor(
+    rows: AgentTimelineRow[],
+    private readonly resident = true,
+  ) {
     this.timeline.initialize("agent-1", {
       epoch: "epoch-1",
       rows,
@@ -64,6 +68,7 @@ class InMemoryAgentManager {
   }
 
   getAgent() {
+    if (!this.resident) return null;
     return {
       id: "agent-1",
       provider: "codex",
@@ -111,6 +116,14 @@ class InMemoryAgentManager {
     return this.timeline.fetch("agent-1", options);
   }
 
+  async fetchDurableTimeline(_agentId: string, options?: AgentTimelineFetchOptions) {
+    return this.timeline.fetch("agent-1", options);
+  }
+
+  isStoredAgentPolicyGenerationAvailable() {
+    return this.resident;
+  }
+
   getTimeline(_agentId: string) {
     return this.timeline.getItems("agent-1");
   }
@@ -125,12 +138,14 @@ class InMemoryAgentManager {
 }
 
 class EmptyAgentStorage {
+  constructor(private readonly record: StoredAgentRecord | null = null) {}
+
   async list() {
-    return [];
+    return this.record ? [this.record] : [];
   }
 
-  async get() {
-    return null;
+  async get(agentId: string) {
+    return this.record?.id === agentId ? this.record : null;
   }
 }
 
@@ -189,6 +204,7 @@ function createSessionForWireCompatTest(options?: {
   directorySync?: DirectorySyncService;
   messages?: SessionOutboundMessage[];
   rows?: AgentTimelineRow[];
+  historicalPolicyOnly?: boolean;
 }): Session {
   const messages = options?.messages ?? [];
   const rows: AgentTimelineRow[] = [
@@ -209,6 +225,19 @@ function createSessionForWireCompatTest(options?: {
     },
   ];
 
+  const historicalRecord: StoredAgentRecord | null = options?.historicalPolicyOnly
+    ? {
+        id: "agent-1",
+        provider: "codex",
+        cwd: "/tmp/project",
+        createdAt: "2026-05-02T00:00:00.000Z",
+        updatedAt: "2026-05-02T00:00:00.000Z",
+        labels: {},
+        lastStatus: "closed",
+        config: null,
+      }
+    : null;
+
   const session = new Session({
     clientId: "wire-compat-client",
     permissions: OWNER_PERMISSIONS,
@@ -220,8 +249,11 @@ function createSessionForWireCompatTest(options?: {
     paseoHome: "/tmp/paseo-home",
     agentManager: new InMemoryAgentManager(
       options?.rows ?? rows,
+      options?.historicalPolicyOnly !== true,
     ) as unknown as SessionOptions["agentManager"],
-    agentStorage: new EmptyAgentStorage() as unknown as SessionOptions["agentStorage"],
+    agentStorage: new EmptyAgentStorage(
+      historicalRecord,
+    ) as unknown as SessionOptions["agentStorage"],
     projectRegistry: new EmptyProjectRegistry() as unknown as SessionOptions["projectRegistry"],
     workspaceRegistry:
       new EmptyWorkspaceRegistry() as unknown as SessionOptions["workspaceRegistry"],
@@ -283,6 +315,7 @@ function createSessionForWireCompatTest(options?: {
 async function emitTimelineResponse(options?: {
   clientCapabilities?: Record<string, unknown> | null;
   rows?: AgentTimelineRow[];
+  historicalPolicyOnly?: boolean;
   request?: Partial<
     Extract<z.infer<typeof SessionInboundMessageSchema>, { type: "fetch_agent_timeline_request" }>
   >;
@@ -292,6 +325,7 @@ async function emitTimelineResponse(options?: {
     clientCapabilities: options?.clientCapabilities,
     rows: options?.rows,
     messages,
+    historicalPolicyOnly: options?.historicalPolicyOnly,
   });
   const internals = session as unknown as SessionInternals;
 
@@ -413,6 +447,15 @@ describe("wire compatibility", () => {
 
     const legacyParsed = LegacyFetchAgentTimelineResponseMessageSchema.parse(response);
     expect(legacyParsed.payload.entries[0]?.collapsed).toEqual([]);
+  });
+
+  test("serves durable history without resuming an agent whose pinned policy is unavailable", async () => {
+    const response = await emitTimelineResponse({ historicalPolicyOnly: true });
+
+    const parsed = FetchAgentTimelineResponseMessageSchema.parse(response);
+    expect(parsed.payload.error).toBeNull();
+    expect(parsed.payload.agent.status).toBe("closed");
+    expect(parsed.payload.entries).not.toHaveLength(0);
   });
 
   test("preserves reasoning_merge for clients that declare the capability", async () => {

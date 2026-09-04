@@ -30,7 +30,7 @@ describe("bundled policy pack registry", () => {
       kind: "plugin",
       pluginId: "slp",
       policyVersion: "1.1.0",
-      generationDigest: "02607618aea9fee766b468c7063ad17dc270ca7a7bba868d0ed8b436821ec172",
+      generationDigest: "a130da1a7d312191b02e248fc78dda887f30c4e3137f7288bb8515c8bbc26d96",
     });
     expect(first.contribution.eventPolicies).toHaveLength(1);
     expect(first.contribution.eventPolicies[0]?.id).toBe("slp.attention");
@@ -328,6 +328,39 @@ describe("bundled policy pack registry", () => {
         policy: expect.objectContaining({ id: "slp.attention", version: "4" }),
       }),
     ]);
+  });
+
+  test("reports unavailable historical role policy generations without weakening resume admission", () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const fakeManager = { bundledPolicyPacks: registry } as unknown as AgentManager;
+    const isAvailable =
+      AgentManager.prototype.isStoredAgentPolicyGenerationAvailable.bind(fakeManager);
+    const record = (policyOwner?: unknown) =>
+      ({
+        id: "historical-agent",
+        provider: "codex",
+        cwd: "/tmp/project",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        labels: {},
+        lastStatus: "closed",
+        config: null,
+        ...(policyOwner ? { roleBinding: { policyOwner } } : {}),
+      }) as never;
+
+    expect(isAvailable(record())).toBe(true);
+    expect(isAvailable(record({ kind: "legacy-core" }))).toBe(true);
+    expect(isAvailable(record(registry.resolveActive("slp").owner))).toBe(true);
+    expect(
+      isAvailable(
+        record({
+          kind: "plugin",
+          pluginId: "slp",
+          policyVersion: "1.1.0",
+          generationDigest: "02607618aea9fee766b468c7063ad17dc270ca7a7bba868d0ed8b436821ec172",
+        }),
+      ),
+    ).toBe(false);
   });
 
   test("fails closed unless an attention-question target pins a supporting generation", () => {

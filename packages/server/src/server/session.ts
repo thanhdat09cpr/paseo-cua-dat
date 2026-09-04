@@ -7462,6 +7462,15 @@ export class Session {
     return this.selectProjectedTimelineProjection(input);
   }
 
+  private shouldReadAgentTimelineFromDurableStorage(
+    agentId: string,
+    storedRecord: StoredAgentRecord | null,
+  ): boolean {
+    if (hasReleasedAgentWriteLease(storedRecord)) return true;
+    if (!storedRecord || this.agentManager.getAgent(agentId)) return false;
+    return !this.agentManager.isStoredAgentPolicyGenerationAvailable(storedRecord);
+  }
+
   private async handleFetchAgentTimelineRequest(
     msg: Extract<SessionInboundMessage, { type: "fetch_agent_timeline_request" }>,
     source?: object,
@@ -7479,8 +7488,11 @@ export class Session {
 
     try {
       const storedRecord = await this.agentStorage.get(msg.agentId);
-      const released = hasReleasedAgentWriteLease(storedRecord);
-      const agentPayload = released
+      const readFromDurableStorage = this.shouldReadAgentTimelineFromDurableStorage(
+        msg.agentId,
+        storedRecord,
+      );
+      const agentPayload = readFromDurableStorage
         ? this.buildStoredAgentPayload(storedRecord as StoredAgentRecord)
         : await this.buildAgentPayload(
             await ensureAgentLoaded(msg.agentId, {
@@ -7490,7 +7502,7 @@ export class Session {
             }),
           );
 
-      const fetchedControlTimeline = released
+      const fetchedControlTimeline = readFromDurableStorage
         ? await this.agentManager.fetchDurableTimeline(msg.agentId, {
             direction,
             cursor,
@@ -7502,7 +7514,7 @@ export class Session {
             limit: pageLimit,
           });
       const fullTimeline =
-        released && projection === "projected"
+        readFromDurableStorage && projection === "projected"
           ? await this.agentManager.fetchDurableTimeline(msg.agentId, {
               direction: "tail",
               limit: 0,
@@ -7611,18 +7623,21 @@ export class Session {
   ): Promise<void> {
     try {
       const storedRecord = await this.agentStorage.get(msg.agentId);
-      const released = hasReleasedAgentWriteLease(storedRecord);
-      if (!released) {
+      const readFromDurableStorage = this.shouldReadAgentTimelineFromDurableStorage(
+        msg.agentId,
+        storedRecord,
+      );
+      if (!readFromDurableStorage) {
         await ensureAgentLoaded(msg.agentId, {
           agentManager: this.agentManager,
           agentStorage: this.agentStorage,
           logger: this.sessionLogger,
         });
       }
-      const rows = released
+      const rows = readFromDurableStorage
         ? await this.agentManager.getDurableTimelineRows(msg.agentId)
         : await this.agentManager.getTimelineRows(msg.agentId);
-      const timeline = released
+      const timeline = readFromDurableStorage
         ? await this.agentManager.fetchDurableTimeline(msg.agentId, {
             direction: "tail",
             limit: 1,

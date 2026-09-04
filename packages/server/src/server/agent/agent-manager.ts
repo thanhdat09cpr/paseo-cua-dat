@@ -1472,6 +1472,18 @@ export class AgentManager {
       : LEGACY_CORE_OPERATIONAL_POLICY;
   }
 
+  isStoredAgentPolicyGenerationAvailable(record: StoredAgentRecord): boolean {
+    if (!record.roleBinding) return true;
+    const owner = policyOwnerForRoleBinding(record.roleBinding);
+    if (owner.kind !== "plugin") return true;
+    try {
+      this.bundledPolicyPacks.resolvePinned(owner);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   assertAttentionQuestionTargetSupport(roleBinding: PersistedRoleBinding | undefined): void {
     if (!roleBinding) {
       throw new Error("attention_question_target_policy_owner_missing");
