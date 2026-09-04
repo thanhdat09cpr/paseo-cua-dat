@@ -1,6 +1,7 @@
 name: Nix Update Hash
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
