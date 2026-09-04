@@ -11,11 +11,11 @@ Nó không thay thế role contracts, Human lease hoặc repository protocol.
 | P1 manual handoff      | Pilot đã chạy                                           | predecessor packet, independent successor review, rejection evidence                                                       | multi-day operational effect                                              |
 | P2 handoff artifact    | Candidate, integrated-runtime-qualified                 | immutable packet core, explicit ordered receipts, role/Human gates, write-lease enforcement, paid-provider release canary  | release activation, multi-day operational effect                          |
 
-Compatibility receipt: SHA-256 `569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0`
-binds only the frozen SLP v1.0 artifact bytes shipped in `.45`. Generation-local operational TypeScript is
-separate compatibility source, protected by fixed role/profile, event-state, authority and restart receipts;
-the historical digest does not attest those modules. A frozen compatibility load failure cannot remove the
-independently registered active SLP generation and never aliases a `.45` owner to current semantics.
+Historical owner note: SLP v1.0 (the `.45` generation, digest
+`569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0`) was an untagged, dateless
+compatibility bridge and has been removed intentionally (Phase 2A / F-04). Resolving that owner now
+fails closed with `bundled_policy_pack_missing`; there is no frozen artifact, no migration, and no
+alias to current semantics. Only the actively registered SLP generation resolves.
 
 Không được gọi ba slice này là shipped production capability chỉ vì focused tests xanh.
 
@@ -53,9 +53,11 @@ Ví dụ:
 Attention question bắt buộc có observation, câu hỏi kết thúc bằng `?` và ít nhất một evidence reference.
 Nó không phải command, decision, acceptance hoặc ownership transfer. Peer chỉ nhận và tự resolve signal;
 surface này không cấp cho Peer quyền signal/orchestrate. Agent-scoped Supervisor và target phải cùng
-exact workspace. Runtime chỉ nhận một factual observation clause và một clarification clause thuộc finite
-evidence/observation/assumption/uncertainty/risk/constraint/inconsistency/interpretation/status grammar;
-suffix, câu bổ sung, imperative, request hoặc wording mang authority/external-effect shape đều fail closed.
+exact workspace. Runtime chỉ nhận một observation clause và một clarification clause bounded tới 1000
+ký tự mỗi phần; không có positive allowlist grammar cố định. Câu bổ sung, imperative, modal/second-person
+request, wording mang authority/external-effect shape, hoặc routing/handoff-shaped phrasing hướng về một
+role (ví dụ "đưa về Lead", "back to the Lead") đều fail closed, kể cả khi diễn đạt tự nhiên bằng tiếng Anh
+hoặc tiếng Việt.
 
 Detach recommendation không promote agent. Detach thật chỉ xóa parent label và vẫn cần exact
 Human-facing lifecycle action.

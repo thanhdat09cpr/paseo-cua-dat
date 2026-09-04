@@ -1454,45 +1454,16 @@ describe("ask_attention_question MCP tool", () => {
     expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
   });
 
-  it("preserves caller-generation authority when a .45 caller addresses a .46 target", async () => {
-    const registry = createDefaultSlpBundledPolicyRegistry();
-    const scenario = setupAttentionQuestionScenario(registry.resolveActive("slp").owner);
-    const frozen = registry.resolvePinned({
-      kind: "plugin",
-      pluginId: "slp",
-      policyVersion: "1.0.0",
-      generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
-    });
-    scenario.spies.agentManager.resolveSlpPolicyForRoleBinding.mockReturnValue(frozen.contribution);
-    const server = await createAgentMcpServer({
-      agentManager: scenario.agentManager,
-      agentStorage: scenario.agentStorage,
-      providerSnapshotManager: createOpenCodeManager().manager,
-      callerAgentId: scenario.caller.id,
-      sendAgentMessageAtSafeBoundary: vi.fn(async () => undefined),
-      logger,
-    });
-
-    await expect(
-      invokeToolWithParsedInput(registeredTool(server, "ask_attention_question"), {
-        agentId: "target-agent",
-        ...question,
-      }),
-    ).rejects.toThrow("attention_questions_unavailable_for_pinned_generation");
-    expect(scenario.spies.agentManager.assertAttentionQuestionTargetSupport).not.toHaveBeenCalled();
-    expect(scenario.getTarget().coordinationSignals).toEqual([]);
-  });
-
   it.each([
     {
-      name: ".45",
+      name: "removed-historical",
       owner: {
         kind: "plugin",
         pluginId: "slp",
         policyVersion: "1.0.0",
         generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
       },
-      error: "target_generation_unsupported",
+      error: "target_generation_unavailable",
     },
     { name: "legacy", owner: { kind: "legacy-core" }, error: "legacy-or-non-slp" },
     { name: "missing", owner: null, error: "owner_missing" },

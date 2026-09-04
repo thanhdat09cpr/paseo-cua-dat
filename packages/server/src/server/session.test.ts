@@ -589,14 +589,14 @@ describe("Human attention question requests", () => {
 
   test.each([
     {
-      name: ".45",
+      name: "removed-historical",
       owner: {
         kind: "plugin",
         pluginId: "slp",
         policyVersion: "1.0.0",
         generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
       },
-      error: "target_generation_unsupported",
+      error: "target_generation_unavailable",
     },
     { name: "legacy", owner: { kind: "legacy-core" }, error: "legacy-or-non-slp" },
     { name: "missing", owner: undefined, error: "owner_missing" },

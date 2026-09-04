@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { LeadHandoffTransition } from "@getpaseo/protocol/lead-handoff";
 import type { PaseoRoleId } from "@getpaseo/protocol/role-binding";
 
-export const SLP_COORDINATION_POLICY_VERSION = "4";
+export const SLP_COORDINATION_POLICY_VERSION = "5";
 
 export const SLP_COORDINATION_TOOL_DESCRIPTIONS = {
   prepareLeadHandoff:
@@ -17,53 +17,51 @@ export const SLP_COORDINATION_TOOL_DESCRIPTIONS = {
     "Record the receiving role's autonomous disposition of a coordination signal. This does not report to or transfer authority to the sender.",
 } as const;
 
-const CLARIFICATION_TOPIC =
-  "(?:evidence|observation|assumption|uncertainty|risk|constraint|inconsistency|interpretation|status)";
-const CLARIFICATION_OBJECT =
-  "(?:evidence|observation|assumption|uncertainty|risk|constraint|inconsistency|interpretation|status|record|plan|conclusion|delay)";
-const CLARIFICATION_QUESTION_GRAMMARS = [
-  new RegExp(
-    `^what evidence (?:supports|contradicts) the (?:current )?${CLARIFICATION_OBJECT}\\?$`,
-    "iu",
-  ),
-  new RegExp(`^what evidence is missing from the (?:current )?${CLARIFICATION_OBJECT}\\?$`, "iu"),
-  new RegExp(
-    `^which ${CLARIFICATION_TOPIC} (?:remains uncertain|remains unsupported by the cited (?:evidence|trace)|explains the observed delay)\\?$`,
-    "iu",
-  ),
-  new RegExp(
-    `^what ${CLARIFICATION_TOPIC} (?:explains the observed delay|is reflected in the current (?:evidence|observation|status))\\?$`,
-    "iu",
-  ),
-  new RegExp(
-    `^why does (?:this|the current) ${CLARIFICATION_TOPIC} (?:conflict with|differ from) the (?:current )?${CLARIFICATION_OBJECT}\\?$`,
-    "iu",
-  ),
-] as const;
-const FACTUAL_OBSERVATION_GRAMMARS = [
-  new RegExp(
-    `^the (?:current )?${CLARIFICATION_OBJECT} (?:supports|contradicts|conflicts with|differs from|omits) the (?:(?:current|reviewed|cited|observed) )?${CLARIFICATION_OBJECT}\\.$`,
-    "iu",
-  ),
-  /^the working stream reversed its (?:stated scope|ownership) premise\.$/iu,
-  /^the prior patch was merged before this evidence arrived\.$/iu,
-  /^the branch is obsolete\.$/iu,
-  /^the candidate is awaiting review\.$/iu,
-] as const;
+const MAX_ATTENTION_TEXT_LENGTH = 1000;
 const CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE = /[;:\r\n]|[.!?].+\S/iu;
 const MODAL_OR_REQUEST_PREFIX =
   /^(?:(?:can|could|would|will|should|may|might|do|does|did|please|kindly)\b|is\s+it\s+possible\b)/iu;
 const MODAL_LANGUAGE = /\b(?:can|could|would|will|should|may|might|must|shall)\b/iu;
-const SECOND_PERSON_REFERENCE = /\b(?:you|your|yours|yourself)\b/iu;
 const SECOND_PERSON_REQUEST_LANGUAGE =
   /\b(?:for\s+you\s+to|you\s+(?:must|shall|should|need\s+to|have\s+to|will|are\s+to)|prevents?\s+you\s+from|requires?\s+you\s+to|asks?\s+you\s+to)\b/iu;
 const AUTHORITY_MODAL_LANGUAGE = /\b(?:must|shall|should|need(?:s)?\s+to|have\s+to|has\s+to)\b/iu;
 const OBSERVATION_IMPERATIVE_PREFIX =
   /^(?:delete|remove|merge|squash|land|ship|apply|run|execute|assign|take|transfer|handoff|hand\s+off|detach|write|edit|commit|push|release|deploy|restart|stop|start|approve|accept|reject|decide|recover|override|escalate|close)\b/iu;
 const BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE =
-  /\b(?:delet(?:e|es|ed|ing|ion)|remov(?:e|es|ed|ing|al)|merg(?:e|es|ed|ing)|squash(?:es|ed|ing)?|land(?:s|ed|ing)?|ship(?:s|ped|ping)?|appl(?:y|ies|ied|ying|ication|ications)|run|runs|ran|running|execut(?:e|es|ed|ing|ion|ions)|assign(?:s|ed|ing|ment|ments)?|tak(?:e|es|ing)\s+(?:over|ownership)|took\s+(?:over|ownership)|ownership\s+transfer|transfer(?:s|red|ring)?|hand(?:off|\s+off|s\s+off|ed\s+off|ing\s+off)|detach(?:es|ed|ing|ment)?|writ(?:e|es|ing|ten)|wrote|edit(?:s|ed|ing)?|commit(?:s|ted|ting)?|push(?:es|ed|ing)?|releas(?:e|es|ed|ing)|deploy(?:s|ed|ing|ment|ments)?|restart(?:s|ed|ing)?|stop(?:s|ped|ping)?|start(?:s|ed|ing)?|approv(?:e|es|ed|ing|al)|accept(?:s|ed|ing|ance)?|reject(?:s|ed|ing|ion)?|decid(?:e|es|ed|ing)|decision(?:s)?|verdict(?:s)?|recover(?:s|ed|ing|y|ies)?|override(?:s|d|ing)?|escalat(?:e|es|ed|ing|ion)|clos(?:e|es|ed|ing)|activat(?:e|es|ed|ing|ion)|reassign(?:s|ed|ing|ment)?|replac(?:e|es|ed|ing|ement)|implement(?:s|ed|ing|ation)?|modif(?:y|ies|ied|ying|ication)|tag(?:s|ged|ging)?)\b/iu;
+  /\b(?:delet(?:e|es|ed|ing|ion)|remov(?:e|es|ed|ing|al)|merg(?:e|es|ed|ing)|squash(?:es|ed|ing)?|land(?:s|ed|ing)?|ship(?:s|ped|ping)?|appl(?:y|ies|ied|ying|ication|ications)|run|runs|ran|running|execut(?:e|es|ed|ing|ion|ions)|assign(?:s|ed|ing|ment|ments)?|tak(?:e|es|ing)\s+(?:over|ownership)|took\s+(?:over|ownership)|ownership\s+transfer|transfer(?:s|red|ring)?|hand(?:off|\s+off|s\s+off|ed\s+off|ing\s+off)|detach(?:es|ed|ing|ment)?|writ(?:e|es|ing|ten)|edit(?:s|ed|ing)?|commit(?:s|ted|ting)?|push(?:es|ed|ing)?|releas(?:e|es|ed|ing)|deploy(?:s|ed|ing|ment|ments)?|restart(?:s|ed|ing)?|stop(?:s|ped|ping)?|start(?:s|ed|ing)?|approv(?:e|es|ed|ing|al)|accept(?:s|ed|ing|ance)?|reject(?:s|ed|ing|ion)?|decid(?:e|es|ed|ing)|decision(?:s)?|verdict(?:s)?|recover(?:s|ed|ing|y|ies)?|override(?:s|d|ing)?|escalat(?:e|es|ed|ing|ion)|clos(?:e|es|ed|ing)|activat(?:e|es|ed|ing|ion)|reassign(?:s|ed|ing|ment)?|replac(?:e|es|ed|ing|ement)|implement(?:s|ed|ing|ation)?|modif(?:y|ies|ied|ying|ication)|tag(?:s|ged|ging)?)\b/iu;
 const OBSERVATION_REQUEST_SHAPE = new RegExp(
   `(?:^(?:please|kindly|do|make|go|proceed|change|freeze)\\b|\\b(?:requests?|proposes?|instructs?|asks?)\\s+(?:you\\s+)?(?:to\\s+)?${BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.source})`,
+  "iu",
+);
+const ROLE_TOKEN = "(?:lead|peer|supervisor|human)";
+const ROUTING_OR_HANDOFF_LANGUAGE = new RegExp(
+  `\\b(?:back\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|go(?:es)?\\s+back\\s+to\\b|return(?:s|ed|ing)?\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|hand(?:ed|ing)?\\s+(?:back\\s+)?to\\s+the\\s+${ROLE_TOKEN}\\b|rout(?:e|es|ed|ing)\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|escalat(?:e|es|ed|ing)\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|về\\s+${ROLE_TOKEN}\\b|đưa\\s+về\\b)`,
+  "iu",
+);
+
+// Unicode-aware word boundaries: `\b` treats Vietnamese diacritic letters as
+// non-word characters, so a plain `\b` can fail to anchor at the edge of a
+// word ending in a combining/precomposed vowel (e.g. "xoá"). These lookarounds
+// anchor on any Unicode letter/number instead.
+const UWB_START = "(?<![\\p{L}\\p{N}_])";
+const UWB_END = "(?![\\p{L}\\p{N}_])";
+const VI_ACTION_OR_EFFECT_TERMS = [
+  "xóa",
+  "xoá",
+  "chuyển quyền sở hữu",
+  "bàn giao",
+  "phê duyệt",
+  "chấp nhận",
+  "khởi động lại",
+  "triển khai",
+];
+const VI_ACTION_OR_EFFECT_LANGUAGE = new RegExp(
+  `${UWB_START}(?:${VI_ACTION_OR_EFFECT_TERMS.join("|")})${UWB_END}`,
+  "iu",
+);
+const VI_MODAL_OR_REQUEST_TERMS = ["hãy", "vui lòng", "có thể", "nên", "phải", "cần"];
+const VI_MODAL_OR_REQUEST_LANGUAGE = new RegExp(
+  `${UWB_START}(?:${VI_MODAL_OR_REQUEST_TERMS.join("|")})${UWB_END}`,
   "iu",
 );
 
@@ -104,14 +102,22 @@ function assertAuthorityNeutralObservation(observation: string): void {
   if (!normalized) {
     throw new Error("attention_question requires a concrete observation");
   }
+  if (normalized.length > MAX_ATTENTION_TEXT_LENGTH) {
+    throw new Error(
+      `attention_question observation must be at most ${MAX_ATTENTION_TEXT_LENGTH} characters`,
+    );
+  }
   if (
     CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized) ||
-    !FACTUAL_OBSERVATION_GRAMMARS.some((grammar) => grammar.test(normalized)) ||
     SECOND_PERSON_REQUEST_LANGUAGE.test(normalized) ||
     AUTHORITY_MODAL_LANGUAGE.test(normalized) ||
     MODAL_OR_REQUEST_PREFIX.test(normalized) ||
     OBSERVATION_IMPERATIVE_PREFIX.test(normalized) ||
-    OBSERVATION_REQUEST_SHAPE.test(normalized)
+    OBSERVATION_REQUEST_SHAPE.test(normalized) ||
+    BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.test(normalized) ||
+    ROUTING_OR_HANDOFF_LANGUAGE.test(normalized) ||
+    VI_ACTION_OR_EFFECT_LANGUAGE.test(normalized) ||
+    VI_MODAL_OR_REQUEST_LANGUAGE.test(normalized)
   ) {
     throw new Error("attention_question observation must be authority-neutral factual prose");
   }
@@ -125,20 +131,20 @@ function assertAuthorityNeutralClarificationQuestion(question: string): void {
   if (!normalized.endsWith("?") || (normalized.match(/\?/gu)?.length ?? 0) !== 1) {
     throw new Error("attention_question requires one open question ending in '?'");
   }
-  if (
-    CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized) ||
-    !CLARIFICATION_QUESTION_GRAMMARS.some((grammar) => grammar.test(normalized))
-  ) {
-    throw new Error(
-      "attention_question must be a bounded clarification about evidence, observation, assumption, uncertainty, risk, constraint, inconsistency, interpretation, or status",
-    );
+  if (normalized.length > MAX_ATTENTION_TEXT_LENGTH) {
+    throw new Error(`attention_question must be at most ${MAX_ATTENTION_TEXT_LENGTH} characters`);
+  }
+  if (CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized)) {
+    throw new Error("attention_question must be a single bounded clarification clause");
   }
   if (
     MODAL_OR_REQUEST_PREFIX.test(normalized) ||
     MODAL_LANGUAGE.test(normalized) ||
-    SECOND_PERSON_REFERENCE.test(normalized) ||
     SECOND_PERSON_REQUEST_LANGUAGE.test(normalized) ||
-    BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.test(normalized)
+    BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.test(normalized) ||
+    ROUTING_OR_HANDOFF_LANGUAGE.test(normalized) ||
+    VI_ACTION_OR_EFFECT_LANGUAGE.test(normalized) ||
+    VI_MODAL_OR_REQUEST_LANGUAGE.test(normalized)
   ) {
     throw new Error(
       "attention_question cannot request action, authority, verdict, or external effect",

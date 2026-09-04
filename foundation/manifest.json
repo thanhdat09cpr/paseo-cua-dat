@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "distributionVersion": "0.1.0-dev.23",
+  "distributionVersion": "0.1.0-dev.24",
   "foundationSource": {
-    "commit": "bb6d2daed6354d8eb47602f6ca99543ec74511ba",
-    "ref": "foundation-v0.1.0-dev.23"
+    "commit": "906f48ca89b92ad0142bdfab42e1a3406db0be68",
+    "ref": "foundation-v0.1.0-dev.24"
   },
   "files": [
     {
@@ -37,16 +37,6 @@
       "sha256": "ed79252d96f76c94b6afd51618591cbb8af5953954fa75df20faf2cb1715bc2a"
     },
     {
-      "path": "docs/books/ai-agent-orchestration-doctrine.en.md",
-      "mode": "0644",
-      "sha256": "5dd1b07af90a13efd70bde6d96ffc05b6f30be41ea29ed67da779dcc560b6dbe"
-    },
-    {
-      "path": "docs/books/ai-agent-orchestration-doctrine.vi.md",
-      "mode": "0644",
-      "sha256": "c35ae013867b32398cc4ea55b6e13977a043acb8ddb8925432ec894d35446aa5"
-    },
-    {
       "path": "profiles/antigravity/agents/paseo-lead/agent.md",
       "mode": "0644",
       "sha256": "9fa83f5583bd94ab5f579d657e0162964d118838dc95ef5278078b1a5689a59c"
@@ -64,7 +54,7 @@
     {
       "path": "profiles/claude-plugins/paseo-lead/.claude-plugin/plugin.json",
       "mode": "0644",
-      "sha256": "3cf2c39c67d711e86d2658522ba82f5d0b15336eaae8ec040c909ecdc83c458d"
+      "sha256": "b4284b842addbc01e7029359ddbae7dd85064ac552b176d9f395c6c87ebc3f16"
     },
     {
       "path": "profiles/claude-plugins/paseo-lead/agents/paseo-lead.md",
@@ -109,7 +99,7 @@
     {
       "path": "profiles/claude-plugins/paseo-peer/.claude-plugin/plugin.json",
       "mode": "0644",
-      "sha256": "e8ce69ad97e9db03f99b6b0fcbc844ba856fa0aac32072fae0ffc1e94258cd8c"
+      "sha256": "2ba83f8aa6f75920db1ab6bc7c16d67d657f88b17dbaa16d88a3f840e444a240"
     },
     {
       "path": "profiles/claude-plugins/paseo-peer/agents/paseo-peer.md",
@@ -134,7 +124,7 @@
     {
       "path": "profiles/claude-plugins/paseo-supervisor/.claude-plugin/plugin.json",
       "mode": "0644",
-      "sha256": "1ac2086a9d7d9bddb8a60221261b86aad4b97a57c515c793ade5613a96f01515"
+      "sha256": "dae295480eceaa06788c529c12c028d364f8eab962ae2900f68c12549f83f41c"
     },
     {
       "path": "profiles/claude-plugins/paseo-supervisor/agents/paseo-supervisor.md",

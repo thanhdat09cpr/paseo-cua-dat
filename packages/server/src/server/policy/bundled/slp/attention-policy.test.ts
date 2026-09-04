@@ -11,10 +11,6 @@ import {
   SLP_ATTENTION_EVENT_POLICY,
   slpAttentionPolicyEnabled,
 } from "./attention-policy.js";
-import {
-  SLP_V1_0_ATTENTION_ENABLE_FLAG,
-  SLP_V1_0_ATTENTION_EVENT_POLICY,
-} from "./v1-0-attention-policy.js";
 
 const TEST_STATE_NAMESPACE = "slp@test-generation";
 const TEST_STATE_KEY = `${TEST_STATE_NAMESPACE}/slp.attention`;
@@ -139,52 +135,6 @@ describe("bundled SLP attention policy", () => {
     expect(slpAttentionPolicyEnabled({})).toBe(true);
     expect(slpAttentionPolicyEnabled({ [SLP_ATTENTION_DISABLE_FLAG]: "0" })).toBe(true);
     expect(slpAttentionPolicyEnabled({ [SLP_ATTENTION_DISABLE_FLAG]: "1" })).toBe(false);
-  });
-
-  test("preserves frozen .45 opt-in and one-shot state semantics", async () => {
-    const harness = createHarness();
-    harness.addAgent({ id: "lead-1", roleId: "lead" });
-    const record = harness.records.get("lead-1");
-    if (!record) throw new Error("missing .45 Lead record");
-    record.coordinationPolicyState = {
-      consecutiveTurnFailures: 0,
-      failureAttentionSent: false,
-      automaticCompactionCount: 4,
-      automaticCompactionAttentionSent: false,
-      contextPressureAttentionSent: false,
-      lastContextRatio: 0.4,
-    };
-    const stateNamespace = "slp@569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0";
-    const runtime = startEventPolicyRuntime({
-      dependencies: harness.dependencies,
-      advertisedPolicies: [SLP_V1_0_ATTENTION_EVENT_POLICY],
-      resolvePolicies: () => [{ policy: SLP_V1_0_ATTENTION_EVENT_POLICY, stateNamespace }],
-      environment: { [SLP_V1_0_ATTENTION_ENABLE_FLAG]: "1" },
-    });
-    const compaction = {
-      type: "agent_stream" as const,
-      agentId: "lead-1",
-      event: {
-        type: "timeline" as const,
-        provider: "claude",
-        item: { type: "compaction" as const, status: "completed" as const, trigger: "auto" },
-      },
-    };
-    harness.emit(compaction);
-    harness.emit(compaction);
-    await vi.waitFor(() =>
-      expect(harness.records.get("lead-1")?.coordinationSignals).toHaveLength(1),
-    );
-    expect(
-      harness.records.get("lead-1")?.eventPolicyStates?.[`${stateNamespace}/slp.attention`],
-    ).toMatchObject({
-      version: 1,
-      state: { automaticCompactionCount: 6, automaticCompactionAttentionSent: true },
-    });
-    expect(harness.records.get("lead-1")?.coordinationPolicyState).toEqual(
-      record.coordinationPolicyState,
-    );
-    runtime.stop();
   });
 
   test("classifies sparse semantic friction and ignores ordinary output", () => {
