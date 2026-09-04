@@ -182,6 +182,11 @@ generic subscription, versioned state, persistence, safe-boundary delivery, coal
 Emergency rollback đặt `PASEO_DISABLE_SLP_ATTENTION_POLICY=1`. Missing telemetry hoặc missing/ambiguous
 role target fail closed.
 
+F-06 Phase 2B chỉ có bằng chứng source/test: semantic-friction được gate trước khi buffer/classify,
+Lead failure không có Supervisor duy nhất phát một coordination attention bounded, và protocol validator
+được regenerate đồng bộ. Các receipt này không chứng minh release artifact, daemon đã cài, WebSocket live
+hay multi-day operational effect; những lớp đó vẫn `UNPROVEN` cho tới khi có readback riêng.
+
 Role-bound Supervisor có thể dùng bounded `ask_attention_question`, hoặc Human dùng CLI `--kind
 question`, để hỏi Lead/Peer tại safe boundary. Request bắt buộc tách observation, open question và
 evidence references. Nó không command, decide, accept hoặc transfer ownership; Peer không nhờ vậy có
@@ -189,9 +194,6 @@ signal/orchestration authority. Agent-scoped caller/target phải cùng exact wo
 hình hoặc wording command/acceptance/ownership/handoff/write/recovery bị reject. Attention đã
 resolve/defer/decline/complete có thể re-arm ở episode/fingerprint mới, trong khi pending duplicate cùng
 rule/fingerprint merge occurrence evidence thay vì phát prompt mới.
-
-Đây chỉ là source/test candidate. Release artifact, installed/live daemon behavior và multi-day effect
-vẫn `UNPROVEN`; không suy diễn các state đó từ focused tests.
 
 ## Manual stop conditions
 

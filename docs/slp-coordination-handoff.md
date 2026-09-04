@@ -19,6 +19,11 @@ alias to current semantics. Only the actively registered SLP generation resolves
 
 Không được gọi ba slice này là shipped production capability chỉ vì focused tests xanh.
 
+F-06 Phase 2B attention remediation là source/test candidate: focused tests, generated validator và
+bundled-generation digest chỉ là receipt của source/artifact consistency. Chúng không phải installed/live
+daemon evidence, WebSocket canary hoặc proof về multi-day operational effect; các lớp đó phải được
+readback riêng và vẫn `UNPROVEN` nếu chưa có receipt.
+
 Default profile chỉ project surface tối thiểu: mọi role mặc định có thể nhận attention được resolve
 signal của chính mình; Supervisor có thể hỏi một bounded attention question. Các surface tạo agent,
 handoff, detach hoặc send rộng hơn vẫn opt-in/denied theo authority hiện có. Default projection là source

@@ -23,6 +23,7 @@ import type { AgentAttachment, SessionOutboundMessage } from "@getpaseo/protocol
 import { parseServerInfoStatusPayload } from "@getpaseo/protocol/messages";
 import {
   buildAgentAttentionNotificationPayload,
+  type AgentAttentionNotificationCategory,
   type AgentAttentionReason,
   type AgentAttentionNotificationPayload,
   type NotificationPermissionRequest,
@@ -41,7 +42,7 @@ import {
   type SessionState,
 } from "@/stores/session-store";
 import { useWorkspaceSetupStore } from "@/stores/workspace-setup-store";
-import { sendOsNotification } from "@/utils/os-notifications";
+import { isAgentAttentionNotificationEligible, sendOsNotification } from "@/utils/os-notifications";
 import { getIsAppActivelyVisible, getIsAppVisible } from "@/utils/app-visibility";
 import {
   getInitKey,
@@ -162,6 +163,7 @@ const getLatestPermissionRequest = (
 
 interface AgentAttentionNotificationInput {
   notification?: AgentAttentionNotificationPayload;
+  category?: AgentAttentionNotificationCategory;
   reason: AgentAttentionReason;
   serverId: string;
   workspaceId: string | undefined;
@@ -181,6 +183,7 @@ function resolveAgentAttentionNotification(
   }
   return buildAgentAttentionNotificationPayload({
     reason: input.reason,
+    category: input.category,
     serverId: input.serverId,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
@@ -311,7 +314,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       const appState = appStateRef.current;
       const session = useSessionStore.getState().sessions[serverId];
       const attentionFocusedAgentId = session?.focusedAgentId ?? null;
-      if (params.reason === "error") {
+      const category = params.notification?.data.category;
+      if (!isAgentAttentionNotificationEligible(params.reason, category)) {
         return;
       }
       const isActivelyVisible = getIsAppActivelyVisible(appState);
@@ -336,6 +340,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
 
       const notification = resolveAgentAttentionNotification({
         notification: params.notification,
+        category,
         reason: params.reason,
         serverId,
         workspaceId,

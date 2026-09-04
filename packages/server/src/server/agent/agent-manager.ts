@@ -5,6 +5,7 @@ import {
   AGENT_LIFECYCLE_STATUSES,
   type AgentLifecycleStatus,
 } from "@getpaseo/protocol/agent-lifecycle";
+import type { AgentAttentionNotificationCategory } from "@getpaseo/protocol/agent-attention-notification";
 import {
   getParentAgentIdFromLabels,
   hasOpenAgentTab,
@@ -283,7 +284,11 @@ export type AgentAttentionCallback = (params: {
   agentId: string;
   provider: AgentProvider;
   reason: "finished" | "error" | "permission";
+  category?: AgentAttentionNotificationCategory;
 }) => void;
+
+type AgentAttentionCallbackParams = Parameters<AgentAttentionCallback>[0];
+const MAX_PENDING_AGENT_ATTENTION_NOTIFICATIONS = 64;
 
 export type AgentArchivedCallback = (agentId: string) => Promise<void> | void;
 
@@ -872,6 +877,7 @@ export class AgentManager {
   private readonly trustedSembleRuntime: TrustedSembleRuntime | null;
   private appendSystemPrompt: string;
   private onAgentAttention?: AgentAttentionCallback;
+  private readonly pendingAgentAttentions: AgentAttentionCallbackParams[] = [];
   private onAgentArchived?: AgentArchivedCallback;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
   private logger: Logger;
@@ -977,6 +983,25 @@ export class AgentManager {
 
   setAgentAttentionCallback(callback: AgentAttentionCallback): void {
     this.onAgentAttention = callback;
+    if (this.pendingAgentAttentions.length === 0) {
+      return;
+    }
+    const pending = this.pendingAgentAttentions.splice(0);
+    for (const params of pending) {
+      callback(params);
+    }
+  }
+
+  notifyAgentAttention(
+    agentId: string,
+    reason: "finished" | "error" | "permission",
+    category?: AgentAttentionNotificationCategory,
+  ): void {
+    const agent = this.agents.get(agentId);
+    if (!agent || agent.internal) {
+      return;
+    }
+    this.broadcastAgentAttention(agent, reason, category);
   }
 
   setAgentArchivedCallback(callback: AgentArchivedCallback): void {
@@ -5389,16 +5414,33 @@ export class AgentManager {
   private broadcastAgentAttention(
     agent: ManagedAgent,
     reason: "finished" | "error" | "permission",
+    category?: AgentAttentionNotificationCategory,
   ): void {
     if (isDelegatedAgent(agent)) {
       return;
     }
 
-    this.onAgentAttention?.({
+    const params = {
       agentId: agent.id,
       provider: agent.provider,
       reason,
-    });
+      ...(category ? { category } : {}),
+    } satisfies AgentAttentionCallbackParams;
+    if (this.onAgentAttention) {
+      this.onAgentAttention(params);
+      return;
+    }
+    if (reason !== "error" || category !== "coordination") {
+      return;
+    }
+    if (this.pendingAgentAttentions.length >= MAX_PENDING_AGENT_ATTENTION_NOTIFICATIONS) {
+      this.logger.warn(
+        { agentId: agent.id, reason, category },
+        "Dropping agent attention while callback is unavailable because the bounded queue is full",
+      );
+      return;
+    }
+    this.pendingAgentAttentions.push(params);
   }
 
   private dispatchStream(

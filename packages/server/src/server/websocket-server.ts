@@ -69,6 +69,7 @@ import {
 import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
+  type AgentAttentionNotificationCategory,
 } from "@getpaseo/protocol/agent-attention-notification";
 import { createGitHubService } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
@@ -2600,6 +2601,7 @@ export class VoiceAssistantWebSocketServer {
     agentId: string;
     provider: AgentProvider;
     reason: "finished" | "error" | "permission";
+    category?: AgentAttentionNotificationCategory;
   }): Promise<void> {
     const agent = this.agentManager.getAgent(params.agentId);
     if (!agent?.workspaceId) {
@@ -2624,6 +2626,7 @@ export class VoiceAssistantWebSocketServer {
     const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
     const notification = buildAgentAttentionNotificationPayload({
       reason: params.reason,
+      category: params.category,
       serverId: this.serverId,
       workspaceId: agent.workspaceId,
       agentId: params.agentId,
@@ -2634,7 +2637,7 @@ export class VoiceAssistantWebSocketServer {
     const plan = computeNotificationPlan({
       allStates,
       focusTarget: { kind: "agent", id: params.agentId },
-      pushEligible: isPushEligibleAttentionReason(params.reason),
+      pushEligible: isPushEligibleAttentionReason(params.reason, params.category),
       nowMs,
     });
 

@@ -48,6 +48,7 @@ interface WebSocketServerInternals {
   broadcastAgentAttention(params: {
     agentId: string;
     reason: string;
+    category?: "coordination";
     preview?: string;
     providerId?: string;
     timestamp?: string;
@@ -370,6 +371,42 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
 
     expect(readAttentionRequiredMessage(ws).shouldNotify).toBe(false);
     expect(pushNotifications.sent).toHaveLength(1);
+  });
+
+  it("pushes coordination attention with generic copy while preserving error suppression", async () => {
+    const { server, pushNotifications } = createServer({
+      getLastAssistantMessage: vi.fn(async () => "Sensitive model output"),
+    });
+    const ws = connectClient(server, null);
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "lead-1",
+      provider: "codex",
+      reason: "error",
+      category: "coordination",
+    });
+
+    expect(pushNotifications.sent).toEqual([
+      {
+        title: "Lead needs attention",
+        body: "Lead reached the repeated runtime-failure threshold and may be unable to self-recover.",
+        data: {
+          serverId: "srv-test",
+          workspaceId: WORKSPACE_ID,
+          agentId: "lead-1",
+          reason: "error",
+          category: "coordination",
+        },
+      },
+    ]);
+    expect(readAttentionRequiredMessage(ws)).toMatchObject({
+      reason: "error",
+      notification: {
+        title: "Lead needs attention",
+        body: "Lead reached the repeated runtime-failure threshold and may be unable to self-recover.",
+        data: { reason: "error", category: "coordination" },
+      },
+    });
   });
 
   it("does not push error attention when the only connected client has never sent a heartbeat", async () => {

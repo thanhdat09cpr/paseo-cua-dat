@@ -6,7 +6,12 @@ import type { CoordinationSignalDependencies } from "./coordination-signals.js";
 
 type EventPolicyAgentManager = Pick<
   AgentManager,
-  "getAgent" | "hasInFlightRun" | "listAgents" | "notifyAgentState" | "subscribe"
+  | "getAgent"
+  | "hasInFlightRun"
+  | "listAgents"
+  | "notifyAgentAttention"
+  | "notifyAgentState"
+  | "subscribe"
 >;
 
 export interface EventPolicyRuntimeDependencies extends Omit<

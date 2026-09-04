@@ -209,7 +209,7 @@ const SourceSchema = z.object({
         type: "agent_attention_required",
         payload: {
           agentId: "agent-1",
-          reason: "finished",
+          reason: "error",
           timestamp: "2026-07-22T18:00:00.000Z",
           shouldNotify: true,
           notification: {
@@ -219,7 +219,8 @@ const SourceSchema = z.object({
               serverId: "server-1",
               workspaceId: "workspace-1",
               agentId: "agent-1",
-              reason: "finished",
+              reason: "error",
+              category: "coordination",
             },
           },
         },

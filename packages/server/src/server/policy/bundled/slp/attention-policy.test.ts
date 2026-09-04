@@ -74,6 +74,11 @@ function createHarness() {
     });
   }
 
+  function removeAgent(id: string) {
+    agents.delete(id);
+    records.delete(id);
+  }
+
   const dependencies = {
     agentStorage: {
       get: vi.fn(async (id: string) => records.get(id) ?? null),
@@ -84,6 +89,7 @@ function createHarness() {
       getAgent: vi.fn((id: string) => agents.get(id) ?? null),
       listAgents: vi.fn(() => [...agents.values()]),
       hasInFlightRun: vi.fn((id: string) => agents.get(id)?.lifecycle === "running"),
+      notifyAgentAttention: vi.fn(),
       notifyAgentState: vi.fn(),
       subscribe: vi.fn(
         (
@@ -127,7 +133,7 @@ function createHarness() {
       environment: {},
     });
 
-  return { addAgent, dependencies, emit, records, sent, start };
+  return { addAgent, dependencies, emit, records, removeAgent, sent, start };
 }
 
 describe("bundled SLP attention policy", () => {
@@ -258,7 +264,7 @@ describe("bundled SLP attention policy", () => {
     });
     await vi.waitFor(() =>
       expect(harness.records.get("lead-1")?.eventPolicyStates?.[TEST_STATE_KEY]).toMatchObject({
-        version: 4,
+        version: 5,
         state: { automaticCompactionCount: 1, consecutiveTurnFailures: 0 },
       }),
     );
@@ -316,6 +322,69 @@ describe("bundled SLP attention policy", () => {
     await vi.waitFor(() =>
       expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(2),
     );
+    runtime.stop();
+  });
+
+  test("does not buffer semantic fragments before a unique Supervisor exists", async () => {
+    const harness = createHarness();
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    const runtime = harness.start();
+    const emitVisible = (text: string) =>
+      harness.emit({
+        type: "agent_stream",
+        agentId: "lead-1",
+        event: {
+          type: "timeline",
+          provider: "codex",
+          turnId: "turn-1",
+          item: { type: "assistant_message", text },
+        },
+      });
+
+    emitVisible("I made a ");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    emitVisible("mistake about the authority boundary.");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toBeUndefined();
+    runtime.stop();
+  });
+
+  test("clears semantic fragments while the Supervisor target is ambiguous", async () => {
+    const harness = createHarness();
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    harness.addAgent({ id: "supervisor-2", roleId: "supervisor" });
+    const runtime = harness.start();
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "turn-1",
+        item: { type: "assistant_message", text: "I made a " },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    harness.removeAgent("supervisor-2");
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "turn-1",
+        item: {
+          type: "assistant_message",
+          text: "mistake about the authority boundary.",
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toBeUndefined();
     runtime.stop();
   });
 
@@ -448,6 +517,84 @@ describe("bundled SLP attention policy", () => {
     await vi.waitFor(() =>
       expect(harness.records.get("lead-1")?.coordinationSignals).toHaveLength(2),
     );
+    runtime.stop();
+  });
+
+  test("notifies Human once for a Lead failure episode without a unique Supervisor", async () => {
+    const harness = createHarness();
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    const runtime = harness.start();
+    const failure = {
+      type: "agent_stream" as const,
+      agentId: "lead-1",
+      event: { type: "turn_failed" as const, provider: "codex", error: "provider failed" },
+    };
+
+    harness.emit(failure);
+    harness.emit(failure);
+    harness.emit(failure);
+    await vi.waitFor(() =>
+      expect(harness.dependencies.agentManager.notifyAgentAttention).toHaveBeenCalledTimes(1),
+    );
+    expect(harness.dependencies.agentManager.notifyAgentAttention).toHaveBeenCalledWith(
+      "lead-1",
+      "error",
+      "coordination",
+    );
+
+    harness.emit(failure);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.dependencies.agentManager.notifyAgentAttention).toHaveBeenCalledTimes(1);
+
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: { type: "turn_completed", provider: "codex" },
+    });
+    harness.emit(failure);
+    harness.emit(failure);
+    harness.emit(failure);
+    await vi.waitFor(() =>
+      expect(harness.dependencies.agentManager.notifyAgentAttention).toHaveBeenCalledTimes(2),
+    );
+
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: { type: "turn_canceled", provider: "codex" },
+    });
+    harness.emit(failure);
+    harness.emit(failure);
+    harness.emit(failure);
+    await vi.waitFor(() =>
+      expect(harness.dependencies.agentManager.notifyAgentAttention).toHaveBeenCalledTimes(3),
+    );
+    runtime.stop();
+  });
+
+  test("keeps the Lead coordination signal and skips Human notification with one Supervisor", async () => {
+    const harness = createHarness();
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    const runtime = harness.start();
+    const failure = {
+      type: "agent_stream" as const,
+      agentId: "lead-1",
+      event: { type: "turn_failed" as const, provider: "codex", error: "provider failed" },
+    };
+
+    harness.emit(failure);
+    harness.emit(failure);
+    harness.emit(failure);
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(harness.dependencies.agentManager.notifyAgentAttention).not.toHaveBeenCalled();
+
+    harness.emit(failure);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1);
+    expect(harness.dependencies.agentManager.notifyAgentAttention).not.toHaveBeenCalled();
     runtime.stop();
   });
 
