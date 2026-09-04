@@ -4,6 +4,7 @@ import {
   buildHostTopology,
   buildProjectTopology,
   buildWorkspaceTopology,
+  formatTopologyAssignment,
 } from "@/panels/topology-model";
 
 function agent(input: {
@@ -294,5 +295,38 @@ describe("buildHostTopology", () => {
     expect(topology.nodes.map((node) => node.id)).toEqual(["lead", "peer", "legacy", "supervisor"]);
     expect(topology.edges.map((edge) => edge.kind)).toEqual(["supervision", "delegation"]);
     expect(topology.counts).toEqual({ lead: 1, peer: 1, supervisor: 1, unbound: 1 });
+  });
+});
+
+describe("formatTopologyAssignment", () => {
+  it("uses the actual role for historical agents without a launch profile receipt", () => {
+    expect(
+      formatTopologyAssignment({
+        role: "lead",
+        assignmentDisposition: "lead-direct",
+        launchProfile: null,
+      }),
+    ).toBe("Lead · lead-direct");
+    expect(
+      formatTopologyAssignment({
+        role: "supervisor",
+        assignmentDisposition: "supervision",
+        launchProfile: null,
+      }),
+    ).toBe("Supervisor · supervision");
+  });
+
+  it("shows the exact Peer subrole when a launch profile receipt exists", () => {
+    expect(
+      formatTopologyAssignment({
+        role: "peer",
+        assignmentDisposition: "independent_review",
+        launchProfile: {
+          id: "peer-reviewer",
+          name: "Peer Reviewer",
+          peerSubrole: "reviewer",
+        },
+      }),
+    ).toBe("Peer reviewer · independent review");
   });
 });

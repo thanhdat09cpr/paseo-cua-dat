@@ -18,7 +18,11 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { BeadsIssue } from "@getpaseo/protocol/beads/rpc-schemas";
 import type { PanelRegistration } from "@/panels/panel-registry";
-import type { TopologyEdge, TopologyNode } from "@/panels/topology-model";
+import {
+  formatTopologyAssignment,
+  type TopologyEdge,
+  type TopologyNode,
+} from "@/panels/topology-model";
 import { layoutProjectTopologyXFirst } from "@/panels/topology-layout";
 import { useTopologyPanelDescriptor, useTopologyPanelState } from "@/panels/use-topology-panel";
 import type { Theme } from "@/styles/theme";
@@ -43,6 +47,7 @@ const mutedColorMapping = (theme: Theme) => ({
 
 function AgentTopologyNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.topologyNode;
+  const assignmentLabel = formatTopologyAssignment(node);
   return (
     <View style={[styles.node, selected && styles.nodeSelected]}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
@@ -64,12 +69,9 @@ function AgentTopologyNode({ data, selected }: NodeProps<FlowNode>) {
           Profile {node.launchProfile.name} ({node.launchProfile.id})
         </Text>
       ) : null}
-      {node.launchProfile?.peerSubrole || node.assignmentDisposition ? (
+      {assignmentLabel ? (
         <Text style={styles.nodeMeta} numberOfLines={1}>
-          {node.launchProfile?.peerSubrole ? `Peer ${node.launchProfile.peerSubrole}` : "Peer"}
-          {node.assignmentDisposition
-            ? ` · ${node.assignmentDisposition.replaceAll("_", " ")}`
-            : ""}
+          {assignmentLabel}
         </Text>
       ) : null}
       {data.parentTitle && data.relationship ? (
@@ -186,7 +188,7 @@ function TopologyPanel() {
     return (
       <View style={styles.centered} testID="project-topology-empty">
         <ThemedNetwork size={24} uniProps={mutedColorMapping} />
-        <Text style={styles.emptyTitle}>No active agents</Text>
+        <Text style={styles.emptyTitle}>No agents in topology</Text>
         <Text style={styles.emptyText}>Create role-bound agents to populate this topology.</Text>
       </View>
     );
