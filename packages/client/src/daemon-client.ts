@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { CLIENT_CAPS, type ClientCapability } from "@getpaseo/protocol/client-capabilities";
+import type { CoordinationSignalResolution } from "@getpaseo/protocol/coordination-signal";
 import type { AgentAttentionNotificationPayload } from "@getpaseo/protocol/agent-attention-notification";
 import {
   AgentCreateFailedStatusPayloadSchema,
@@ -2775,6 +2776,32 @@ export class DaemonClient {
       });
     if (!payload.signal) {
       throw new Error(payload.error ?? "askAttentionQuestion rejected");
+    }
+    return payload.signal;
+  }
+
+  async resolveCoordinationSignal(input: {
+    agentId: string;
+    signalId: string;
+    resolution: CoordinationSignalResolution;
+    note?: string;
+  }) {
+    // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; gate the
+    // additive resolve/disposition request branch for older daemons. Remove gate
+    // after 2027-09-04.
+    if (this.lastServerInfoMessage?.features?.coordinationSignalResolution !== true) {
+      throw new Error("Update the host to resolve coordination signals.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.coordination_signal.response">({
+        message: {
+          type: "agent.coordination_signal.request",
+          kind: "resolve",
+          ...input,
+        },
+      });
+    if (!payload.signal) {
+      throw new Error(payload.error ?? "resolveCoordinationSignal rejected");
     }
     return payload.signal;
   }

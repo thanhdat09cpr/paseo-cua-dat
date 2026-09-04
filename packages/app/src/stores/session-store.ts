@@ -106,6 +106,7 @@ export interface Agent {
   roleBinding?: AgentSnapshotPayload["roleBinding"];
   launchContract?: AgentSnapshotPayload["launchContract"];
   launchProfile?: AgentSnapshotPayload["launchProfile"];
+  coordinationSignals?: AgentSnapshotPayload["coordinationSignals"];
 }
 
 export interface WorkspaceDescriptor {

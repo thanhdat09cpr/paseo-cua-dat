@@ -11,7 +11,7 @@ import {
 } from "../services/github-service.js";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
-import type { WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
+import type { AgentSnapshotPayload, WorkspaceDescriptorPayload } from "@getpaseo/protocol/messages";
 import {
   decodeFileTransferFrame,
   encodeFileTransferFrame,
@@ -86,6 +86,7 @@ interface SessionHandlerInternals {
   handleStashPopRequest(params: unknown): Promise<unknown>;
   createPaseoWorktree(params: unknown): Promise<unknown>;
   handleStartWorkspaceScriptRequest(params: unknown): Promise<unknown>;
+  enrichAgentPayload(payload: AgentSnapshotPayload): Promise<AgentSnapshotPayload>;
 }
 
 function asSessionInternals(session: Session): SessionHandlerInternals {
@@ -116,6 +117,62 @@ test("interruptAgentIfRunning rejects when graceful cancellation is refused", as
   await expect(asSessionInternals(session).interruptAgentIfRunning(agentId)).rejects.toThrow(
     "active run cancellation was not acknowledged",
   );
+});
+
+test("enrichAgentPayload preserves stored coordinationSignals for a live agent snapshot", async () => {
+  const agentId = "33333333-3333-4333-8333-333333333333";
+  const coordinationSignals: NonNullable<AgentSnapshotPayload["coordinationSignals"]> = [
+    {
+      id: "signal-1",
+      targetAgentId: agentId,
+      requestedByAgentId: null,
+      kind: "continuity_attention",
+      reason: "Bounded attention question",
+      evidenceRefs: ["timeline:turn-7"],
+      status: "pending",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      deliveredAt: null,
+      resolvedAt: null,
+    },
+  ];
+  const session = createSessionForTest({
+    agentStorage: {
+      get: vi.fn(async () => ({
+        id: agentId,
+        title: null,
+        archivedAt: null,
+        coordinationSignals,
+      })),
+    },
+  });
+  const livePayload = {
+    id: agentId,
+    provider: "codex",
+    cwd: "/tmp/live",
+    model: null,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+    lastUserMessageAt: null,
+    status: "idle",
+    capabilities: {
+      supportsStreaming: true,
+      supportsSessionPersistence: true,
+      supportsDynamicModes: true,
+      supportsMcpServers: true,
+      supportsReasoningStream: true,
+      supportsToolInvocations: true,
+    },
+    currentModeId: null,
+    availableModes: [],
+    pendingPermissions: [],
+    persistence: null,
+    title: null,
+    labels: {},
+  } as unknown as AgentSnapshotPayload;
+
+  const enriched = await asSessionInternals(session).enrichAgentPayload(livePayload);
+
+  expect(enriched.coordinationSignals).toEqual(coordinationSignals);
 });
 
 test("cancel_agent_request reports refusal only through its response", async () => {
@@ -623,6 +680,84 @@ describe("Human attention question requests", () => {
       expect(scenario.upsert).not.toHaveBeenCalled();
     },
   );
+
+  test("resolves a pending signal through the additive resolve branch", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupHumanAttentionScenario(registry.resolveActive("slp").owner);
+
+    await scenario.session.handleMessage({
+      type: "agent.coordination_signal.request",
+      requestId: "req-create",
+      agentId: "target-agent",
+      kind: "handoff_recommended",
+      reason: "Context dilution",
+      evidenceRefs: ["room-message-1"],
+    });
+    const createResponse = scenario.messages.find(
+      (message) =>
+        message.type === "agent.coordination_signal.response" &&
+        message.payload.requestId === "req-create",
+    );
+    if (createResponse?.type !== "agent.coordination_signal.response") {
+      throw new Error("missing create response");
+    }
+    const signalId = createResponse.payload.signal?.id;
+    expect(signalId).toBeDefined();
+
+    await scenario.session.handleMessage({
+      type: "agent.coordination_signal.request",
+      requestId: "req-resolve",
+      agentId: "target-agent",
+      kind: "resolve",
+      signalId: signalId as string,
+      resolution: "acknowledged",
+      note: "Reviewed at a safe boundary",
+    });
+    const resolveResponse = scenario.messages.find(
+      (message) =>
+        message.type === "agent.coordination_signal.response" &&
+        message.payload.requestId === "req-resolve",
+    );
+    if (resolveResponse?.type !== "agent.coordination_signal.response") {
+      throw new Error("missing resolve response");
+    }
+
+    expect(resolveResponse.payload.error).toBeNull();
+    expect(resolveResponse.payload.signal).toMatchObject({
+      id: signalId,
+      status: "acknowledged",
+      resolutionNote: "Reviewed at a safe boundary",
+    });
+    expect(scenario.getTarget().coordinationSignals?.[0]).toMatchObject({
+      id: signalId,
+      status: "acknowledged",
+    });
+  });
+
+  test("rejects resolving a signal that does not exist", async () => {
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const scenario = setupHumanAttentionScenario(registry.resolveActive("slp").owner);
+
+    await scenario.session.handleMessage({
+      type: "agent.coordination_signal.request",
+      requestId: "req-missing",
+      agentId: "target-agent",
+      kind: "resolve",
+      signalId: "does-not-exist",
+      resolution: "acknowledged",
+    });
+    const response = scenario.messages.find(
+      (message) =>
+        message.type === "agent.coordination_signal.response" &&
+        message.payload.requestId === "req-missing",
+    );
+    if (response?.type !== "agent.coordination_signal.response") {
+      throw new Error("missing response");
+    }
+
+    expect(response.payload.signal).toBeNull();
+    expect(response.payload.error).toContain("not found");
+  });
 });
 
 test("routes host-scoped agent skills requests through the daemon owner", async () => {

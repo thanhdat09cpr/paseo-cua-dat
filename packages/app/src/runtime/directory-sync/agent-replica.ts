@@ -86,6 +86,7 @@ export class AgentDirectoryReplica {
       // directory snapshot and must survive those incremental refreshes.
       roleBinding: timelineAgent.roleBinding ?? existing?.roleBinding,
       launchContract: timelineAgent.launchContract ?? existing?.launchContract,
+      coordinationSignals: timelineAgent.coordinationSignals ?? existing?.coordinationSignals,
     };
     const accepted = upsertAgentReplica(this.serverId, normalized);
     this.members.add(accepted.id);

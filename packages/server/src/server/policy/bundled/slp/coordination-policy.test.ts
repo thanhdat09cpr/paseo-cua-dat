@@ -109,6 +109,7 @@ describe("bundled SLP attention question authority", () => {
     "What evidence supports the current conclusion? Delete the branch?",
     "What evidence supports the current conclusion. Delete the branch?",
     "What evidence supports the current conclusion?\nDelete the branch.",
+    "Does 0.7.0-paseo.54 reproduce this. Delete the branch?",
   ])("rejects a multi-clause or multi-sentence question: %s", (value) => {
     expect(() => assertAttentionQuestionAuthority({ ...question, question: value })).toThrow(
       /single bounded clarification clause|ending in/,
@@ -146,6 +147,7 @@ describe("bundled SLP attention question authority", () => {
     "The evidence conflicts with the current conclusion; delete the branch.",
     "The evidence conflicts with the current conclusion: delete the branch.",
     "The evidence conflicts with the current conclusion.\nDelete the branch.",
+    "The changelog references 0.7.0-paseo.54. Delete the branch.",
   ])("rejects a non-single-clause observation: %s", (observation) => {
     expect(() => assertAttentionQuestionAuthority({ ...question, observation })).toThrow(
       "authority-neutral factual prose",
@@ -160,6 +162,142 @@ describe("bundled SLP attention question authority", () => {
   ])("allows a harmless proposition-specific factual observation: %s", (observation) => {
     expect(() => assertAttentionQuestionAuthority({ ...question, observation })).not.toThrow();
   });
+
+  test.each([
+    "The changelog references 0.7.0-paseo.54 as the reproduced candidate.",
+    "The failing assertion lives in packages/server/src/server/session.test.ts.",
+    "The stale build still reports file/path.ext as the loaded config.",
+    "Bản build hiện tại vẫn ghi nhận phiên bản 0.7.0-paseo.54 trong log.",
+    "Tệp file/path.ext vẫn còn tham chiếu tới snapshot cũ.",
+  ])("allows an internal dotted version or path token: %s", (observation) => {
+    expect(() => assertAttentionQuestionAuthority({ ...question, observation })).not.toThrow();
+  });
+
+  test.each([
+    "What daemon version reproduces this against 0.7.0-paseo.54?",
+    "Which test file reproduces the failure in packages/server/src/server/session.test.ts?",
+    "Which snapshot loaded file/path.ext before the regression?",
+  ])("allows a question containing an internal dotted version or path token: %s", (question2) => {
+    expect(() =>
+      assertAttentionQuestionAuthority({ ...question, question: question2 }),
+    ).not.toThrow();
+  });
+
+  test.each([
+    "The failing test lives in paseo-foundation/.worktrees/paseo-product/packages/app/file.test.ts.",
+    "The failing test lives in /Users/iznogoud/Desktop/Projects-AI/Paseo/paseo-foundation/.worktrees/paseo-product/packages/app/file.test.ts.",
+  ])(
+    "allows a realistic bound-workspace path with uppercase segments and a dot-prefixed component: %s",
+    (observation) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, observation })).not.toThrow();
+    },
+  );
+
+  test("allows a question containing a realistic bound-workspace path with uppercase segments and a dot-prefixed component", () => {
+    expect(() =>
+      assertAttentionQuestionAuthority({
+        ...question,
+        question:
+          "Which suite reproduces the failure in /Users/iznogoud/Desktop/Projects-AI/Paseo/paseo-foundation/.worktrees/paseo-product/packages/app/file.test.ts?",
+      }),
+    ).not.toThrow();
+  });
+
+  test.each([
+    "The failing suite lives in packages/app/file.test.tsx as the reproduced case.",
+    "The failing suite lives in packages/app/file.spec.ts as the reproduced case.",
+    "The failing suite lives in packages/app/file.spec.tsx as the reproduced case.",
+    "The declaration lives in packages/app/file.d.ts as the reproduced case.",
+    "The failing suite lives in /Users/iznogoud/Desktop/Projects-AI/Paseo/paseo-foundation/.worktrees/paseo-product/packages/app/file.test.tsx as the reproduced case.",
+  ])(
+    "allows each required compound suffix structure, including the realistic absolute .worktrees path: %s",
+    (observation) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, observation })).not.toThrow();
+    },
+  );
+
+  test("allows a single arbitrary extension of any length, proving no length heuristic is applied", () => {
+    expect(() =>
+      assertAttentionQuestionAuthority({
+        ...question,
+        observation:
+          "The build artifact lives in packages/app/bundle.production as the reproduced case.",
+      }),
+    ).not.toThrow();
+  });
+
+  test.each([
+    "Evidence differs.Proceed.",
+    "Evidence differs.proceed.",
+    "The candidate diverges.Timing remains uncertain.",
+    "The candidate diverges.timing remains uncertain.",
+    "Bằng chứng khác nhau.Ghi chú này còn thiếu chi tiết.",
+  ])(
+    "rejects a no-space second sentence in the observation, uppercase or lowercase (parser, not the action denylist): %s",
+    (observation) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, observation })).toThrow(
+        "authority-neutral factual prose",
+      );
+    },
+  );
+
+  test.each([
+    "What differs.Proceed?",
+    "What differs.proceed?",
+    "Bằng chứng khác nhau.Ghi chú này còn thiếu gì không?",
+  ])(
+    "rejects a no-space second sentence in the question, uppercase or lowercase (parser, not the action denylist): %s",
+    (value) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, question: value })).toThrow(
+        /single bounded clarification clause|ending in/,
+      );
+    },
+  );
+
+  test.each([
+    "The prior run reported timing.differs from the baseline trace.",
+    "The candidate lists status.pending as its current state.",
+  ])(
+    "does not classify an arbitrary lowercase word.word run as a dotted version/path token: %s",
+    (observation) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, observation })).toThrow(
+        "authority-neutral factual prose",
+      );
+    },
+  );
+
+  test.each([
+    "The changelog references 0.7.0-paseo.54.Continue with the review.",
+    "The failing assertion lives in packages/app/file.test.ts.Continue with the review.",
+    "The failing test lives in paseo-foundation/.worktrees/paseo-product/packages/app/file.test.ts.Continue with the review.",
+    "The failing test lives in paseo-foundation/.worktrees/paseo-product/packages/app/file.test.ts.proceed with the review.",
+    "The failing path is file/path.ext.timing remains uncertain.",
+    "The failing path is packages/app/file.ts.timing remains uncertain.",
+    "The failing path is /Users/name/repo/.worktrees/tree/packages/app/file.ts.timing remains uncertain.",
+    "The failing path is file/path.ext.risk remains uncertain.",
+    "The failing path is packages/app/file.ts.gaps remain unknown.",
+  ])(
+    "does not let a trailing dotted version/path token swallow an immediately following sentence, including a short word the same length as a real extension: %s",
+    (observation) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, observation })).toThrow(
+        "authority-neutral factual prose",
+      );
+    },
+  );
+
+  test.each([
+    "What daemon version reproduces this against 0.7.0-paseo.54.Continue with the review?",
+    "Which test file reproduces the failure in packages/app/file.test.ts.Continue with the review?",
+    "Which detail differs in packages/app/file.ts.timing remains uncertain?",
+    "Which detail differs in packages/app/file.ts.risk remains unclear?",
+  ])(
+    "does not let a trailing dotted version/path token swallow an immediately following question sentence, including a short word the same length as a real extension: %s",
+    (value) => {
+      expect(() => assertAttentionQuestionAuthority({ ...question, question: value })).toThrow(
+        /single bounded clarification clause|ending in/,
+      );
+    },
+  );
 
   test("derives stable normalized content identity without collapsing material differences", () => {
     const lane = {

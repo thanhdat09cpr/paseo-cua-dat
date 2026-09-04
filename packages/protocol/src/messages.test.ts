@@ -406,6 +406,56 @@ describe("agent coordination signal RPC", () => {
     expect(response.type).toBe("agent.coordination_signal.response");
   });
 
+  test("parses the coordination-signal-resolution feature gate additively", () => {
+    const parsed = parseServerInfoStatusPayload({
+      status: "server_info",
+      serverId: "srv-test",
+      features: { coordinationSignalResolution: true },
+    });
+
+    expect(parsed?.features?.coordinationSignalResolution).toBe(true);
+  });
+
+  test("parses an additive resolve request and reuses the existing response shape", () => {
+    const request = SessionInboundMessageSchema.parse({
+      type: "agent.coordination_signal.request",
+      requestId: "req-resolve-signal",
+      agentId: "lead-agent",
+      kind: "resolve",
+      signalId: "signal-1",
+      resolution: "acknowledged",
+      note: "Reviewed at a safe boundary",
+    });
+    expect(request).toMatchObject({
+      kind: "resolve",
+      signalId: "signal-1",
+      resolution: "acknowledged",
+    });
+
+    const response = SessionOutboundMessageSchema.parse({
+      type: "agent.coordination_signal.response",
+      payload: {
+        requestId: "req-resolve-signal",
+        agentId: "lead-agent",
+        signal: {
+          id: "signal-1",
+          targetAgentId: "lead-agent",
+          requestedByAgentId: null,
+          kind: "handoff_recommended",
+          reason: "Context dilution",
+          evidenceRefs: ["room-message-1"],
+          status: "acknowledged",
+          createdAt: "2026-08-07T00:00:00.000Z",
+          deliveredAt: null,
+          resolvedAt: "2026-08-07T00:05:00.000Z",
+          resolutionNote: "Reviewed at a safe boundary",
+        },
+        error: null,
+      },
+    });
+    expect(response.type).toBe("agent.coordination_signal.response");
+  });
+
   test("keeps native continuity attention out of the Human request surface", () => {
     expect(() =>
       SessionInboundMessageSchema.parse({

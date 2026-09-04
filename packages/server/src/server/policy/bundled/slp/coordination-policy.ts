@@ -18,7 +18,79 @@ export const SLP_COORDINATION_TOOL_DESCRIPTIONS = {
 } as const;
 
 const MAX_ATTENTION_TEXT_LENGTH = 1000;
-const CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE = /[;:\r\n]|[.!?].+\S/iu;
+// `;`, `:`, and newlines always separate clauses/sentences.
+const CLAUSE_SEPARATOR = /[;:\r\n]/u;
+// A sentence boundary is `[.!?]` followed (with or without whitespace) by more content.
+// This is checked against the string AFTER dotted version/path tokens are masked out, so
+// a real extra sentence is rejected whether or not it has a leading space, while an
+// internal dot inside a token like `0.7.0-paseo.54` or `packages/app/file.test.ts` is not
+// mistaken for one.
+const SENTENCE_BOUNDARY = /[.!?]\s*\S/u;
+// The mask only recognizes two narrow, structurally distinct token shapes — never an
+// arbitrary "word.word" pair, which would also mask a real no-space second sentence like
+// "differs.proceed":
+//   - a numeric dotted version, e.g. `0.7.0` with an optional bounded prerelease suffix
+//     (`-paseo.54`);
+//   - a slash-containing path, relative or absolute, with ordinary upper/lowercase/digit/
+//     `_`/`-` segments, dot-prefixed segments (`.worktrees`), and a trailing multi-dot
+//     filename (`file.test.ts`) — e.g. `packages/server/src/session.test.ts` or
+//     `/Users/name/repo/.worktrees/tree/packages/app/file.test.ts` (the slash is what makes
+//     it structurally a path, not prose).
+// Both require a digit or a slash to qualify, so a plain lowercase "word.word" run is never
+// masked. Both stop the instant they would need to swallow more than the reproduced token
+// shape (the start of a real second sentence): `0.7.0-paseo.54.Proceed` masks only
+// `0.7.0-paseo.54`; `.../file.test.ts.Continue` masks only `.../file.test.ts` (the
+// compound-suffix alternative is consumed whole, see PATH_COMPOUND_EXTENSION); and
+// `.../file.ts.risk remains uncertain` masks only `.../file.ts` (a path gets at most one
+// extension segment — a real second dotted word is never eligible for a second bite, no
+// matter how short it is, so it stays visible to the sentence-boundary check below).
+// Residual ambiguity: a lone absolute single-segment path (`/etc`, no further slash) is
+// not recognized — only multi-segment paths are, matching every reproduced case; a bare
+// numeric fraction such as `50/50` is indistinguishable from a one-segment numeric path
+// and is masked; and a real filename with 2+ dot-extensions that is not one of the
+// enumerated compound suffixes (e.g. `archive.tar.gz`) only has its first extension
+// masked, leaving `.gz` visible — this matches the "at most one extension" invariant by
+// design, not as an unresolved bypass. None of these are exercised or reported as a
+// concern beyond what is documented here.
+const VERSION_TOKEN = "\\d+(?:\\.\\d+)+(?:-[a-z0-9]+(?:\\.\\d+)*)?";
+// A path component between slashes: real directory/file names are mixed-case
+// (`Users`, `Desktop`) and some start with a literal dot (`.worktrees`), so the
+// component class allows upper/lowercase letters, digits, `_`, `-`, and one optional
+// leading dot. It never includes an internal literal dot, so it always stops at a
+// `.` and never itself spans a sentence boundary.
+const PATH_COMPONENT = "\\.?[A-Za-z0-9_-]+";
+// The small, closed set of two-part suffixes this repository's file naming convention
+// actually produces. Listed longest-conflicting-prefix first within each pair (`test.tsx`
+// before `test.ts`, `spec.tsx` before `spec.ts`) so the alternation cannot stop one
+// literal short of the real suffix (e.g. matching only `.test.ts` out of `.test.tsx` and
+// leaving a stray `x`). This is a closed enumeration, not a length heuristic — it never
+// matches a suffix outside this exact list, however short.
+const PATH_COMPOUND_EXTENSION = "\\.(?:test\\.tsx|test\\.ts|spec\\.tsx|spec\\.ts|d\\.ts)";
+// A single arbitrary extension segment, unbounded length — this is deliberately not
+// length-capped: a short real word (`.risk`, `.gaps`, 4 characters) is structurally
+// indistinguishable from a short real extension (`.ts`, `.d`), so length can never be the
+// signal. What makes this safe is that a path token allows at most one of these (see
+// PATH_TOKEN below, no repetition): a real second sentence starting with a dotted word
+// never gets a second bite at being masked, so it stays visible to SENTENCE_BOUNDARY
+// regardless of its length.
+const PATH_EXTENSION_SINGLE = "\\.[a-z0-9_-]+";
+// Requires at least one `/`, so a bare lowercase `word.word` run (no slash) never
+// qualifies as a path and is never masked. The trailing extension group matches at most
+// once: either one of the enumerated compound suffixes (tried first, so it is consumed as
+// a whole unit) or a single arbitrary extension segment — never both, and never a second
+// arbitrary segment. This is what leaves `.risk`/`.gaps` after a real single-extension
+// path (`file.ts.risk`) visible to the sentence-boundary check instead of being absorbed
+// as a fabricated second extension.
+const PATH_TOKEN = `/?${PATH_COMPONENT}(?:/${PATH_COMPONENT})+(?:${PATH_COMPOUND_EXTENSION}|${PATH_EXTENSION_SINGLE})?`;
+const DOTTED_TOKEN = new RegExp(`${VERSION_TOKEN}|${PATH_TOKEN}`, "gu");
+
+function maskDottedTokens(value: string): string {
+  return value.replace(DOTTED_TOKEN, (match) => "0".repeat(match.length));
+}
+
+function containsClauseSeparatorOrExtraSentence(value: string): boolean {
+  return CLAUSE_SEPARATOR.test(value) || SENTENCE_BOUNDARY.test(maskDottedTokens(value));
+}
 const MODAL_OR_REQUEST_PREFIX =
   /^(?:(?:can|could|would|will|should|may|might|do|does|did|please|kindly)\b|is\s+it\s+possible\b)/iu;
 const MODAL_LANGUAGE = /\b(?:can|could|would|will|should|may|might|must|shall)\b/iu;
@@ -108,7 +180,7 @@ function assertAuthorityNeutralObservation(observation: string): void {
     );
   }
   if (
-    CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized) ||
+    containsClauseSeparatorOrExtraSentence(normalized) ||
     SECOND_PERSON_REQUEST_LANGUAGE.test(normalized) ||
     AUTHORITY_MODAL_LANGUAGE.test(normalized) ||
     MODAL_OR_REQUEST_PREFIX.test(normalized) ||
@@ -134,7 +206,7 @@ function assertAuthorityNeutralClarificationQuestion(question: string): void {
   if (normalized.length > MAX_ATTENTION_TEXT_LENGTH) {
     throw new Error(`attention_question must be at most ${MAX_ATTENTION_TEXT_LENGTH} characters`);
   }
-  if (CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized)) {
+  if (containsClauseSeparatorOrExtraSentence(normalized)) {
     throw new Error("attention_question must be a single bounded clarification clause");
   }
   if (

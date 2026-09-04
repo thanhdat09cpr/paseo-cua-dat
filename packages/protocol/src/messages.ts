@@ -15,7 +15,10 @@ import {
 } from "./role-binding.js";
 import { LaunchContractReceiptSchema } from "./launch-contract.js";
 import { RoleProfileCatalogSchema, RoleProfilePreferencesMapSchema } from "./role-profile.js";
-import { CoordinationSignalSchema } from "./coordination-signal.js";
+import {
+  CoordinationSignalResolutionSchema,
+  CoordinationSignalSchema,
+} from "./coordination-signal.js";
 import { LeadHandoffPacketSchema } from "./lead-handoff.js";
 import { WORKSPACE_LABEL_COLORS } from "./workspace-labels.js";
 import {
@@ -2224,6 +2227,18 @@ export const AgentCoordinationSignalRequestMessageSchema = z.discriminatedUnion(
     relatedAgentId: z.string().min(1).optional(),
     evidenceRefs: CoordinationSignalSchema.shape.evidenceRefs.optional(),
   }),
+  z.object({
+    type: z.literal("agent.coordination_signal.request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; additive
+    // resolve/disposition branch on the existing coordination-signal RPC. Remove
+    // after 2027-09-04 once all supported daemons/clients understand it.
+    kind: z.literal("resolve"),
+    signalId: z.string().min(1),
+    resolution: CoordinationSignalResolutionSchema,
+    note: z.string().trim().max(1_000).optional(),
+  }),
 ]);
 
 export const AgentCoordinationSignalResponseMessageSchema = z.object({
@@ -3710,6 +3725,10 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(attentionQuestions): added in v0.6.0-paseo.46; old daemons do not
         // understand the continuity-attention question request branch.
         attentionQuestions: z.boolean().optional(),
+        // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; old daemons
+        // do not understand the resolve/disposition request branch. Remove gate
+        // after 2027-09-04.
+        coordinationSignalResolution: z.boolean().optional(),
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: z.boolean().optional(),
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.

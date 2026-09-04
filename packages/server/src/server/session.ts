@@ -46,7 +46,10 @@ import {
   waitForAgentRunStartWithTimeout,
   unarchiveAgentState,
 } from "./agent/agent-prompt.js";
-import { requestCoordinationSignal } from "./agent/coordination-signals.js";
+import {
+  requestCoordinationSignal,
+  resolveCoordinationSignal,
+} from "./agent/coordination-signals.js";
 import {
   resolveCreateAgentTitles,
   resolveFirstAgentPromptTitle,
@@ -1927,6 +1930,9 @@ export class Session {
     const storedRecord = await this.agentStorage.get(payload.id);
     payload.title = storedRecord?.title ?? null;
     payload.archivedAt = storedRecord?.archivedAt ?? null;
+    if (storedRecord?.coordinationSignals) {
+      payload.coordinationSignals = storedRecord.coordinationSignals;
+    }
     return payload;
   }
 
@@ -3188,6 +3194,49 @@ export class Session {
         throw new Error(`Agent ${msg.agentId} is not available`);
       }
       const coordinationPolicy = this.agentManager.resolveActiveSlpPolicy().coordinationPolicy;
+      if (msg.kind === "resolve") {
+        const targetAgentId = coordinationPolicy.assertResolveAgentSignalAuthority({
+          callerAgentId: undefined,
+          requestedAgentId: msg.agentId,
+        });
+        const signal = await resolveCoordinationSignal(
+          {
+            agentManager: this.agentManager,
+            agentStorage: this.agentStorage,
+            sendAtSafeBoundary: async (agentId, text) => {
+              if (this.agentManager.hasInFlightRun(agentId)) {
+                throw new Error(`Agent ${agentId} is still running`);
+              }
+              await sendPromptToAgent({
+                agentManager: this.agentManager,
+                agentStorage: this.agentStorage,
+                agentId,
+                prompt: formatSystemNotificationPrompt(text),
+                unarchive: false,
+                replaceRunning: false,
+                logger: this.sessionLogger,
+              });
+            },
+            logger: this.sessionLogger,
+          },
+          {
+            targetAgentId,
+            signalId: msg.signalId,
+            resolution: msg.resolution,
+            note: msg.note,
+          },
+        );
+        this.emit({
+          type: "agent.coordination_signal.response",
+          payload: {
+            requestId: msg.requestId,
+            agentId: msg.agentId,
+            signal,
+            error: null,
+          },
+        });
+        return;
+      }
       if (msg.kind === "continuity_attention") {
         coordinationPolicy.assertAttentionQuestionAuthority({
           targetAgentId: msg.agentId,

@@ -131,7 +131,13 @@ describe("AgentDirectoryReplica", () => {
     const replica = new AgentDirectoryReplica(serverId, () => undefined);
     const roleBinding = { roleId: "lead" } as AgentSnapshotPayload["roleBinding"];
     const launchContract = { roleId: "lead" } as AgentSnapshotPayload["launchContract"];
-    replica.commitSnapshot([entry({ ...payload("directory"), roleBinding, launchContract })], []);
+    const coordinationSignals = [
+      { id: "signal-1" },
+    ] as unknown as AgentSnapshotPayload["coordinationSignals"];
+    replica.commitSnapshot(
+      [entry({ ...payload("directory"), roleBinding, launchContract, coordinationSignals })],
+      [],
+    );
 
     const token = replica.captureTimeline("agent");
     expect(replica.submitTimelineAgent(token, payload("timeline"))).toBe(true);
@@ -139,6 +145,7 @@ describe("AgentDirectoryReplica", () => {
     const agent = useSessionStore.getState().sessions[serverId]?.agents.get("agent");
     expect(agent?.roleBinding).toBe(roleBinding);
     expect(agent?.launchContract).toBe(launchContract);
+    expect(agent?.coordinationSignals).toBe(coordinationSignals);
     store.clearSession(serverId);
   });
 });

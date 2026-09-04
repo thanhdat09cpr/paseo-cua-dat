@@ -44,6 +44,9 @@ function preserveFoundationReceipts(previous: Agent | undefined, incoming: Agent
     ...(incoming.launchProfile || !previous?.launchProfile
       ? {}
       : { launchProfile: previous.launchProfile }),
+    ...(incoming.coordinationSignals || !previous?.coordinationSignals
+      ? {}
+      : { coordinationSignals: previous.coordinationSignals }),
   };
 }
 

@@ -1695,6 +1695,10 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(attentionQuestions): added in v0.6.0-paseo.46; clients gate the
         // additive request branch when connected to older daemons.
         attentionQuestions: true,
+        // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; clients gate
+        // the additive resolve/disposition request branch when connected to older
+        // daemons. Remove gate after 2027-09-04.
+        coordinationSignalResolution: true,
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: true,
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.2.0-beta.1. Remove the
