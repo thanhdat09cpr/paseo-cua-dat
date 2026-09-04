@@ -53,7 +53,7 @@ jobs:
           filters: .github/ci-paths.yml
 
       - name: Validate CI contracts
-        run: node --test scripts/agent-instructions.test.mjs scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/downstream-publish-guard.test.mjs scripts/sync-fdroid-changelogs.test.mjs scripts/verify-macos-update-manifest.test.mjs
+        run: node --test scripts/agent-instructions.test.mjs scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/downstream-publish-guard.test.mjs scripts/sync-fdroid-changelogs.test.mjs
 
   format:
     name: format
@@ -560,7 +560,7 @@ jobs:
         run: npm ci
 
       - name: Verify release contracts
-        run: npm run release:toolchain:check && npm run acp:pin-consistency:check && git diff --exit-code
+        run: npm run release:toolchain:check && npm run acp:pin-consistency:check && node --test scripts/verify-macos-update-manifest.test.mjs && git diff --exit-code
 
   cli-tests-1:
     name: cli-tests (shard 1/3)

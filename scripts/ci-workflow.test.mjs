@@ -185,6 +185,7 @@ test("focused contracts stay inside existing required checks", () => {
   assert.match(releaseQualification, /npm ci/);
   assert.match(releaseQualification, /npm run release:toolchain:check/);
   assert.match(releaseQualification, /npm run acp:pin-consistency:check/);
+  assert.match(releaseQualification, /verify-macos-update-manifest\.test\.mjs/);
   assert.doesNotMatch(releaseQualification, /npm run acp:version-drift:check/);
   assert.match(releaseQualification, /git diff --exit-code/);
 });
