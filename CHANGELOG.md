@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0-paseo.52 - 2026-09-04
+
+Bản follow-up này sửa hai nhãn topology còn có thể làm Human đọc sai trạng thái và role.
+
+### Fixed
+
+- Host topology không còn gọi toàn bộ agent chưa archive là `active agents`; agent `closed` vẫn được
+  giữ trong lịch sử nhưng summary chỉ ghi `agents`.
+- Agent cũ chưa có launch-profile receipt nay dùng role thật (`Lead`, `Supervisor`, `Peer`) cạnh
+  assignment disposition, thay vì mặc định sai thành `Peer`.
+
+### Verification
+
+- Bổ sung regression coverage cho historical Lead/Supervisor và giữ exact Peer subrole khi receipt
+  có mặt.
+
 ## 0.7.0-paseo.51 - 2026-09-04
 
 Bản follow-up này giữ pane lịch sử đọc được sau khi SLP generation đổi trong `.50`.
