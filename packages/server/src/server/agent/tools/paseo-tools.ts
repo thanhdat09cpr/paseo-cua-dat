@@ -20,9 +20,11 @@ import type { Logger } from "pino";
 import type { AgentMode, AgentProvider, AgentSessionConfig } from "../agent-sdk-types.js";
 import type { AgentManager, ManagedAgent } from "../agent-manager.js";
 import {
+  AgentProfileLaunchReceiptSchema,
   AgentProfileSchema,
   PeerSubroleSchema,
   type AgentProfile,
+  type AgentProfileLaunchReceipt,
   type PeerDelegationModelRoute,
   type PeerDelegationRunMode,
   type PeerSubrole,
@@ -573,6 +575,14 @@ function selectPeerLaunchProfile(input: {
         `Peer Agent Profile '${input.requestedProfileId}' no longer exists; call list_profiles and choose an exact returned ID`,
       );
     }
+    if (input.requestedSubrole && requested.peerSubrole !== input.requestedSubrole) {
+      const profileSubrole = requested.peerSubrole
+        ? `'${requested.peerSubrole}'`
+        : "no Peer subrole";
+      throw new Error(
+        `Peer Agent Profile '${requested.name}' (${requested.id}) is tagged for ${profileSubrole} and cannot satisfy requested subrole '${input.requestedSubrole}'`,
+      );
+    }
     return requested;
   }
 
@@ -611,10 +621,16 @@ function selectPeerLaunchProfile(input: {
 }
 
 function projectLaunchProfileReceipt(profile: LaunchableAgentProfile | undefined): {
-  launchProfile?: { id: string; name: string };
+  launchProfile?: AgentProfileLaunchReceipt;
 } {
   if (!profile) return {};
-  return { launchProfile: { id: profile.id, name: profile.name } };
+  return {
+    launchProfile: {
+      id: profile.id,
+      name: profile.name,
+      ...(profile.peerSubrole ? { peerSubrole: profile.peerSubrole } : {}),
+    },
+  };
 }
 
 function resolvePeerPolicyProviderRoute(
@@ -1542,6 +1558,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     requestedMode?: string;
     requestedCwd?: string;
     assignmentNoWrite?: boolean;
+    launchProfile?: LaunchableAgentProfile;
   }): Promise<{ enforcedMode?: string; unattended?: boolean }> => {
     const runMode = input.requestedRole === "peer" ? resolvePeerDelegationRunMode() : undefined;
     if (!runMode && !input.assignmentNoWrite) return {};
@@ -1582,6 +1599,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       runMode,
     });
     if (input.requestedMode !== undefined && input.requestedMode !== enforcedMode) {
+      if (input.launchProfile) {
+        throw new Error(
+          `Peer Agent Profile '${input.launchProfile.name}' (${input.launchProfile.id}) uses mode '${input.requestedMode}', which conflicts with the Human-configured '${runMode}' policy requiring '${enforcedMode}'. Update the stored profile or choose a compatible profile; caller settings cannot override launchProfileId`,
+        );
+      }
       throw new Error(
         `Peer mode '${input.requestedMode}' conflicts with the Human-configured '${runMode}' policy; use '${enforcedMode}' or omit settings.modeId`,
       );
@@ -1595,6 +1617,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     requestedMode?: string;
     requestedCwd?: string;
     assignmentNoWrite?: boolean;
+    launchProfile?: LaunchableAgentProfile;
   }): Promise<{
     providerRoute: string;
     provider: AgentProvider;
@@ -1636,6 +1659,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       requestedMode: input.requestedMode,
       requestedCwd: input.requestedCwd,
       assignmentNoWrite: input.assignmentNoWrite,
+      launchProfile: input.launchProfile,
     });
     return {
       providerRoute,
@@ -2758,7 +2782,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         availableModes: z.array(ProviderModeSchema),
         roleBinding: RoleBindingReceiptSchema.optional(),
         launchContract: LaunchContractReceiptSchema.optional(),
-        launchProfile: z.object({ id: z.string(), name: z.string() }).strict().optional(),
+        launchProfile: AgentProfileLaunchReceiptSchema.optional(),
         ...executionProfileOutputShape(canCreateExecutionProfile),
         lastMessage: z.string().nullable().optional(),
         permission: AgentPermissionRequestPayloadSchema.nullable().optional(),
@@ -2768,156 +2792,168 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     async (args: unknown) => {
       const resolvedArgs = await resolveCreateAgentToolArgs(args);
       const { parsedArgs, worktree } = resolvedArgs;
-      const councilLaunch = councilSeatLaunch(parsedArgs.labels);
-      await assertCanonicalCouncilSeatLaunch({
-        launch: councilLaunch,
-        store: options.councilCaseStore,
-        callerAgentId,
-        workspaceId: resolvedArgs.workspaceId ?? null,
-      });
-      const councilSeatAssignmentHooks = createCouncilSeatAssignmentHooks({
-        launch: councilLaunch,
-        store: options.councilCaseStore,
-        callerAgentId,
-        workspaceId: resolvedArgs.workspaceId ?? null,
-        agentManager,
-        agentStorage,
-        logger: childLogger,
-      });
-      const launchSettings = resolveCreateLaunchSettings(resolvedArgs);
-      const { launchProfile } = launchSettings;
-      const launchProfileReceipt = projectLaunchProfileReceipt(launchProfile);
-      const executionProfileId = resolveExecutionProfileRequest(
-        parsedArgs,
-        callerRoleId,
-        resolveSlpPolicy,
-      );
-      const { requestedBackground, notifyOnFinish } = resolveCreateRunBehavior(resolvedArgs);
-      const {
-        providerRoute,
-        provider: selectedProvider,
-        enforcedMode,
-        unattended,
-      } = await resolveCreateAgentProviderRoute({
-        requestedProvider: launchSettings.requestedProvider,
-        requestedRole: parsedArgs.role,
-        requestedMode: launchSettings.requestedMode,
-        requestedCwd: resolvedArgs.cwd,
-        assignmentNoWrite:
-          parsedArgs.role === "peer" && parsedArgs.assignment?.mutationBoundary.mode === "no-write",
-      });
-      const inheritedConfig = resolveInheritedProviderConfig(selectedProvider);
-      const {
-        snapshot,
-        background: createdInBackground,
-        initialPromptStarted,
-      } = await createAgentCommand(
-        {
+      let workspaceRollbackTransferred = false;
+      try {
+        const councilLaunch = councilSeatLaunch(parsedArgs.labels);
+        await assertCanonicalCouncilSeatLaunch({
+          launch: councilLaunch,
+          store: options.councilCaseStore,
+          callerAgentId,
+          workspaceId: resolvedArgs.workspaceId ?? null,
+        });
+        const councilSeatAssignmentHooks = createCouncilSeatAssignmentHooks({
+          launch: councilLaunch,
+          store: options.councilCaseStore,
+          callerAgentId,
+          workspaceId: resolvedArgs.workspaceId ?? null,
           agentManager,
           agentStorage,
           logger: childLogger,
-          paseoHome: options.paseoHome,
-          worktreesRoot: options.worktreesRoot,
-          terminalManager,
-          providerSnapshotManager,
-          createPaseoWorktree: options.createPaseoWorktree,
-          ...(options.ensureWorkspaceForCreate
-            ? { ensureWorkspaceForCreate: options.ensureWorkspaceForCreate }
-            : {}),
-          ...(options.rollbackWorkspaceAfterFailedCreate
-            ? { rollbackWorkspaceAfterFailedCreate: options.rollbackWorkspaceAfterFailedCreate }
-            : {}),
-          ...(options.rollbackWorktreeAfterFailedCreate
-            ? { rollbackWorktreeAfterFailedCreate: options.rollbackWorktreeAfterFailedCreate }
-            : {}),
-        },
-        {
-          kind: "mcp",
-          provider: providerRoute,
-          roleId: parsedArgs.role,
-          executionProfileId,
-          assignment: parsedArgs.assignment,
-          title: parsedArgs.title,
-          initialPrompt: parsedArgs.initialPrompt,
-          config: inheritedConfig,
-          cwd: resolvedArgs.cwd,
-          workspaceId: resolvedArgs.workspaceId,
-          thinking: launchSettings.thinkingOptionId,
-          features: launchSettings.featureValues,
-          labels: parsedArgs.labels,
-          mode: enforcedMode ?? launchSettings.requestedMode,
+        });
+        const launchSettings = resolveCreateLaunchSettings(resolvedArgs);
+        const { launchProfile } = launchSettings;
+        const launchProfileReceipt = projectLaunchProfileReceipt(launchProfile);
+        const executionProfileId = resolveExecutionProfileRequest(
+          parsedArgs,
+          callerRoleId,
+          resolveSlpPolicy,
+        );
+        const { requestedBackground, notifyOnFinish } = resolveCreateRunBehavior(resolvedArgs);
+        const {
+          providerRoute,
+          provider: selectedProvider,
+          enforcedMode,
           unattended,
-          background: requestedBackground,
-          notifyOnFinish,
-          detached: resolvedArgs.detached,
-          callerAgentId,
-          callerContext,
-          worktree,
-          ...councilSeatAssignmentHooks,
-        },
-      );
+        } = await resolveCreateAgentProviderRoute({
+          requestedProvider: launchSettings.requestedProvider,
+          requestedRole: parsedArgs.role,
+          requestedMode: launchSettings.requestedMode,
+          requestedCwd: resolvedArgs.cwd,
+          launchProfile,
+          assignmentNoWrite: isNoWritePeerAssignment(parsedArgs),
+        });
+        const inheritedConfig = resolveInheritedProviderConfig(selectedProvider);
+        workspaceRollbackTransferred = true;
+        const {
+          snapshot,
+          background: createdInBackground,
+          initialPromptStarted,
+        } = await createAgentCommand(
+          {
+            agentManager,
+            agentStorage,
+            logger: childLogger,
+            paseoHome: options.paseoHome,
+            worktreesRoot: options.worktreesRoot,
+            terminalManager,
+            providerSnapshotManager,
+            createPaseoWorktree: options.createPaseoWorktree,
+            ...(options.ensureWorkspaceForCreate
+              ? { ensureWorkspaceForCreate: options.ensureWorkspaceForCreate }
+              : {}),
+            ...(options.rollbackWorkspaceAfterFailedCreate
+              ? { rollbackWorkspaceAfterFailedCreate: options.rollbackWorkspaceAfterFailedCreate }
+              : {}),
+            ...(options.rollbackWorktreeAfterFailedCreate
+              ? { rollbackWorktreeAfterFailedCreate: options.rollbackWorktreeAfterFailedCreate }
+              : {}),
+          },
+          {
+            kind: "mcp",
+            provider: providerRoute,
+            roleId: parsedArgs.role,
+            executionProfileId,
+            assignment: parsedArgs.assignment,
+            title: parsedArgs.title,
+            initialPrompt: parsedArgs.initialPrompt,
+            config: inheritedConfig,
+            cwd: resolvedArgs.cwd,
+            workspaceId: resolvedArgs.workspaceId,
+            createdDirectoryWorkspaceId: resolvedArgs.createdDirectoryWorkspaceId,
+            launchProfile: launchProfileReceipt.launchProfile,
+            thinking: launchSettings.thinkingOptionId,
+            features: launchSettings.featureValues,
+            labels: parsedArgs.labels,
+            mode: enforcedMode ?? launchSettings.requestedMode,
+            unattended,
+            background: requestedBackground,
+            notifyOnFinish,
+            detached: resolvedArgs.detached,
+            callerAgentId,
+            callerContext,
+            worktree,
+            ...councilSeatAssignmentHooks,
+          },
+        );
 
-      try {
-        if (!createdInBackground && initialPromptStarted) {
-          const result = await waitForAgentWithTimeout(agentManager, snapshot.id, {
-            waitForActive: true,
-          });
+        try {
+          if (!createdInBackground && initialPromptStarted) {
+            const result = await waitForAgentWithTimeout(agentManager, snapshot.id, {
+              waitForActive: true,
+            });
 
-          const liveSnapshot = agentManager.getAgent(snapshot.id) ?? snapshot;
-          const responseData = {
-            agentId: snapshot.id,
+            const liveSnapshot = agentManager.getAgent(snapshot.id) ?? snapshot;
+            const responseData = {
+              agentId: snapshot.id,
+              type: snapshot.provider,
+              status: result.status,
+              cwd: liveSnapshot.cwd,
+              ...(liveSnapshot.workspaceId ? { workspaceId: liveSnapshot.workspaceId } : {}),
+              currentModeId: liveSnapshot.currentModeId,
+              availableModes: liveSnapshot.availableModes,
+              ...projectFoundationLaunchReceipts(liveSnapshot, {
+                includeExecutionProfile: canCreateExecutionProfile,
+              }),
+              ...launchProfileReceipt,
+              lastMessage: result.lastMessage,
+              permission: sanitizePermissionRequest(result.permission),
+            };
+            const validJson = ensureValidJson(responseData);
+
+            const response = {
+              content: [],
+              structuredContent: validJson,
+            };
+            return response;
+          }
+        } catch (error) {
+          childLogger.error({ err: error, agentId: snapshot.id }, "Failed to run initial prompt");
+          throw error;
+        }
+
+        // Return immediately for async creation.
+        const currentSnapshot = agentManager.getAgent(snapshot.id) ?? snapshot;
+        const guidance =
+          callerAgentId && notifyOnFinish && initialPromptStarted
+            ? "You will get notified when the created agent finishes, errors, or needs permission. Do not poll for status; continue with other work until the notification arrives."
+            : undefined;
+        const response = {
+          content: [],
+          structuredContent: ensureValidJson({
+            agentId: currentSnapshot.id,
             type: snapshot.provider,
-            status: result.status,
-            cwd: liveSnapshot.cwd,
-            ...(liveSnapshot.workspaceId ? { workspaceId: liveSnapshot.workspaceId } : {}),
-            currentModeId: liveSnapshot.currentModeId,
-            availableModes: liveSnapshot.availableModes,
-            ...projectFoundationLaunchReceipts(liveSnapshot, {
+            status: currentSnapshot.lifecycle,
+            cwd: currentSnapshot.cwd,
+            ...(currentSnapshot.workspaceId ? { workspaceId: currentSnapshot.workspaceId } : {}),
+            currentModeId: currentSnapshot.currentModeId,
+            availableModes: currentSnapshot.availableModes,
+            ...projectFoundationLaunchReceipts(currentSnapshot, {
               includeExecutionProfile: canCreateExecutionProfile,
             }),
             ...launchProfileReceipt,
-            lastMessage: result.lastMessage,
-            permission: sanitizePermissionRequest(result.permission),
-          };
-          const validJson = ensureValidJson(responseData);
-
-          const response = {
-            content: [],
-            structuredContent: validJson,
-          };
-          return response;
-        }
+            lastMessage: null,
+            permission: null,
+            ...(guidance ? { guidance } : {}),
+          }),
+        };
+        return response;
       } catch (error) {
-        childLogger.error({ err: error, agentId: snapshot.id }, "Failed to run initial prompt");
+        await rollbackCreateAgentWorkspaceAfterValidationFailure(
+          resolvedArgs,
+          workspaceRollbackTransferred,
+        );
         throw error;
       }
-
-      // Return immediately for async creation.
-      const currentSnapshot = agentManager.getAgent(snapshot.id) ?? snapshot;
-      const guidance =
-        callerAgentId && notifyOnFinish && initialPromptStarted
-          ? "You will get notified when the created agent finishes, errors, or needs permission. Do not poll for status; continue with other work until the notification arrives."
-          : undefined;
-      const response = {
-        content: [],
-        structuredContent: ensureValidJson({
-          agentId: currentSnapshot.id,
-          type: snapshot.provider,
-          status: currentSnapshot.lifecycle,
-          cwd: currentSnapshot.cwd,
-          ...(currentSnapshot.workspaceId ? { workspaceId: currentSnapshot.workspaceId } : {}),
-          currentModeId: currentSnapshot.currentModeId,
-          availableModes: currentSnapshot.availableModes,
-          ...projectFoundationLaunchReceipts(currentSnapshot, {
-            includeExecutionProfile: canCreateExecutionProfile,
-          }),
-          ...launchProfileReceipt,
-          lastMessage: null,
-          permission: null,
-          ...(guidance ? { guidance } : {}),
-        }),
-      };
-      return response;
     },
   );
 
@@ -2928,6 +2964,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         detached: boolean;
         cwd: string | undefined;
         workspaceId: string | undefined;
+        createdDirectoryWorkspaceId: string | undefined;
         worktree: CreateAgentFromMcpInput["worktree"];
       }
     | {
@@ -2936,8 +2973,40 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         detached: boolean;
         cwd: string | undefined;
         workspaceId: string | undefined;
+        createdDirectoryWorkspaceId: string | undefined;
         worktree: CreateAgentFromMcpInput["worktree"];
       };
+
+  function isNoWritePeerAssignment(parsedArgs: ResolvedCreateAgentToolArgs["parsedArgs"]): boolean {
+    return (
+      parsedArgs.role === "peer" && parsedArgs.assignment?.mutationBoundary.mode === "no-write"
+    );
+  }
+
+  async function rollbackCreateAgentWorkspaceAfterValidationFailure(
+    resolvedArgs: ResolvedCreateAgentToolArgs,
+    workspaceRollbackTransferred: boolean,
+  ): Promise<void> {
+    if (
+      workspaceRollbackTransferred ||
+      !resolvedArgs.createdDirectoryWorkspaceId ||
+      !options.rollbackWorkspaceAfterFailedCreate
+    ) {
+      return;
+    }
+
+    await options
+      .rollbackWorkspaceAfterFailedCreate(resolvedArgs.createdDirectoryWorkspaceId)
+      .catch((rollbackError) => {
+        childLogger.warn(
+          {
+            err: rollbackError,
+            workspaceId: resolvedArgs.createdDirectoryWorkspaceId,
+          },
+          "Failed to roll back directory workspace after create_agent validation failed",
+        );
+      });
+  }
 
   function resolveCreateRunBehavior(resolvedArgs: ResolvedCreateAgentToolArgs): {
     requestedBackground: boolean;
@@ -3003,15 +3072,18 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           callerAgentId,
           action: { kind: "create_agent", requestedRole: parsed.role },
         });
-        const { cwd, workspaceId, worktree } = await resolveCreateAgentWorkspace(parsed.workspace, {
-          prompt: parsed.initialPrompt,
-        });
+        const { cwd, workspaceId, createdDirectoryWorkspaceId, worktree } =
+          await resolveCreateAgentWorkspace(parsed.workspace, {
+            title: parsed.title,
+            prompt: parsed.initialPrompt,
+          });
         return {
           kind: "agent-scoped",
           parsedArgs: parsed,
           detached: parsed.relationship.kind === "detached",
           cwd,
           workspaceId,
+          createdDirectoryWorkspaceId,
           worktree,
         };
       }
@@ -3021,17 +3093,19 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         callerAgentId,
         action: { kind: "create_agent", requestedRole: parsed.role },
       });
-      const { cwd, workspaceId } = await resolveCanonicalCreateAgentWorkspace(
-        parsed.workspaceId,
-        { prompt: parsed.initialPrompt },
-        parsed.cwd,
-      );
+      const { cwd, workspaceId, createdDirectoryWorkspaceId } =
+        await resolveCanonicalCreateAgentWorkspace(
+          parsed.workspaceId,
+          { title: parsed.title, prompt: parsed.initialPrompt },
+          parsed.cwd,
+        );
       return {
         kind: "agent-scoped",
         parsedArgs: parsed,
         detached: false,
         cwd,
         workspaceId,
+        createdDirectoryWorkspaceId,
         worktree: undefined,
       };
     }
@@ -3046,30 +3120,34 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (!parsedArgs.workspace) {
         throw new Error("Legacy create_agent placement could not be resolved");
       }
-      const { cwd, workspaceId, worktree } = await resolveCreateAgentWorkspace(
-        parsedArgs.workspace,
-        { prompt: parsedArgs.initialPrompt },
-      );
+      const { cwd, workspaceId, createdDirectoryWorkspaceId, worktree } =
+        await resolveCreateAgentWorkspace(parsedArgs.workspace, {
+          title: parsedArgs.title,
+          prompt: parsedArgs.initialPrompt,
+        });
       return {
         kind: "top-level",
         parsedArgs,
         detached: true,
         cwd,
         workspaceId,
+        createdDirectoryWorkspaceId,
         worktree,
       };
     }
     const parsedArgs = canonicalTopLevelCreateAgentArgsSchema.parse(args);
-    const { cwd, workspaceId } = await resolveCanonicalCreateAgentWorkspace(
-      parsedArgs.workspaceId,
-      { prompt: parsedArgs.initialPrompt },
-    );
+    const { cwd, workspaceId, createdDirectoryWorkspaceId } =
+      await resolveCanonicalCreateAgentWorkspace(parsedArgs.workspaceId, {
+        title: parsedArgs.title,
+        prompt: parsedArgs.initialPrompt,
+      });
     return {
       kind: "top-level",
       parsedArgs,
       detached: false,
       cwd,
       workspaceId,
+      createdDirectoryWorkspaceId,
       worktree: undefined,
     };
   }
@@ -3098,6 +3176,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   ): Promise<{
     cwd: string | undefined;
     workspaceId: string;
+    createdDirectoryWorkspaceId: string | undefined;
   }> {
     if (workspaceId && requestedCwd) {
       throw new Error("Specify at most one of workspaceId or cwd");
@@ -3108,7 +3187,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         undefined,
       );
       assertRoleBoundChildCwdWithinCallerRoot(resolved.cwd);
-      return { cwd: resolved.cwd, workspaceId };
+      return { cwd: resolved.cwd, workspaceId, createdDirectoryWorkspaceId: undefined };
     }
     if (requestedCwd) {
       if (!options.ensureWorkspaceForCreate) {
@@ -3116,9 +3195,14 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
       const cwd = resolveScopedCwd(requestedCwd, { required: true });
       assertRoleBoundChildCwdWithinCallerRoot(cwd);
+      const createdDirectoryWorkspaceId = await options.ensureWorkspaceForCreate(
+        cwd,
+        firstAgentContext,
+      );
       return {
         cwd,
-        workspaceId: await options.ensureWorkspaceForCreate(cwd, firstAgentContext),
+        workspaceId: createdDirectoryWorkspaceId,
+        createdDirectoryWorkspaceId,
       };
     }
     if (!callerAgentId) {
@@ -3126,16 +3210,25 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         throw new Error("Workspace creation is not configured");
       }
       const cwd = process.cwd();
+      const createdDirectoryWorkspaceId = await options.ensureWorkspaceForCreate(
+        cwd,
+        firstAgentContext,
+      );
       return {
         cwd,
-        workspaceId: await options.ensureWorkspaceForCreate(cwd, firstAgentContext),
+        workspaceId: createdDirectoryWorkspaceId,
+        createdDirectoryWorkspaceId,
       };
     }
     const caller = resolveCallerAgent();
     if (!caller?.workspaceId) {
       throw new Error(`Caller agent ${callerAgentId} has no current workspace`);
     }
-    return { cwd: undefined, workspaceId: caller.workspaceId };
+    return {
+      cwd: undefined,
+      workspaceId: caller.workspaceId,
+      createdDirectoryWorkspaceId: undefined,
+    };
   }
 
   function assertRoleBoundChildCwdWithinCallerRoot(cwd: string | undefined): void {
@@ -3259,6 +3352,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   ): Promise<{
     cwd: string | undefined;
     workspaceId: string | undefined;
+    createdDirectoryWorkspaceId: string | undefined;
     worktree: CreateAgentFromMcpInput["worktree"];
   }> {
     if (workspace.kind === "current") {
@@ -3272,6 +3366,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       return {
         cwd: workspace.cwd,
         workspaceId: callerAgent.workspaceId,
+        createdDirectoryWorkspaceId: undefined,
         worktree: undefined,
       };
     }
@@ -3296,6 +3391,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       return {
         cwd,
         workspaceId: workspace.workspaceId,
+        createdDirectoryWorkspaceId: undefined,
         worktree: undefined,
       };
     }
@@ -3305,9 +3401,14 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (!options.ensureWorkspaceForCreate) {
         throw new Error("Workspace creation is not configured");
       }
+      const createdDirectoryWorkspaceId = await options.ensureWorkspaceForCreate(
+        cwd,
+        firstAgentContext,
+      );
       return {
         cwd,
-        workspaceId: await options.ensureWorkspaceForCreate(cwd, firstAgentContext),
+        workspaceId: createdDirectoryWorkspaceId,
+        createdDirectoryWorkspaceId,
         worktree: undefined,
       };
     }
@@ -3316,6 +3417,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     return {
       cwd,
       workspaceId: undefined,
+      createdDirectoryWorkspaceId: undefined,
       worktree: resolveCreateAgentWorktree(workspace.source.target),
     };
   }

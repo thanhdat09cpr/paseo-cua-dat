@@ -15,6 +15,9 @@ function agent(input: {
   archived?: boolean;
   issueIds?: string[];
   assignerId?: string;
+  disposition?: string;
+  modeId?: string;
+  launchProfile?: Agent["launchProfile"];
 }): Agent {
   return {
     id: input.id,
@@ -22,12 +25,14 @@ function agent(input: {
     provider: "mock",
     model: "mock-model",
     status: "idle",
+    currentModeId: input.modeId ?? "unattended",
     workspaceId: input.workspaceId ?? "workspace-1",
     parentAgentId: input.parentAgentId ?? null,
     roleBinding: input.role
       ? ({
           roleId: input.role,
           assignment: {
+            disposition: input.disposition,
             assigner: input.assignerId
               ? { kind: "agent", agentId: input.assignerId }
               : { kind: "human-session" },
@@ -38,6 +43,7 @@ function agent(input: {
     launchContract: input.launchRole
       ? ({ roleId: input.launchRole } as Agent["launchContract"])
       : undefined,
+    launchProfile: input.launchProfile,
     archivedAt: input.archived ? new Date("2026-08-09T00:00:00.000Z") : null,
     requiresAttention: false,
     createdAt: new Date(`2026-08-09T00:00:0${input.id.length}.000Z`),
@@ -204,6 +210,37 @@ describe("buildWorkspaceTopology", () => {
     );
 
     expect(topology.nodes[0]?.issueIds).toEqual(["ps-issue-a", "ps-issue-b"]);
+  });
+
+  it("projects the exact Peer route receipt for topology inspection", () => {
+    const topology = buildWorkspaceTopology(
+      agentMap(
+        agent({
+          id: "peer",
+          role: "peer",
+          disposition: "independent_review",
+          modeId: "read-only",
+          launchProfile: {
+            id: "peer-reviewer",
+            name: "Peer Reviewer",
+            peerSubrole: "reviewer",
+          },
+        }),
+      ),
+      "workspace-1",
+    );
+
+    expect(topology.nodes[0]).toEqual(
+      expect.objectContaining({
+        modeId: "read-only",
+        assignmentDisposition: "independent_review",
+        launchProfile: {
+          id: "peer-reviewer",
+          name: "Peer Reviewer",
+          peerSubrole: "reviewer",
+        },
+      }),
+    );
   });
 });
 

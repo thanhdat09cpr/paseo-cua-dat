@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "foundation": {
-    "commit": "b91c43e528658f7f82029173f4d06146ca2db77e",
-    "ref": "foundation-v0.1.0-dev.22"
+    "commit": "bb6d2daed6354d8eb47602f6ca99543ec74511ba",
+    "ref": "foundation-v0.1.0-dev.23"
   },
   "paseoUpstream": {
     "commit": "ab274d635e17c82efa3f74e842d59f211374b8c0",

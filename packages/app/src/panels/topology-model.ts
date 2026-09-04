@@ -13,6 +13,9 @@ export interface TopologyNode {
   status: Agent["status"];
   provider: string;
   model: string | null;
+  modeId: string | null;
+  assignmentDisposition: string | null;
+  launchProfile: Agent["launchProfile"] | null;
   workspaceId: string | null;
   requiresAttention: boolean;
   issueIds: string[];
@@ -170,6 +173,9 @@ function buildTopology(topologyAgents: readonly Agent[]): WorkspaceTopology {
     status: agent.status,
     provider: agent.provider,
     model: agent.model,
+    modeId: agent.currentModeId,
+    assignmentDisposition: agent.roleBinding?.assignment?.disposition ?? null,
+    launchProfile: agent.launchProfile ?? null,
     workspaceId: agent.workspaceId ?? null,
     requiresAttention: agent.requiresAttention ?? false,
     issueIds: issueIdsOf(agent),

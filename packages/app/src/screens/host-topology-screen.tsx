@@ -46,8 +46,21 @@ function TopologyAgentCard({
         <View style={[styles.statusDot, styles[`status_${node.status}`]]} />
       </View>
       <Text style={styles.agentMeta} numberOfLines={1}>
-        {node.provider}/{node.model ?? "default"}
+        {node.provider}/{node.model ?? "default"} · mode {node.modeId ?? "default"}
       </Text>
+      {node.launchProfile ? (
+        <Text style={styles.agentMeta} numberOfLines={1}>
+          Profile {node.launchProfile.name} ({node.launchProfile.id})
+        </Text>
+      ) : null}
+      {node.launchProfile?.peerSubrole || node.assignmentDisposition ? (
+        <Text style={styles.agentMeta} numberOfLines={1}>
+          {node.launchProfile?.peerSubrole ? `Peer ${node.launchProfile.peerSubrole}` : "Peer"}
+          {node.assignmentDisposition
+            ? ` · ${node.assignmentDisposition.replaceAll("_", " ")}`
+            : ""}
+        </Text>
+      ) : null}
       {parent && edge ? (
         <Text style={styles.relation} numberOfLines={1}>
           {edge.kind === "supervision" ? "supervised" : "delegated"} by {parent.title}

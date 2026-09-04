@@ -73,6 +73,21 @@ describe("agent inspect assignment receipt", () => {
     expect(toInspectData(snapshot).Assignment).toBeNull();
   });
 
+  test("shows the exact Agent Profile selected for a Peer launch", () => {
+    const snapshot = snapshotWithAssignment();
+    snapshot.launchProfile = {
+      id: "peer-reviewer",
+      name: "Peer Reviewer",
+      peerSubrole: "reviewer",
+    };
+
+    expect(toInspectData(snapshot).LaunchProfile).toEqual({
+      Id: "peer-reviewer",
+      Name: "Peer Reviewer",
+      PeerSubrole: "reviewer",
+    });
+  });
+
   test("keeps unsupported counters unknown and projects raw continuity awareness", () => {
     const snapshot = snapshotWithAssignment();
     snapshot.lastUsage = { inputTokens: 12 };

@@ -12,12 +12,14 @@ export interface TopologyPosition {
 
 const HORIZONTAL_GAP = 360;
 const VERTICAL_LANE_GAP = 235;
+const DISCONNECTED_TREE_GAP_LANES = 1;
 
 /**
- * Lay each exact relationship tree out as an X-first sequence. A parent is
- * always placed before its children; sibling Peers therefore extend to the
- * right instead of stacking down the screen. Disconnected trees get their own
- * Y lane so unrelated roots do not overlap.
+ * Lay each exact relationship tree out from left to right. X represents
+ * relationship depth, while sibling branches receive separate Y lanes. A
+ * parent is centered over its visible children so an edge can never imply that
+ * one sibling spawned the next. Disconnected trees get a blank lane between
+ * them.
  */
 export function layoutProjectTopologyXFirst(
   nodes: readonly TopologyNode[],
@@ -41,21 +43,35 @@ export function layoutProjectTopologyXFirst(
 
   const positions = new Map<string, TopologyPosition>();
   const placed = new Set<string>();
-  let lane = 0;
+  let nextLeafLane = 0;
 
   const placeTree = (rootId: string) => {
-    const orderedIds: string[] = [];
-    const visit = (nodeId: string) => {
-      if (placed.has(nodeId)) return;
+    const visit = (
+      nodeId: string,
+      depth: number,
+    ): { firstLane: number; lastLane: number } | null => {
+      if (placed.has(nodeId)) return null;
       placed.add(nodeId);
-      orderedIds.push(nodeId);
-      for (const childId of childrenByParent.get(nodeId) ?? []) visit(childId);
+      const childRanges = (childrenByParent.get(nodeId) ?? []).flatMap((childId) => {
+        const range = visit(childId, depth + 1);
+        return range ? [range] : [];
+      });
+      if (childRanges.length === 0) {
+        const lane = nextLeafLane;
+        nextLeafLane += 1;
+        positions.set(nodeId, { x: depth * HORIZONTAL_GAP, y: lane * VERTICAL_LANE_GAP });
+        return { firstLane: lane, lastLane: lane };
+      }
+      const firstLane = childRanges[0].firstLane;
+      const lastLane = childRanges.at(-1)?.lastLane ?? firstLane;
+      positions.set(nodeId, {
+        x: depth * HORIZONTAL_GAP,
+        y: ((firstLane + lastLane) / 2) * VERTICAL_LANE_GAP,
+      });
+      return { firstLane, lastLane };
     };
-    visit(rootId);
-    orderedIds.forEach((nodeId, index) => {
-      positions.set(nodeId, { x: index * HORIZONTAL_GAP, y: lane * VERTICAL_LANE_GAP });
-    });
-    lane += 1;
+    const range = visit(rootId, 0);
+    if (range) nextLeafLane += DISCONNECTED_TREE_GAP_LANES;
   };
 
   for (const node of nodes) {

@@ -14,6 +14,7 @@ import {
 } from "@getpaseo/protocol/agent-labels";
 import type { Logger } from "pino";
 import type { ProviderOptions, ToolPolicy } from "@getpaseo/protocol/agent-types";
+import type { AgentProfileLaunchReceipt } from "@getpaseo/protocol/messages";
 import { z } from "zod";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
 
@@ -346,6 +347,8 @@ export interface CreateAgentOptions {
   roleBinding?: PersistedRoleBinding;
   /** Internal storage reload path for an exact role plus provider route. */
   launchContract?: PersistedLaunchContract;
+  /** Immutable snapshot of the Human-approved Agent Profile selected for this launch. */
+  launchProfile?: AgentProfileLaunchReceipt;
 }
 
 interface RoleSessionInput {
@@ -504,6 +507,7 @@ interface ManagedAgentBase {
   owner?: AgentOwner;
   roleBinding?: PersistedRoleBinding;
   launchContract?: PersistedLaunchContract;
+  launchProfile?: AgentProfileLaunchReceipt;
   capabilities: AgentCapabilityFlags;
   config: AgentSessionConfig;
   runtimeInfo?: AgentRuntimeInfo;
@@ -1585,6 +1589,7 @@ export class AgentManager {
         owner: options.owner,
         roleBinding,
         launchContract,
+        launchProfile: options.launchProfile,
         historyPrimed: true,
       });
     } finally {
@@ -1631,6 +1636,7 @@ export class AgentManager {
       owner?: AgentOwner;
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
+      launchProfile?: AgentProfileLaunchReceipt;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1652,6 +1658,7 @@ export class AgentManager {
       owner?: AgentOwner;
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
+      launchProfile?: AgentProfileLaunchReceipt;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1703,6 +1710,7 @@ export class AgentManager {
         persistence: handle,
         roleBinding,
         launchContract,
+        launchProfile: options?.launchProfile,
       });
     } finally {
       this.roleBindingsAwaitingRegistration.delete(resolvedAgentId);
@@ -1906,6 +1914,7 @@ export class AgentManager {
         attention: preservedAttention,
         roleBinding,
         launchContract,
+        launchProfile: existing.launchProfile,
       });
     } finally {
       if (!handedToRegistration) {
@@ -2246,6 +2255,7 @@ export class AgentManager {
         owner: record.owner,
         roleBinding: record.roleBinding,
         launchContract: record.launchContract,
+        launchProfile: record.launchProfile,
         session: null,
         capabilities: STORED_AGENT_CAPABILITIES,
         config: buildStoredAgentConfig(record),
@@ -3837,6 +3847,7 @@ export class AgentManager {
       owner?: AgentOwner;
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
+      launchProfile?: AgentProfileLaunchReceipt;
     },
   ): Promise<ManagedAgent> {
     let registered = false;
@@ -3993,6 +4004,7 @@ export class AgentManager {
           owner?: AgentOwner;
           roleBinding?: PersistedRoleBinding;
           launchContract?: PersistedLaunchContract;
+          launchProfile?: AgentProfileLaunchReceipt;
         }
       | undefined;
   }): ActiveManagedAgent {
@@ -4006,6 +4018,7 @@ export class AgentManager {
       owner: registration.owner,
       roleBinding: registration.roleBinding,
       launchContract: registration.launchContract,
+      launchProfile: registration.launchProfile,
       session,
       capabilities: session.capabilities,
       config,

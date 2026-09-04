@@ -18,6 +18,14 @@ import {
 import { getFoundationRoleDefinition } from "./role-definitions.js";
 import { loadFoundationSkillPolicy } from "./skill-policy.js";
 
+const READ_ONLY_BROWSER_TOOLS = [
+  "browser_list_tabs",
+  "browser_snapshot",
+  "browser_wait",
+  "browser_screenshot",
+  "browser_logs",
+] as const;
+
 export const ROLE_TOOL_CEILINGS = {
   lead: [
     "list_workspaces",
@@ -52,6 +60,7 @@ export const ROLE_TOOL_CEILINGS = {
     "list_providers",
     "list_models",
     "inspect_provider",
+    ...READ_ONLY_BROWSER_TOOLS,
   ],
   peer: [
     "post_room",
@@ -65,6 +74,7 @@ export const ROLE_TOOL_CEILINGS = {
     "beads_update",
     "beads_add_dependency",
     "beads_prime",
+    ...READ_ONLY_BROWSER_TOOLS,
   ],
   supervisor: [
     "list_workspaces",
@@ -92,6 +102,7 @@ export const ROLE_TOOL_CEILINGS = {
     "beads_list",
     "beads_get",
     "beads_prime",
+    ...READ_ONLY_BROWSER_TOOLS,
   ],
 } as const satisfies Record<PaseoRoleId, readonly string[]>;
 

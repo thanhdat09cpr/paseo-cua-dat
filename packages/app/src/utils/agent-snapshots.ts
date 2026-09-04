@@ -73,6 +73,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
     archivedAt: agent.archivedAt?.toISOString() ?? null,
     ...(agent.roleBinding ? { roleBinding: agent.roleBinding } : {}),
     ...(agent.launchContract ? { launchContract: agent.launchContract } : {}),
+    ...(agent.launchProfile ? { launchProfile: agent.launchProfile } : {}),
   };
 }
 
@@ -124,5 +125,6 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     labels: snapshot.labels,
     roleBinding: snapshot.roleBinding,
     launchContract: snapshot.launchContract,
+    launchProfile: snapshot.launchProfile,
   };
 }

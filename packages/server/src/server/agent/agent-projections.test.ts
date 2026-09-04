@@ -114,6 +114,21 @@ it("projects the daemon-owned active turn identity", () => {
   });
 });
 
+it("persists and projects the exact Agent Profile launch receipt", () => {
+  const launchProfile = {
+    id: "peer-reviewer",
+    name: "Peer Reviewer",
+    peerSubrole: "reviewer",
+  } as const;
+  const record = toStoredAgentRecord(createManagedAgent({ launchProfile }));
+
+  expect(record.launchProfile).toEqual(launchProfile);
+  expect(toAgentPayload(createManagedAgent({ launchProfile })).launchProfile).toEqual(
+    launchProfile,
+  );
+  expect(buildStoredAgentPayload(record, ["claude"]).launchProfile).toEqual(launchProfile);
+});
+
 it("keeps contradictory over-max context remainder unknown", () => {
   const awareness = buildContinuityAwareness(
     createManagedAgent({

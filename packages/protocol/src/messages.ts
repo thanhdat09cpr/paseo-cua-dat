@@ -278,6 +278,17 @@ export const AgentProfileSchema = z
 
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
 
+/** Immutable snapshot of the Human-approved Agent Profile used for one launch. */
+export const AgentProfileLaunchReceiptSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    peerSubrole: PeerSubroleSchema.optional(),
+  })
+  .strict();
+
+export type AgentProfileLaunchReceipt = z.infer<typeof AgentProfileLaunchReceiptSchema>;
+
 const MutableBrowserToolsConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -1036,6 +1047,7 @@ export const AgentSnapshotPayloadSchema = z.object({
   providerUnavailable: z.boolean().optional(),
   roleBinding: RoleBindingReceiptSchema.optional(),
   launchContract: LaunchContractReceiptSchema.optional(),
+  launchProfile: AgentProfileLaunchReceiptSchema.optional(),
   coordinationSignals: z.array(CoordinationSignalSchema).optional(),
   leadHandoffs: z.array(LeadHandoffPacketSchema).optional(),
   continuityAwareness: AgentContinuityAwarenessSchema.optional(),
@@ -2719,6 +2731,7 @@ export const PaseoWorktreeArchiveRequestSchema = z.object({
 });
 
 export const FirstAgentContextSchema = z.object({
+  title: z.string().optional(),
   prompt: z.string().optional(),
   attachments: AgentAttachmentsSchema,
 });

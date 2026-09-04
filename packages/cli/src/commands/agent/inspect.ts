@@ -52,6 +52,11 @@ interface AgentInspect {
     AuthMethod: string;
     CredentialConfigured: boolean | null;
   } | null;
+  LaunchProfile: {
+    Id: string;
+    Name: string;
+    PeerSubrole: string | null;
+  } | null;
   CredentialConfigured: boolean | null;
   Model: string;
   Thinking: string;
@@ -233,6 +238,15 @@ function buildLaunchContract(snapshot: AgentSnapshotPayload): AgentInspect["Laun
   };
 }
 
+function buildLaunchProfile(snapshot: AgentSnapshotPayload): AgentInspect["LaunchProfile"] {
+  if (!snapshot.launchProfile) return null;
+  return {
+    Id: snapshot.launchProfile.id,
+    Name: snapshot.launchProfile.name,
+    PeerSubrole: snapshot.launchProfile.peerSubrole ?? null,
+  };
+}
+
 /** Convert agent snapshot to inspection data. Exported for focused receipt projection tests. */
 export function toInspectData(snapshot: AgentSnapshotPayload): AgentInspect {
   return {
@@ -243,6 +257,7 @@ export function toInspectData(snapshot: AgentSnapshotPayload): AgentInspect {
     RoleBinding: buildRoleBinding(snapshot),
     Assignment: buildAssignment(snapshot),
     LaunchContract: buildLaunchContract(snapshot),
+    LaunchProfile: buildLaunchProfile(snapshot),
     CredentialConfigured: snapshot.launchContract?.credentialConfigured ?? null,
     Model: snapshot.launchContract?.model ?? resolveModel(snapshot) ?? "-",
     Thinking: snapshot.effectiveThinkingOptionId ?? "auto",
@@ -289,6 +304,17 @@ function appendContinuityAwarenessRow(
   });
 }
 
+function appendLaunchProfileRow(
+  rows: InspectRow[],
+  launchProfile: AgentInspect["LaunchProfile"],
+): void {
+  if (!launchProfile) return;
+  rows.push({
+    key: "LaunchProfile",
+    value: `Id: ${launchProfile.Id}, Name: ${launchProfile.Name}, PeerSubrole: ${launchProfile.PeerSubrole ?? "none"}`,
+  });
+}
+
 /** Convert agent to key-value rows for table display */
 function toInspectRows(agent: AgentInspect): InspectRow[] {
   const rows: InspectRow[] = [
@@ -331,6 +357,8 @@ function toInspectRows(agent: AgentInspect): InspectRow[] {
       value: `Version: ${agent.LaunchContract.Version}, Digest: ${agent.LaunchContract.ContractDigest}, ProviderId: ${agent.LaunchContract.ProviderId}, Family: ${agent.LaunchContract.ProviderFamily}, Model: ${agent.LaunchContract.Model}, Route: ${agent.LaunchContract.RouteKind}, ModelProviderId: ${agent.LaunchContract.ModelProviderId ?? "null"}, Auth: ${agent.LaunchContract.AuthMethod}`,
     });
   }
+
+  appendLaunchProfileRow(rows, agent.LaunchProfile);
 
   if (agent.LastUsage) {
     rows.push({

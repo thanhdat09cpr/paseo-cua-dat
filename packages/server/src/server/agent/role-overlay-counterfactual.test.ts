@@ -66,20 +66,30 @@ describe("E1 role-overlay counterfactual", () => {
       );
 
     const leadTools = applyRolePaseoToolPolicy("lead", undefined)?.allowedTools ?? [];
+    const readOnlyBrowserTools = new Set([
+      "browser_list_tabs",
+      "browser_snapshot",
+      "browser_wait",
+      "browser_screenshot",
+      "browser_logs",
+    ]);
     const forbiddenGroups = new Set(["Browser", "Terminals", "Schedules"]);
     const forbiddenToolIds = new Set(
-      PASEO_TOOL_MANIFEST.filter((tool) => forbiddenGroups.has(tool.group)).map((tool) => tool.id),
+      PASEO_TOOL_MANIFEST.filter(
+        (tool) => forbiddenGroups.has(tool.group) && !readOnlyBrowserTools.has(tool.id),
+      ).map((tool) => tool.id),
     );
 
     expect(binding.instructions).toContain("Mandatory Beads Central checkpoint");
     expect(binding.instructions).not.toContain("<paseo-role-skill");
     expect(legacyInlineBytes - currentInstructionBytes).toBeGreaterThan(3_000);
-    expect(leadTools.length).toBeLessThan(33);
-    expect(leadTools).toHaveLength(29);
+    expect(leadTools.length).toBeLessThan(38);
+    expect(leadTools).toHaveLength(34);
     expect(leadTools).toContain("list_profiles");
     expect(leadTools).toEqual(
       expect.arrayContaining(["resolve_agent_signal", "start_council", "record_council_seat"]),
     );
+    expect(leadTools).toEqual(expect.arrayContaining([...readOnlyBrowserTools]));
     expect(leadTools.some((tool) => forbiddenToolIds.has(tool))).toBe(false);
 
     const roleBundle = JSON.parse(

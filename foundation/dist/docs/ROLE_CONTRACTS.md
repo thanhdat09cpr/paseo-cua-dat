@@ -51,6 +51,8 @@ Lead phải:
 - giữ một Owner cho mỗi moving/coupled scope;
 - nhận counterevidence và trả concrete ruling;
 - enact exact task-level provider/model/effort override khi cần, không mutate standing profile hoặc để override rò sang task khác;
+- khi exact launch profile hoặc Peer subrole không launch được, giữ requested-route failure là `BLOCKED`
+  hoặc hỏi Human; không thay bằng subrole, provider hay mode khác;
 - review stable candidate và dùng proportional evidence;
 - dùng Reviewer/Council theo risk, không theo ceremony;
 - preserve objective, accepted decisions, ownership, unknowns và next action khi handoff.

@@ -664,7 +664,7 @@ describe("native Foundation role materialization", () => {
         "record_council_seat",
       ]),
     });
-    expect(leadPolicy?.allowedTools).toHaveLength(29);
+    expect(leadPolicy?.allowedTools).toHaveLength(34);
     expect(leadPolicy?.allowedTools).toEqual(
       expect.not.arrayContaining([
         "signal_agent",
@@ -673,6 +673,15 @@ describe("native Foundation role materialization", () => {
       ]),
     );
     expect(leadPolicy?.allowedTools).toContain("resolve_agent_signal");
+    expect(leadPolicy?.allowedTools).toEqual(
+      expect.arrayContaining([
+        "browser_list_tabs",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_screenshot",
+        "browser_logs",
+      ]),
+    );
     expect(
       applyRolePaseoToolPolicy("lead", undefined, ["beads_status", "beads_get", "beads_prime"]),
     ).toEqual({
@@ -681,7 +690,8 @@ describe("native Foundation role materialization", () => {
     });
     expect(leadPolicy?.allowedTools).not.toEqual(
       expect.arrayContaining([
-        "browser_list_tabs",
+        "browser_new_tab",
+        "browser_click",
         "create_terminal",
         "create_schedule",
         "respond_to_permission",
@@ -705,6 +715,11 @@ describe("native Foundation role materialization", () => {
         "beads_claim",
         "beads_update",
         "beads_add_dependency",
+        "browser_list_tabs",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_screenshot",
+        "browser_logs",
       ]),
     });
     expect(applyRolePaseoToolPolicy("peer", { enabled: false }, undefined, "read-only")).toEqual({
@@ -740,7 +755,16 @@ describe("native Foundation role materialization", () => {
     ).toEqual({ enabled: true, allowedTools: ["post_room", "beads_get"] });
     expect(applyRolePaseoToolPolicy("supervisor", { enabled: false })).toEqual({
       enabled: true,
-      allowedTools: expect.arrayContaining(["get_agent_status", "list_agents", "beads_get"]),
+      allowedTools: expect.arrayContaining([
+        "get_agent_status",
+        "list_agents",
+        "beads_get",
+        "browser_list_tabs",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_screenshot",
+        "browser_logs",
+      ]),
     });
     expect(
       applyRolePaseoToolPolicy("supervisor", {
