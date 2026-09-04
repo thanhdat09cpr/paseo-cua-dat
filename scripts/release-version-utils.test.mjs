@@ -65,5 +65,8 @@ test("parses downstream desktop release metadata", () => {
 });
 
 test("rejects unsupported prerelease versions", () => {
-  assert.throws(() => parseReleaseVersion("0.1.60-canary.1"), /Expected beta or downstream versions/);
+  assert.throws(
+    () => parseReleaseVersion("0.1.60-canary.1"),
+    /Expected beta or downstream versions/,
+  );
 });
