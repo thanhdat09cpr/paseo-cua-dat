@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0-paseo.50 - 2026-09-04
+
+### Fixed
+
+- Enable the qualified macOS desktop update controls and point the personal
+  updater helper at the fork-owned release feed.
+
 ## 0.7.0-paseo.49 - 2026-09-04
 
 ### Added

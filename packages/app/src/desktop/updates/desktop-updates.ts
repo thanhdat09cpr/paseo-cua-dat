@@ -37,7 +37,7 @@ export interface LocalDaemonVersionResult {
 }
 
 const RELEASE_DOWNLOAD_BASE_URL =
-  "https://github.com/webplode/paseo-doctrine-downstream/releases/download";
+  "https://github.com/thanhdat09cpr/paseo-cua-dat/releases/download";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -61,10 +61,9 @@ function toNumberOr(defaultValue: number, value: unknown): number {
 }
 
 export function shouldShowDesktopUpdateSection(): boolean {
-  // The downstream channel currently publishes the portable local stack, not
-  // Electron installer metadata. Keep the upstream desktop updater unreachable
-  // until equivalent downstream desktop assets are qualified.
-  return false;
+  // The personal downstream lane publishes the Electron DMG, ZIP and channel
+  // manifest required by electron-updater for macOS Apple Silicon installs.
+  return true;
 }
 
 export function parseLocalDaemonVersionResult(raw: unknown): LocalDaemonVersionResult {

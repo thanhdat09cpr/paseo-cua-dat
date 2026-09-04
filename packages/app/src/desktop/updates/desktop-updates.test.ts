@@ -37,10 +37,10 @@ describe("desktop-updates helpers", () => {
     expect(formatVersionWithPrefix(null)).toBe("\u2014");
   });
 
-  it("keeps Electron updates hidden until downstream installer assets are qualified", async () => {
+  it("exposes Electron updates for the qualified personal downstream lane", async () => {
     const { shouldShowDesktopUpdateSection } = await loadModuleForPlatform("web");
 
-    expect(shouldShowDesktopUpdateSection()).toBe(false);
+    expect(shouldShowDesktopUpdateSection()).toBe(true);
   });
 
   it("parses valid local daemon version result", async () => {
@@ -124,7 +124,7 @@ describe("desktop-updates helpers", () => {
     const { buildMacAppleSiliconDownloadUrl } = await loadModuleForPlatform("web");
 
     expect(buildMacAppleSiliconDownloadUrl("v0.1.64")).toBe(
-      "https://github.com/webplode/paseo-doctrine-downstream/releases/download/v0.1.64/Paseo-0.1.64-arm64.dmg",
+      "https://github.com/thanhdat09cpr/paseo-cua-dat/releases/download/v0.1.64/Paseo-0.1.64-arm64.dmg",
     );
     expect(buildMacAppleSiliconDownloadUrl(null)).toBeNull();
   });
