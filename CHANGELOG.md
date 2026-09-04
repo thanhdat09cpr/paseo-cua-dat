@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0-paseo.53 - 2026-09-04
+
+Bản này ngừng buộc Foundation doctor vào một audit provider đã được retire.
+
+### Fixed
+
+- `providers.audit` nay là qualification route optional. Operator có thể bỏ field khi không còn audit
+  provider đã qualify; `ORCHESTRATION_READY` giữ `UNKNOWN` rõ ràng thay vì `FAIL` vì route cũ không còn
+  trong live catalog.
+- Doctor không tự fallback sang provider/model khác và không nâng trạng thái thiếu route thành `PASS`.
+  Route vẫn được cấu hình tiếp tục phải qua exact live-catalog, model, credential fingerprint và
+  connection-receipt checks như trước.
+
+### Configuration
+
+- Local orchestration preference không còn trỏ tới `codex-zetscan/gpt-5.6-sol`; các Supervisor
+  capability preferences khác được giữ nguyên.
+
 ## 0.7.0-paseo.52 - 2026-09-04
 
 Bản follow-up này sửa hai nhãn topology còn có thể làm Human đọc sai trạng thái và role.
