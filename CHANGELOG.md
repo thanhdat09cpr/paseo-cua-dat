@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0-paseo.51 - 2026-09-04
+
+### Changed
+
+- Bootstrap release used to verify the in-app macOS update path from `.50`.
+
 ## 0.7.0-paseo.50 - 2026-09-04
 
 ### Fixed
