@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.0-paseo.54 - 2026-09-04
+
+Bản này xử lý tranche tự động của doctrine audit: gỡ coupling prose khỏi attention question và bỏ
+compatibility generation SLP lịch sử không còn removal window, đồng thời làm rõ đường báo Human khi
+Lead thất bại lặp lại mà không có Supervisor duy nhất.
+
+### Fixed
+
+- `ask_attention_question` dùng structural bounds và deterministic denylist tiếng Anh/Việt thay cho
+  positive grammar allowlist; câu hỏi proposition-specific tự nhiên được phép, còn action, verdict,
+  ownership, handoff và external-effect request vẫn fail closed.
+- Semantic-friction chỉ buffer/classify khi workspace có đúng một role-bound Supervisor. Fragment lúc
+  Supervisor thiếu hoặc ambiguous không được giữ lại để ghép vào signal sau đó.
+- Lead đạt ngưỡng ba `turn_failed` mà không có Supervisor duy nhất nay phát một typed coordination
+  notification tới Human cho mỗi failure episode; ordinary error notification vẫn bị suppress như cũ.
+- Xóa frozen SLP v1.0 generation và các module compatibility `.45`; exact historical owner không còn
+  được alias sang policy hiện hành mà fail closed với `bundled_policy_pack_missing`.
+
+### Foundation và compatibility
+
+- Import Foundation `0.1.0-dev.24` từ `906f48c`; sách doctrine không còn là runtime fixture trong
+  `foundation/dist`, còn `templates/attention-question-examples.json` vẫn là example data độc lập.
+- `AgentAttentionReason` không đổi. Optional `notification.data.category="coordination"` giữ protocol
+  tương thích; startup chỉ queue coordination alert trong một bound cố định, không replay lifecycle
+  notification cũ.
+- `foundation/sources.lock.json` pin upstream `v0.7.0` đúng commit
+  `c56638ea8c2852d722a87e700abf3c966ded617e`.
+
+### Verification
+
+- Focused policy/protocol/server/app regressions, formatter, lint và workspace typecheck đều pass ở
+  source candidate. Installed/live daemon, WebSocket journey và multi-day effectiveness vẫn cần
+  qualification riêng; không suy diễn các lớp đó từ unit tests.
+
 ## 0.7.0-paseo.53 - 2026-09-04
 
 Bản này ngừng buộc Foundation doctor vào một audit provider đã được retire.
