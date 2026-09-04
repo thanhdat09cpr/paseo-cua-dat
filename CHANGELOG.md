@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.0-paseo.50 - 2026-09-04
+
+Bản này sửa cách Product biểu diễn và thực thi topology role-bound: quan hệ ownership, exact Agent
+Profile/Peer subrole và tên pane nay khớp với assignment mà Human và Lead đã chọn.
+
+### Added
+
+- Persist exact `launchProfile` receipt gồm profile ID, tên và Peer subrole qua snapshot, storage,
+  reload, CLI inspect và Topology inspector; mỗi node cũng hiển thị provider/model, mode và assignment
+  disposition.
+- Cấp cho Lead/Peer/Supervisor các browser tool read-only để inspect tab, snapshot, wait, screenshot và
+  logs; các thao tác mở tab, navigate, click, type, upload hoặc evaluate vẫn không được role mặc định
+  cấp quyền.
+
+### Fixed
+
+- Xếp các Peer cùng Lead theo sibling lanes ngang và ghi rõ `Delegated by`/`Supervised by`, tránh layout
+  làm một Peer trông như parent của Peer còn lại.
+- `create_agent` giữ exact Agent Profile và Peer subrole: profile sai subrole, thiếu subrole hoặc mode
+  không tương thích nay fail closed thay vì bị hiểu như một route khác.
+- Roll back directory workspace/worktree được tạo dở khi authority, profile, provider, mode hoặc agent
+  admission thất bại trước khi agent tồn tại, không để lại pane rác sau tool-call failure.
+- Dùng `create_agent.title` làm tên workspace/pane đầu tiên; prompt dài chỉ còn phục vụ branch metadata,
+  không còn biến thành nhãn khó đọc cho Human.
+
+### Compatibility
+
+- `launchProfile` là field optional, nên snapshot/storage cũ vẫn đọc được; agent đã tồn tại trước `.50`
+  có thể không có receipt này, còn agent tạo mới sẽ có exact route evidence.
+- Import Paseo Foundation `0.1.0-dev.23` để Lead không fallback sang subrole/provider/mode khác khi exact
+  Peer route không launch được. Daemon/Foundation fingerprint mới làm receipt/canary runtime cũ stale
+  và cần qualification lại sau activation.
+
 ## 0.7.0-paseo.49 - 2026-09-02
 
 Bản này xử lý debt dependency còn lại sau merge upstream `v0.7.0`, giữ nguyên protocol,
