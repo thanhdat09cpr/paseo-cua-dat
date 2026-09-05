@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0-paseo.56 - 2026-09-05
+
+Bản follow-up này sửa hai release qualification regression lộ ra khi chạy full CI trên promoted
+release line.
+
+### Fixed
+
+- Relay E2E resolve Wrangler qua public package export thay vì private subpath
+  `wrangler/bin/wrangler.js`, vốn không còn được package export.
+- Giữ nguyên runtime behavior của relay; thay đổi chỉ sửa cách test harness khởi động Wrangler CLI.
+- Role-profile regression kiểm tra exact 16-tool Peer ceiling, gồm năm read-only browser tools, thay vì
+  giữ count `11` đã cũ và không mô tả authority boundary.
+
+### Verification
+
+- Relay suite pass với `FORCE_RELAY_E2E=1` (`50 passed`, `1 skipped`) và focused role-profile suite
+  pass (`4 passed`); release candidate vẫn phải qua full CI và portable qualification trước khi tạo
+  stable tag.
+
 ## 0.7.0-paseo.55 - 2026-09-04
 
 Bản này hoàn tất tranche usability của doctrine audit: đưa coordination signal đã persist vào agent
