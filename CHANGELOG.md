@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0-paseo.52 - 2026-09-05
+
+### Fixed
+
+- Point the portable WebUI updater and bootstrap installers exclusively at
+  `thanhdat09cpr/paseo-cua-dat` releases, invalidating cached upstream candidates.
+- Keep installer-written update status compatible with the current daemon schema so a successful
+  install/restart returns the WebUI update control to a valid idle state.
+- Isolate portable installer tests from the host `launchd` domain so local verification cannot unload
+  the active WebUI service.
+
 ## 0.7.0-paseo.51 - 2026-09-04
 
 ### Changed
