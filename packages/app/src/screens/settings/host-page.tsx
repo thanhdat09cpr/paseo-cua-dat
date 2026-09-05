@@ -40,7 +40,6 @@ import {
   startDesktopDaemon,
   stopDesktopDaemon,
 } from "@/desktop/daemon/desktop-daemon";
-import { LocalDaemonSection } from "@/desktop/components/desktop-updates-section";
 import { useDaemonStatus } from "@/desktop/hooks/use-daemon-status";
 import { loadDesktopSettings, useDesktopSettings } from "@/desktop/settings/desktop-settings";
 import { PairDeviceModal } from "@/desktop/components/pair-device-modal";
@@ -64,8 +63,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { settingsStyles } from "@/styles/settings";
 import type { HostConnection, HostProfile } from "@/types/host-connection";
 import { confirmDialog } from "@/utils/confirm-dialog";
-import { isVersionMismatch } from "@/desktop/updates/desktop-updates";
-import { resolveAppVersion } from "@/utils/app-version";
+import { isVersionMismatch, resolveAppVersion } from "@/utils/app-version";
 import { formatConnectionStatus, getConnectionStatusTone } from "@/utils/daemons";
 import { formatLatency } from "@/utils/latency";
 import { ICON_SIZE } from "@/styles/theme";
@@ -380,9 +378,7 @@ export function HostSettingsPage({
 
       <HostAppearanceSection host={host} />
 
-      {isLocalDaemon ? <LocalDaemonSection /> : null}
-
-      {!isLocalDaemon ? <UpdateDaemonCard key={host.serverId} host={host} /> : null}
+      <UpdateDaemonCard key={host.serverId} host={host} />
 
       <RemoveHostSection host={host} isLocalDaemon={isLocalDaemon} onRemoved={onHostRemoved} />
     </View>

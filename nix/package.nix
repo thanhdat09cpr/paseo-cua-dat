@@ -36,13 +36,9 @@ buildNpmPackage rec {
       && !(lib.hasPrefix "/packages/app/ios" relPath)
       && !(lib.hasPrefix "/packages/website/src" relPath)
       && !(lib.hasPrefix "/packages/website/public" relPath)
-      && !(lib.hasPrefix "/packages/desktop/src" relPath)
-      && !(lib.hasPrefix "/packages/desktop/src-tauri" relPath)
       # Documentation, CI definitions and agent/editor configuration. None of
-      # these reach the build. Excluding them here also matters for the desktop
-      # derivation, which inherits this package's npmDeps: leaving them in makes
-      # a docs-only commit produce a new npm-deps .drv, and so a new desktop
-      # .drv, and so a full rebuild for a byte-identical result.
+      # these reach the build. Excluding them avoids dependency-hash churn for
+      # byte-identical runtime outputs.
       && !(lib.hasPrefix "/docs" relPath)
       && !(lib.hasPrefix "/.github" relPath)
       && !(lib.hasPrefix "/.agents" relPath)

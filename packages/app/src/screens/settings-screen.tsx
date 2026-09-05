@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-  type PressableStateCallbackType,
-} from "react-native";
+import { Pressable, ScrollView, Text, View, type PressableStateCallbackType } from "react-native";
 import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -53,12 +46,10 @@ import { AppearanceSection } from "@/screens/settings/appearance/appearance-sect
 import { LayoutSection } from "@/screens/settings/layout/layout-section";
 import {
   useAppSettings,
-  useSettings,
   parseTerminalScrollbackLines,
   type AppSettings,
   type SendBehavior,
   type ServiceUrlBehavior,
-  type Settings as EffectiveSettings,
 } from "@/hooks/use-settings";
 import { useHostRuntimeIsConnected, useHosts } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
@@ -69,7 +60,6 @@ import {
 } from "@/types/host-connection";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { WindowChromeRegion, WindowChromeSafeArea } from "@/utils/desktop-window";
-import { confirmDialog } from "@/utils/confirm-dialog";
 import { BackHeader } from "@/components/headers/back-header";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { AddHostMethodModal } from "@/components/add-host-method-modal";
@@ -81,16 +71,13 @@ import { EditorSection } from "@/screens/settings/editor-section";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { CommunityLinks } from "@/components/community-links";
-import { SegmentedControl } from "@/components/ui/segmented-control";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DesktopPermissionsSection } from "@/desktop/components/desktop-permissions-section";
 import { DesktopNotificationsSection } from "@/desktop/components/desktop-notifications-section";
 import { BrowserDataSection } from "@/desktop/browser/settings/browser-data-section";
 import { IntegrationsSection } from "@/desktop/components/integrations-section";
 import { isElectronRuntime } from "@/desktop/host";
-import { useDesktopAppUpdater } from "@/desktop/updates/use-desktop-app-updater";
-import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
-import { resolveAppVersion } from "@/utils/app-version";
+import { formatVersionWithPrefix, resolveAppVersion } from "@/utils/app-version";
 import { useAppDiagnosticStore } from "@/diagnostics/store";
 import { settingsStyles } from "@/styles/settings";
 import { THINKING_TONE_NATIVE_PCM_BASE64 } from "@/utils/thinking-tone.native-pcm";
@@ -588,10 +575,9 @@ function DiagnosticsSection({
 interface AboutSectionProps {
   appVersion: string | null;
   appVersionText: string;
-  isDesktopApp: boolean;
 }
 
-function AboutSection({ appVersion, appVersionText, isDesktopApp }: AboutSectionProps) {
+function AboutSection({ appVersion, appVersionText }: AboutSectionProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -604,7 +590,6 @@ function AboutSection({ appVersion, appVersionText, isDesktopApp }: AboutSection
             </View>
             <Text style={styles.aboutValue}>{appVersionText}</Text>
           </View>
-          {isDesktopApp ? <DesktopAppUpdateRow /> : null}
         </View>
       </SettingsSection>
       <ConnectedHostsSection clientVersion={appVersion} />
@@ -694,151 +679,6 @@ function HostVersionRow({
       </View>
       <Text style={valueStyle}>{valueText}</Text>
     </View>
-  );
-}
-
-function getUpdateButtonLabel(
-  t: TFunction,
-  isInstalling: boolean,
-  latestVersion: string | null | undefined,
-): string {
-  if (isInstalling) return t("settings.about.updates.installing");
-  if (latestVersion) {
-    return t("settings.about.updates.updateTo", {
-      version: formatVersionWithPrefix(latestVersion),
-    });
-  }
-  return t("settings.about.updates.update");
-}
-
-function DesktopAppUpdateRow() {
-  const { t } = useTranslation();
-  const { settings, updateSettings } = useSettings();
-  const {
-    isDesktopApp,
-    statusText,
-    availableUpdate,
-    errorMessage,
-    isChecking,
-    isInstalling,
-    checkForUpdates,
-    installUpdate,
-  } = useDesktopAppUpdater();
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!isDesktopApp) {
-        return undefined;
-      }
-      void checkForUpdates({ intent: "automatic", silent: true });
-      return undefined;
-    }, [checkForUpdates, isDesktopApp]),
-  );
-
-  const handleCheckForUpdates = useCallback(() => {
-    if (!isDesktopApp) {
-      return;
-    }
-    void checkForUpdates();
-  }, [checkForUpdates, isDesktopApp]);
-
-  const handleReleaseChannelChange = useCallback(
-    (releaseChannel: EffectiveSettings["releaseChannel"]) => {
-      void updateSettings({ releaseChannel });
-    },
-    [updateSettings],
-  );
-  const releaseChannelOptions = useMemo(
-    () => [
-      { value: "stable" as const, label: t("settings.about.releaseChannel.stable") },
-      { value: "beta" as const, label: t("settings.about.releaseChannel.beta") },
-    ],
-    [t],
-  );
-
-  const handleInstallUpdate = useCallback(() => {
-    if (!isDesktopApp) {
-      return;
-    }
-
-    void confirmDialog({
-      title: t("settings.about.updates.installTitle"),
-      message: t("settings.about.updates.installMessage"),
-      confirmLabel: t("settings.about.updates.installConfirm"),
-      cancelLabel: t("common.actions.cancel"),
-    })
-      .then((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        void installUpdate();
-        return;
-      })
-      .catch((error) => {
-        console.error("[Settings] Failed to open app update confirmation", error);
-        Alert.alert(
-          t("settings.about.updates.alertTitle"),
-          t("settings.about.updates.alertMessage"),
-        );
-      });
-  }, [installUpdate, isDesktopApp, t]);
-
-  const isUpdateReady = availableUpdate?.readyToInstall === true;
-  const readyUpdateVersion = isUpdateReady ? availableUpdate?.latestVersion : null;
-
-  if (!isDesktopApp) {
-    return null;
-  }
-
-  return (
-    <>
-      <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>{t("settings.about.releaseChannel.label")}</Text>
-          <Text style={settingsStyles.rowHint}>
-            {t("settings.about.releaseChannel.description")}
-          </Text>
-        </View>
-        <SegmentedControl
-          size="sm"
-          value={settings.releaseChannel}
-          onValueChange={handleReleaseChannelChange}
-          options={releaseChannelOptions}
-        />
-      </View>
-      <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>{t("settings.about.updates.label")}</Text>
-          <Text style={settingsStyles.rowHint}>{statusText}</Text>
-          {readyUpdateVersion ? (
-            <Text style={settingsStyles.rowHint}>
-              {t("settings.about.updates.readyToInstall", {
-                version: formatVersionWithPrefix(readyUpdateVersion),
-              })}
-            </Text>
-          ) : null}
-          {errorMessage ? <Text style={styles.aboutErrorText}>{errorMessage}</Text> : null}
-        </View>
-        <View style={styles.aboutUpdateActions}>
-          <Button
-            variant="outline"
-            size="sm"
-            onPress={handleCheckForUpdates}
-            disabled={isChecking || isInstalling}
-          >
-            {isChecking ? t("settings.about.updates.checking") : t("settings.about.updates.check")}
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onPress={handleInstallUpdate}
-            disabled={isChecking || isInstalling || !isUpdateReady}
-          >
-            {getUpdateButtonLabel(t, isInstalling, readyUpdateVersion)}
-          </Button>
-        </View>
-      </View>
-    </>
   );
 }
 
@@ -1505,13 +1345,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
               />
             );
           case "about":
-            return (
-              <AboutSection
-                appVersion={appVersion}
-                appVersionText={appVersionText}
-                isDesktopApp={isDesktopApp}
-              />
-            );
+            return <AboutSection appVersion={appVersion} appVersionText={appVersionText} />;
         }
       }
       return null;

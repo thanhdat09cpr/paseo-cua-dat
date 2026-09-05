@@ -37,7 +37,6 @@ valknut-report.json
 **/*.tsbuildinfo
 artifacts
 packages/app/android
-packages/desktop/release
 plan.*.log
 *.log
 CLAUDE.local.md

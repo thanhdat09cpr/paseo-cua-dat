@@ -6,12 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
-const REQUIRED_TARGETS = [
-  ["macos-arm64", ".tar.gz"],
-  ["macos-x64", ".tar.gz"],
-  ["linux-x64", ".tar.gz"],
-  ["windows-x64", ".zip"],
-];
+const REQUIRED_TARGETS = [["macos-arm64", ".tar.gz"]];
 
 function parseArgs(argv) {
   const result = {

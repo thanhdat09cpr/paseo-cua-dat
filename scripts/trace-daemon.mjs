@@ -3,7 +3,7 @@
 // static module-graph tracing (@vercel/nft) from the daemon entry points.
 // Used by nix/package.nix's installPhase to materialize $out/lib/paseo
 // with only the bytes the daemon actually loads — no Expo, RN, Metro,
-// Electron, ML stacks, or other non-daemon workspace bloat.
+// ML stacks or other non-daemon workspace bloat.
 //
 // Output: newline-separated repo-relative file paths on stdout. The Nix
 // installPhase copies each path to $out/lib/paseo/<path>, preserving the
@@ -28,24 +28,14 @@ const { sherpaPlatformPackageName } = await import(
   ).href
 );
 
-const traceDesktop = process.env.PASEO_TRACE_DESKTOP === "1";
-
 // Daemon entry points. Workers forked into their own Node processes have
 // independent require trees; nft does not follow fork boundaries, so trace
-// them separately. The desktop derivation opts into tracing its Electron main
-// process and preloads as well.
+// them separately.
 const entries = [
   "packages/cli/dist/index.js",
   "packages/server/dist/scripts/supervisor-entrypoint.js",
   "packages/server/dist/server/terminal/terminal-worker-process.js",
   "packages/server/dist/server/server/speech/providers/local/worker-process.js",
-  ...(traceDesktop
-    ? [
-        "packages/desktop/dist/main.js",
-        "packages/desktop/dist/preload.js",
-        "packages/desktop/dist/features/browser-keyboard/guest-preload.js",
-      ]
-    : []),
 ];
 
 // Files read at runtime via fs APIs rather than `require`. nft only
@@ -77,16 +67,6 @@ const additionalInputs = [
   // Copy the wrapper plus the host platform package explicitly.
   "node_modules/sherpa-onnx-node/**",
   `node_modules/${sherpaPlatformPackageName()}/**`,
-  ...(traceDesktop
-    ? [
-        // The unpackaged Nix launcher resolves these beside desktop/dist.
-        "packages/desktop/package.json",
-        "packages/desktop/assets/**",
-        // resolveExternalCliEntrypoint() looks up the workspace through this
-        // link at runtime; nft traces the target files but not the link.
-        "node_modules/@getpaseo/cli",
-      ]
-    : []),
 ];
 
 // Trace.
@@ -111,9 +91,6 @@ const { fileList, warnings } = await nodeFileTrace(entries, {
     // tries to walk into them via index files. Belt and suspenders.
     "**/*.test.js",
     "**/*.e2e.test.js",
-    // The Nix desktop package runs under nixpkgs' Electron. Tracing the npm
-    // package would duplicate the complete Electron distribution in $out.
-    ...(traceDesktop ? ["node_modules/electron/**"] : []),
   ],
 });
 

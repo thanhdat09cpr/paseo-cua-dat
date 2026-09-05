@@ -41,7 +41,6 @@ test("every executable daemon entrypoint enters the supervisor", async () => {
     serverPackageSource,
     appIsolatedHostDaemon,
     serverConnectionOfferE2e,
-    desktopRuntimePaths,
     nixPackage,
     nixModule,
     nixFlake,
@@ -53,7 +52,6 @@ test("every executable daemon entrypoint enters the supervisor", async () => {
       join(repoRoot, "packages/server/src/server/daemon-e2e/connection-offer.e2e.test.ts"),
       "utf8",
     ),
-    readFile(join(repoRoot, "packages/desktop/src/daemon/runtime-paths.ts"), "utf8"),
     readFile(join(repoRoot, "nix/package.nix"), "utf8"),
     readFile(join(repoRoot, "nix/module.nix"), "utf8"),
     readFile(join(repoRoot, "flake.nix"), "utf8"),
@@ -80,10 +78,6 @@ test("every executable daemon entrypoint enters the supervisor", async () => {
 
   assert.match(serverConnectionOfferE2e, /scripts\/supervisor-entrypoint\.ts/);
   assertNoSpawnedWorkerEntrypoint("server daemon e2e process launch", serverConnectionOfferE2e);
-
-  assert.match(desktopRuntimePaths, /"dist", "scripts", "supervisor-entrypoint\.js"/);
-  assert.match(desktopRuntimePaths, /"scripts", "supervisor-entrypoint\.ts"/);
-  assertNoDirectWorkerLaunch("desktop runtime paths", desktopRuntimePaths);
 
   assert.match(nixPackage, /dist\/scripts\/supervisor-entrypoint\.js/);
   assertNoDirectWorkerLaunch("Nix package wrapper", nixPackage);

@@ -10,18 +10,13 @@ import { fileURLToPath } from "node:url";
 const repoRoot = new URL("../", import.meta.url);
 const repoRootPath = fileURLToPath(repoRoot);
 
-test("creates the final manifest only from all four exact downstream checksums", () => {
+test("creates the final manifest only from the macOS ARM64 checksum", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "paseo-update-manifest-"));
   try {
     const artifacts = path.join(root, "artifacts");
     mkdirSync(artifacts, { recursive: true });
     const version = JSON.parse(readFileSync(new URL("package.json", repoRoot), "utf8")).version;
-    const targets = [
-      ["macos-arm64", ".tar.gz"],
-      ["macos-x64", ".tar.gz"],
-      ["linux-x64", ".tar.gz"],
-      ["windows-x64", ".zip"],
-    ];
+    const targets = [["macos-arm64", ".tar.gz"]];
     for (const [target, extension] of targets) {
       const directory = path.join(artifacts, target);
       mkdirSync(directory, { recursive: true });
@@ -67,7 +62,7 @@ test("creates the final manifest only from all four exact downstream checksums",
   }
 });
 
-test("fails closed when any platform artifact is missing", () => {
+test("fails closed when the macOS ARM64 artifact is missing", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "paseo-update-manifest-missing-"));
   try {
     const artifacts = path.join(root, "artifacts");

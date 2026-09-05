@@ -10,44 +10,21 @@
 ```bash
 npm run dev:server
 npm run dev:app
-npm run dev:desktop
 ```
 
 Root checkout dev is intentionally split across terminals:
 
 - `npm run dev:server` runs the daemon on `127.0.0.1:6768`.
 - `npm run dev:app` runs Expo on `http://localhost:8081` and connects to the dev daemon.
-- `npm run dev:desktop` runs its own Electron-flavored Expo server on the first free port from `8082` through `8089`. It never claims port `8081`.
 
-Desktop dev launches its desktop-managed daemon with `PASEO_NODE_ENV=development`,
-so development-only providers such as Mock Load Test are available. Packaged
-desktop launches always force the daemon to production mode.
-
-The web and desktop dev launchers pass the current Git branch to Metro as
-`EXPO_PUBLIC_PASEO_DEV_BUILD_LABEL`. The expanded desktop sidebar shows it in
-the titlebar row. Production builds leave the variable unset and show no label.
-
-`npm run dev` is only a shorthand for `npm run dev:server`. Keep `127.0.0.1:6767` for the packaged app and production-style `~/.paseo` state.
-
-## Nix desktop package
-
-The flake exposes `packages.<system>.desktop` on Linux and macOS:
-
-```bash
-nix build .#desktop
-```
-
-Linux produces the `paseo-desktop` launcher and desktop entry. macOS produces
-`Applications/Paseo.app` plus the `paseo-desktop` launcher. Both use the nixpkgs
-Electron runtime and the checkout's built daemon, client, and renderer rather
-than downloading a published desktop release.
+`npm run dev` is only a shorthand for `npm run dev:server`. Keep `127.0.0.1:6767` for the portable daemon and production-style `~/.paseo` state.
 
 ### PASEO_HOME
 
 `PASEO_HOME` is the directory that holds runtime state (agents, worktrees, workspace config, sockets, daemon log). Resolution rules:
 
-- The **server itself** (e.g. when launched by the desktop app or `npm run start`) defaults to `~/.paseo` (see `packages/server/src/server/paseo-home.ts`).
-- **Repo dev scripts** default to `$ROOT/.dev/paseo-home`, where `$ROOT` is the current checkout or worktree root. This keeps all dev state scoped to the checkout instead of the packaged desktop app.
+- The **server itself** (e.g. when launched by the portable service or `npm run start`) defaults to `~/.paseo` (see `packages/server/src/server/paseo-home.ts`).
+- **Repo dev scripts** default to `$ROOT/.dev/paseo-home`, where `$ROOT` is the current checkout or worktree root. This keeps all dev state scoped to the checkout instead of the portable daemon.
 - **`npm run cli -- ...`** runs through the same dev-home wrapper as the dev scripts, so the in-repo CLI automatically targets the current checkout's `.dev/paseo-home` and configured dev daemon endpoint.
 - **Paseo-created worktrees** seed `$PASEO_WORKTREE_PATH/.dev/paseo-home` from `$PASEO_SOURCE_CHECKOUT_PATH/.dev/paseo-home` by copying durable JSON metadata. Runtime files like pid files, sockets, and logs are not copied.
 - **This repo's worktree setup** also best-effort seeds `packages/app/ios` and the newest `.dev/ios-build` entry from the source checkout so iOS simulator services can reuse native project and Xcode cache state when it is safe enough to do so.
@@ -62,7 +39,7 @@ PASEO_DEV_RESET_HOME=1 npm run dev            # clear and reseed the derived wor
 
 ### Daemon endpoints
 
-- Stable daemon launched by the desktop app: `localhost:6767`.
+- Stable portable daemon: `localhost:6767`.
 - Root checkout dev daemon: `localhost:6768`.
 - Root checkout Expo: `http://localhost:8081`.
 - Root checkout desktop dev Expo: first free port from `8082` through `8089`.
@@ -116,42 +93,6 @@ EXPO_PUBLIC_LOCAL_DAEMON=localhost:6768 npm run ios                          # s
 The iOS simulator shares the Mac's loopback, so `localhost:<port>` reaches the host daemon directly.
 
 **Gotcha — `EXPO_PUBLIC_*` is inlined into the JS bundle at Metro bundle time, not read at runtime.** Set it in the same shell that starts Metro. If the app still connects to the old daemon, Metro served a cached bundle; re-bundle clean with `cd packages/app && EXPO_PUBLIC_LOCAL_DAEMON=… npx expo start -c` and reload the app.
-
-### Desktop renderer profiling
-
-`npm run dev:desktop` starts Electron with Chromium remote debugging enabled so
-renderer CPU profiles can be captured through CDP. By default it passes
-`--remote-debugging-port=0`, so Chromium atomically asks the OS for an available
-port and prints the selected DevTools endpoint. Set
-`PASEO_ELECTRON_REMOTE_DEBUGGING_PORT` when a QA workflow requires a validated,
-fixed port.
-
-Desktop dev also scopes Electron `userData` to the current dev root. This prevents
-desktop-only environment inherited by terminals opened inside Paseo from coupling
-a new worktree instance to the parent desktop instance's profile or single-instance
-lock.
-
-The desktop workspace script `exec`s the dev runner so the terminal owns the runner
-PID. Terminal shutdown reaches the runner as `SIGHUP`; the runner stops Metro and
-asks Electron to quit through its normal app lifecycle. Do not add an npm wrapper or
-detach Electron: either change leaves an orphan holding the worktree's single-instance
-lock and broken output pipes.
-
-With desktop dev running, verify the real BrowserWindow, titlebar clearance, fullscreen
-transition, and 751-pixel settings split with:
-
-```bash
-npm run verify:electron-cdp --workspace=@getpaseo/desktop
-```
-
-The verifier reads the same `EXPO_PORT` and
-`PASEO_ELECTRON_REMOTE_DEBUGGING_PORT` environment names as desktop dev. Set an
-explicit remote-debugging port for verifier runs, and set both when testing an
-isolated instance on non-default ports.
-
-When running a dedicated Electron QA instance against a non-default Expo port, set
-`EXPO_DEV_URL` explicitly. Desktop main defaults to `http://localhost:8081`, so
-`PASEO_PORT=57928` alone starts Metro on 57928 but Electron still loads 8081.
 
 ### React render profiling
 
@@ -277,39 +218,6 @@ Set `PASEO_PROFILE_TYPING_SCENARIO=height-growth` to alternate `Shift+Enter` and
 That report includes input and composer height changes plus React work grouped into composer,
 stream, and ancestor/root scopes. Ancestor/root timings include descendant work because the Profiler
 boundaries are nested. A printable key after an empty newline should not change either height.
-
-### Preview Windows and Linux window controls on macOS
-
-Desktop development can replace native macOS traffic lights with Paseo's custom controls:
-
-```bash
-PASEO_DESKTOP_WINDOW_CONTROLS=windows npm run dev:desktop
-PASEO_DESKTOP_WINDOW_CONTROLS=linux npm run dev:desktop
-```
-
-The override is rejected in packaged builds. Restart the desktop process when changing it.
-
-### Desktop macOS compositor watchdog
-
-macOS display sleep can leave Chromium's GPU-process display link — the vsync
-source that drives frame production — stuck on a stale display. The compositor
-then stops producing frames and the window looks frozen: unresponsive to clicks
-and keys even though the renderer and every process stay alive. It self-recovers
-after a few minutes, which is too long for a foreground app.
-
-`setupDarwinCompositorWatchdog`
-(`packages/desktop/src/window/compositor-watchdog/index.ts`) guards against
-this. It polls the renderer for frame production every couple of seconds and,
-after a sustained stall while the window is visible and unlocked, restarts the
-GPU process so Chromium rebuilds the display link. The probe is skipped while
-the screen is locked or the window is hidden or minimized, since a window
-legitimately stops producing frames then.
-
-The watchdog deliberately leaves background throttling **enabled**. Calling
-`webContents.setBackgroundThrottling(false)` would keep the compositor producing
-frames non-stop, pinning ProMotion displays at 120Hz forever and draining the
-battery while the app is idle — so do not re-add it. The probe's visibility
-guards already prevent throttling from causing a false stall.
 
 ### Daemon logs
 
@@ -478,7 +386,7 @@ Build the artifact for packaging or measurement with:
 npm run build:daemon-web-ui
 ```
 
-This exports the normal browser web app (not the Electron-flavored desktop renderer) and copies it into `packages/server/dist/server/web-ui`, precompressing `.html`, `.js`, `.css`, and JSON assets as `.br` and `.gz`.
+This exports the browser web app and copies it into `packages/server/dist/server/web-ui`, precompressing `.html`, `.js`, `.css`, and JSON assets as `.br` and `.gz`.
 
 Measured bundle size for a standard Expo web export:
 

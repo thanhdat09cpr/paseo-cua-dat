@@ -10,7 +10,6 @@ const dockerWorkflowPath = new URL(".github/workflows/docker.yml", repoRoot);
 const nixWorkflowPath = new URL(".github/workflows/nix.yml", repoRoot);
 const nixUpdateHashWorkflowPath = new URL(".github/workflows/nix-update-hash.yml", repoRoot);
 const websiteWorkflowPath = new URL(".github/workflows/deploy-website.yml", repoRoot);
-const desktopReleaseWorkflowPath = new URL(".github/workflows/desktop-release.yml", repoRoot);
 const portableReleaseCoreWorkflowPath = new URL(
   ".github/workflows/downstream-portable-release-core.yml",
   repoRoot,
@@ -25,16 +24,12 @@ const stableReleaseWorkflowPath = new URL(
 );
 const filtersPath = new URL(".github/ci-paths.yml", repoRoot);
 const serverTsconfigPath = new URL("packages/server/tsconfig.server.json", repoRoot);
-const desktopPackagePath = new URL("packages/desktop/package.json", repoRoot);
 
 const gatedCiJobs = new Map([
   ["format", { name: "format", contract: "format" }],
   ["lint", { name: "lint", contract: "quality" }],
   ["typecheck", { name: "typecheck", contract: "quality" }],
   ["server-tests-ubuntu", { name: "server-tests (ubuntu-latest)", contracts: ["server", "hub"] }],
-  ["server-tests-windows", { name: "server-tests (windows-latest)", contracts: ["server", "hub"] }],
-  ["desktop-tests-ubuntu", { name: "desktop-tests (ubuntu-latest)", contract: "desktop" }],
-  ["desktop-tests-windows", { name: "desktop-tests (windows-latest)", contract: "desktop" }],
   ["app-tests", { name: "app-tests", contract: "app" }],
   ["sdk-tests", { name: "sdk-tests", contract: "sdk" }],
   ["playwright-1", { name: "playwright (shard 1/4)", contract: "browser" }],
@@ -51,6 +46,17 @@ const gatedCiJobs = new Map([
   ["cli-tests-2", { name: "cli-tests (shard 2/3)", contract: "cli" }],
   ["cli-tests-3", { name: "cli-tests (shard 3/3)", contract: "cli" }],
 ]);
+
+test("personal fork skips Linux distribution builders and Windows runners", () => {
+  for (const workflowPath of [dockerWorkflowPath, nixWorkflowPath, nixUpdateHashWorkflowPath]) {
+    const source = readFileSync(workflowPath, "utf8");
+    assert.match(source, /if: github\.repository == 'getpaseo\/paseo'/);
+  }
+  const ci = readFileSync(ciWorkflowPath, "utf8");
+  assert.doesNotMatch(ci, /runner: windows|runs-on: windows|macos-15-intel/);
+  const portable = readFileSync(portableReleaseCoreWorkflowPath, "utf8");
+  assert.doesNotMatch(portable, /platform_name: (windows|linux)|arch: x64/);
+});
 
 function jobBlocks(source) {
   const jobs = new Map();
@@ -130,27 +136,10 @@ test("change gating allows superseded workflow runs to cancel", () => {
   }
 });
 
-test("personal macOS releases publish verified updater assets before the manifest", () => {
-  const source = readFileSync(desktopReleaseWorkflowPath, "utf8");
-  const verifyIndex = source.indexOf("node scripts/verify-macos-update-manifest.mjs");
-  const assetsIndex = source.indexOf("gh release upload", verifyIndex);
-  const manifestStepIndex = source.indexOf("Upload personal update manifest last", assetsIndex);
-  const manifestUploadIndex = source.indexOf("gh release upload", manifestStepIndex);
-  const publishIndex = source.indexOf("Publish personal macOS release", manifestUploadIndex);
-
-  assert.ok(verifyIndex > 0, "personal manifest must be verified");
-  assert.match(source, /-name '\*\.zip'/);
-  assert.match(source, /-name '\*\.zip\.blockmap'/);
-  assert.ok(assetsIndex > verifyIndex, "release assets must upload after verification");
-  assert.ok(manifestUploadIndex > assetsIndex, "channel manifest must upload after release assets");
-  assert.ok(publishIndex > manifestUploadIndex, "draft release must publish after the manifest");
-});
-
 test("focused contracts stay inside existing required checks", () => {
   const jobs = jobBlocks(readFileSync(ciWorkflowPath, "utf8"));
   const changes = jobs.get("changes")?.join("\n") ?? "";
   const server = jobs.get("server-tests-ubuntu")?.join("\n") ?? "";
-  const desktop = jobs.get("desktop-tests-ubuntu")?.join("\n") ?? "";
   const foundationCli = jobs.get("foundation-cli-macos")?.join("\n") ?? "";
   const releaseQualification = jobs.get("release-qualification")?.join("\n") ?? "";
 
@@ -161,17 +150,6 @@ test("focused contracts stay inside existing required checks", () => {
   assert.match(server, /test:hub-cli-contract/);
   assert.match(server, /npm run test --workspace=@getpaseo\/server/);
   assert.ok(!jobs.has("hub-cli-contract"));
-
-  assert.match(desktop, /test:e2e:renderer/);
-  assert.match(desktop, /test:e2e:browser-tabs/);
-  assert.match(desktop, /npm run test --workspace=@getpaseo\/desktop/);
-  assert.match(desktop, /actions\/setup-python@v5/);
-  assert.match(desktop, /python-version: "3\.13\.15"/);
-  assert.match(desktop, /actions\/setup-go@v5/);
-  assert.match(desktop, /go-version: "1\.26\.2"/);
-  assert.match(desktop, /beads-central\.lock\.json'\)\.uvVersion/);
-  assert.ok(!jobs.has("desktop-browser-bridge"));
-  assert.ok(!jobs.has("playwright-desktop"));
 
   assert.match(foundationCli, /runs-on: macos-14/);
   assert.match(foundationCli, /test --workspace=@getpaseo\/foundation-cli/);
@@ -185,7 +163,7 @@ test("focused contracts stay inside existing required checks", () => {
   assert.match(releaseQualification, /npm ci/);
   assert.match(releaseQualification, /npm run release:toolchain:check/);
   assert.match(releaseQualification, /npm run acp:pin-consistency:check/);
-  assert.match(releaseQualification, /verify-macos-update-manifest\.test\.mjs/);
+  assert.doesNotMatch(releaseQualification, /verify-macos-update-manifest/);
   assert.doesNotMatch(releaseQualification, /npm run acp:version-drift:check/);
   assert.match(releaseQualification, /git diff --exit-code/);
 });
@@ -223,7 +201,7 @@ test("portable release gates the downstream distribution instead of upstream rel
     source,
     /PASEO_RELEASE_SMOKE_HEALTH_TIMEOUT_MS: \$\{\{ matrix\.health_timeout_ms \}\}/,
   );
-  assert.equal(source.match(/health_timeout_ms: 120000/gu)?.length, 4);
+  assert.equal(source.match(/health_timeout_ms: 120000/gu)?.length, 1);
   assert.match(source, /npm run test --workspace=@getpaseo\/app --/);
   assert.doesNotMatch(source, /npx vitest run/);
   assert.match(source, /src\/composer\/draft\/create-flow\.test\.ts/);
@@ -234,9 +212,7 @@ test("portable release gates the downstream distribution instead of upstream rel
       source.indexOf("Verify downstream role-bound workspace creation"),
   );
   assert.match(source, /macos-14/);
-  assert.match(source, /macos-15-intel/);
-  assert.match(source, /ubuntu-22\.04/);
-  assert.match(source, /windows-2025/);
+  assert.doesNotMatch(source, /macos-15-intel|windows-2025/);
   assert.match(source, /actions\/setup-python@v5/);
   assert.match(source, /python-version: "3\.13\.15"/);
   assert.match(source, /actions\/setup-go@v5/);
@@ -338,18 +314,10 @@ test("PR routing declares stable behavior ownership", () => {
     quality: ["**/*.{cjs,js,json,jsx,mjs,ts,tsx}", "packages/expo-two-way-audio/**"],
     hub: ["packages/cli/src/commands/hub/**", "packages/server/src/server/hub/**"],
     server: ["packages/server/**", "packages/app/e2e/support/fixtures/recording.*"],
-    desktop: [
-      "packages/desktop/**",
-      "packages/app/src/desktop/**",
-      "packages/server/src/server/browser-tools/**",
-      "packages/app/e2e/support/**",
-      "packages/app/*config.{cjs,js,ts}",
-      "packages/app/package.json",
-    ],
     app: ["packages/app/**", "packages/expo-two-way-audio/**"],
     sdk: ["packages/client/**", "packages/highlight/**", "packages/protocol/**"],
     browser: [
-      "packages/app/src/!(desktop)/**",
+      "packages/app/src/**",
       "packages/app/e2e/browser/**",
       "packages/app/e2e/support/**",
       "packages/app/assets/**",
@@ -388,20 +356,14 @@ test("cross-package invariants live in the suite that owns them", () => {
   assert.match(readFileSync(protocolWireCompatibility, "utf8"), /wire schema compatibility/);
 });
 
-test("browser and desktop tests have exclusive, directory-owned suites", () => {
+test("browser tests stay inside the app-owned suite", () => {
   const filters = loadFilters(filtersPath);
   const browserSpecs = filesUnder("packages/app/e2e", (path) => path.endsWith(".spec.ts"));
-  const desktopSpecs = filesUnder("packages/desktop/e2e", (path) => path.endsWith(".spec.ts"));
   const electronModules = filesUnder("packages/app/src", (path) => /\.electron\.tsx?$/.test(path));
 
   assert.ok(browserSpecs.length > 0);
-  assert.ok(desktopSpecs.length > 0);
   assert.ok(browserSpecs.every((path) => path.startsWith("packages/app/e2e/browser/")));
-  assert.ok(desktopSpecs.every((path) => path.startsWith("packages/desktop/e2e/")));
   assert.ok(electronModules.every((path) => path.startsWith("packages/app/src/desktop/")));
-
-  const desktopPackage = JSON.parse(readFileSync(desktopPackagePath, "utf8"));
-  assert.match(desktopPackage.scripts.test, /--exclude ["']e2e\/\*\*["']/);
 
   for (const path of browserSpecs) {
     assert.doesNotMatch(
@@ -409,22 +371,11 @@ test("browser and desktop tests have exclusive, directory-owned suites", () => {
       /paseoDesktop|injectDesktopBridge/,
     );
   }
-  for (const path of desktopSpecs) {
-    assert.ok(path.startsWith("packages/desktop/e2e/"));
-  }
-
   const routingSource = readFileSync(filtersPath, "utf8");
   assert.doesNotMatch(routingSource, /desktop_bridge|playwright_desktop|browser-\*|browser-\*\//);
-  assert.deepEqual(filters.desktop, [
-    "packages/desktop/**",
-    "packages/app/src/desktop/**",
-    "packages/server/src/server/browser-tools/**",
-    "packages/app/e2e/support/**",
-    "packages/app/*config.{cjs,js,ts}",
-    "packages/app/package.json",
-  ]);
+  assert.equal(filters.desktop, undefined);
   assert.deepEqual(filters.browser, [
-    "packages/app/src/!(desktop)/**",
+    "packages/app/src/**",
     "packages/app/e2e/browser/**",
     "packages/app/e2e/support/**",
     "packages/app/assets/**",

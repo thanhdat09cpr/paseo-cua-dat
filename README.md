@@ -5,9 +5,10 @@ packages the WebUI, CLI, Node.js runtime, and Foundation into self-contained hos
 **not** an official installer from `getpaseo/paseo`; installable artifacts are published only from
 [`thanhdat09cpr/paseo-cua-dat`](https://github.com/thanhdat09cpr/paseo-cua-dat).
 
-Host-native artifacts are published for macOS (`arm64`, `x64`), Linux (`x64`), and Windows (`x64`).
-Every artifact bundles the same downstream version and is built, installed, and smoke-tested on its
-target operating system before publication.
+The current fork ships macOS Apple Silicon (`arm64`) portable artifacts only. Use the WebApp
+through Tailscale for remote access; WebApp Update remains supported. Electron packaging and
+desktop release workflows are removed. Older multi-platform installer notes below describe
+compatibility with prior releases, not targets built by the current release lane.
 
 ## Install
 

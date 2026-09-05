@@ -42,8 +42,6 @@ jobs:
   qualification:
     name: downstream-release-contracts
     runs-on: ubuntu-22.04
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - name: Verify fork repository
         shell: bash
@@ -163,7 +161,7 @@ jobs:
             release_args=(
               --repo "$GITHUB_REPOSITORY"
               --title "Paseo Foundation Downstream ${RELEASE_TAG#paseo-v}"
-              --notes "Host-native WebUI + CLI + Foundation distribution for macOS, Linux, and Windows."
+              --notes "WebUI + CLI + Foundation distribution for macOS on Apple Silicon."
               --verify-tag
               --draft
             )
@@ -190,21 +188,6 @@ jobs:
             platform_name: macos
             arch: arm64
             extension: .tar.gz
-            health_timeout_ms: 120000
-          - runner: macos-15-intel
-            platform_name: macos
-            arch: x64
-            extension: .tar.gz
-            health_timeout_ms: 120000
-          - runner: ubuntu-22.04
-            platform_name: linux
-            arch: x64
-            extension: .tar.gz
-            health_timeout_ms: 120000
-          - runner: windows-2025
-            platform_name: windows
-            arch: x64
-            extension: .zip
             health_timeout_ms: 120000
     runs-on: ${{ matrix.runner }}
 
@@ -244,19 +227,6 @@ jobs:
       - name: Test macOS bootstrap compatibility
         if: runner.os == 'macOS'
         run: npm run test:install-macos
-
-      - name: Parse Windows bootstrap installer
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path scripts/install-windows.ps1),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) { throw ($errors | Out-String) }
 
       - name: Build host-native WebUI + CLI artifact
         env:

@@ -37,14 +37,6 @@ server:
   - "packages/server/**"
   - "packages/app/e2e/support/fixtures/recording.*"
 
-desktop:
-  - "packages/desktop/**"
-  - "packages/app/src/desktop/**"
-  - "packages/server/src/server/browser-tools/**"
-  - "packages/app/e2e/support/**"
-  - "packages/app/*config.{cjs,js,ts}"
-  - "packages/app/package.json"
-
 app:
   - "packages/app/**"
   - "packages/expo-two-way-audio/**"
@@ -55,7 +47,7 @@ sdk:
   - "packages/protocol/**"
 
 browser:
-  - "packages/app/src/!(desktop)/**"
+  - "packages/app/src/**"
   - "packages/app/e2e/browser/**"
   - "packages/app/e2e/support/**"
   - "packages/app/assets/**"

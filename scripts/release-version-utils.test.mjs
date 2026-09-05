@@ -48,20 +48,12 @@ test("emits beta release info from tags", () => {
   });
 });
 
-test("parses downstream desktop release metadata", () => {
-  assert.deepEqual(getReleaseInfoFromSourceTag("desktop-v0.7.0-paseo.48"), {
-    sourceTag: "desktop-v0.7.0-paseo.48",
-    releaseTag: "v0.7.0-paseo.48",
-    version: "0.7.0-paseo.48",
-    baseVersion: "0.7.0",
-    prerelease: "paseo.48",
-    isPrerelease: true,
-    isBeta: false,
-    betaNumber: null,
-    releaseType: "prerelease",
-    releaseChannel: "latest",
-    isSmokeTag: false,
-  });
+test("parses Android release metadata", () => {
+  assert.equal(getReleaseInfoFromSourceTag("android-v0.1.60").releaseTag, "v0.1.60");
+});
+
+test("rejects removed desktop release tags", () => {
+  assert.throws(() => getReleaseInfoFromSourceTag("desktop-v0.7.0-paseo.48"));
 });
 
 test("rejects unsupported prerelease versions", () => {

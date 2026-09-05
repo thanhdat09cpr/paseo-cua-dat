@@ -14,7 +14,6 @@ This is an npm workspace monorepo:
 - `packages/cli` — Docker-style CLI (`paseo run/ls/logs/wait`)
 - `packages/foundation-cli` — macOS Foundation installer and diagnostics
 - `packages/relay` — E2E encrypted relay for remote access
-- `packages/desktop` — Electron desktop wrapper
 - `packages/website` — Marketing site (paseo.sh)
 
 ## Docs
@@ -39,7 +38,6 @@ or bundled skills.
 ```bash
 npm run dev                          # Start the dev daemon
 npm run dev:app                      # Start Expo against the dev daemon
-npm run dev:desktop                  # Start Electron desktop dev
 npm run cli -- ls -a -g              # List all agents
 npm run cli -- daemon status         # Check daemon status
 ./scripts/local-stack.sh             # Is the running daemon this tree? (exit 1 = stale)
@@ -50,7 +48,7 @@ npm run format                       # Auto-format with Biome
 npm run format:check                 # Check formatting without writing
 ```
 
-Repo dev commands use checkout-local state by default. In this checkout, `PASEO_HOME` resolves to `.dev/paseo-home`, and `npm run cli -- ...` targets that same dev home automatically. The packaged desktop app and production-style daemon keep using `~/.paseo` on port `6767`.
+Repo dev commands use checkout-local state by default. In this checkout, `PASEO_HOME` resolves to `.dev/paseo-home`, and `npm run cli -- ...` targets that same dev home automatically. The production-style portable daemon keep using `~/.paseo` on port `6767`.
 
 See [docs/development.md](docs/development.md) for full setup, build sync requirements, and debugging.
 

@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   update-hash:
+    if: github.repository == 'getpaseo/paseo'
     runs-on: ubuntu-latest
     env:
       PASEO_BOT_CONFIGURED: ${{ secrets.PASEO_BOT_APP_ID != '' && secrets.PASEO_BOT_APP_PRIVATE_KEY != '' }}
