@@ -24,6 +24,7 @@ function createService(): UpdateService {
     prepare: vi.fn(async () => ({ success: true, version: "0.5.0-paseo.39", error: null })),
     apply: vi.fn(async () => ({ accepted: true, version: "0.5.0-paseo.39", error: null })),
     getStatus: vi.fn(async () => ({
+      schemaVersion: 2 as const,
       phase: "idle" as const,
       version: null,
       message: null,
@@ -89,6 +90,7 @@ describe("DistributionUpdateSessionController", () => {
     const service = createService();
     vi.mocked(service.apply).mockImplementation(async (_tag, onProgress) => {
       const status: DistributionUpdateStatus = {
+        schemaVersion: 2,
         phase: "installing",
         version: "0.5.0-paseo.39",
         message: "Installer accepted",

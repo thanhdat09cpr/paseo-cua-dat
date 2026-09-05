@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPOSITORY="webplode/paseo-doctrine-downstream"
+REPOSITORY="thanhdat09cpr/paseo-cua-dat"
 API_ROOT="${PASEO_DOWNSTREAM_API_ROOT:-https://api.github.com/repos/$REPOSITORY}"
 DOWNLOAD_ROOT="${PASEO_DOWNSTREAM_DOWNLOAD_ROOT:-https://github.com/$REPOSITORY/releases/download}"
 TAG="${PASEO_DOWNSTREAM_TAG:-}"
@@ -11,7 +11,7 @@ usage() {
 Usage: install-macos.sh [artifact installer options]
 
 Download, verify, and install the newest Paseo Foundation Downstream macOS
-release from webplode/paseo-doctrine-downstream.
+release from thanhdat09cpr/paseo-cua-dat.
 
 Examples:
   ./install-macos.sh
@@ -53,10 +53,11 @@ if [ -z "$TAG" ]; then
   curl --fail --silent --show-error --location --retry 3 \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    "$API_ROOT/releases?per_page=1" > "$RELEASES_JSON"
-  TAG=$(awk -F '"' '/"tag_name"[[:space:]]*:/ { print $4; exit }' "$RELEASES_JSON")
+    "$API_ROOT/releases?per_page=100" > "$RELEASES_JSON"
+  TAG=$(grep -E '"tag_name"[[:space:]]*:[[:space:]]*"paseo-v[^"]*"' "$RELEASES_JSON" |
+    awk -F '"' 'NR == 1 { print $4; exit }')
   if [ -z "$TAG" ]; then
-    echo "No published downstream release was found at $API_ROOT/releases." >&2
+    echo "No published paseo-v* downstream release was found at $API_ROOT/releases." >&2
     exit 1
   fi
 fi

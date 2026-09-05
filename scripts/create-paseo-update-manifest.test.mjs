@@ -5,8 +5,10 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const repoRoot = new URL("../", import.meta.url);
+const repoRootPath = fileURLToPath(repoRoot);
 
 test("creates the final manifest only from all four exact downstream checksums", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "paseo-update-manifest-"));
@@ -33,14 +35,14 @@ test("creates the final manifest only from all four exact downstream checksums",
     execFileSync(
       process.execPath,
       [
-        new URL("scripts/create-paseo-update-manifest.mjs", repoRoot).pathname,
+        fileURLToPath(new URL("scripts/create-paseo-update-manifest.mjs", repoRoot)),
         "--artifacts",
         artifacts,
         "--output",
         output,
       ],
       {
-        cwd: new URL(".", repoRoot).pathname,
+        cwd: repoRootPath,
         env: { ...process.env, GITHUB_SHA: "f".repeat(40) },
       },
     );
@@ -51,7 +53,7 @@ test("creates the final manifest only from all four exact downstream checksums",
     assert.equal(
       manifest.sourceCommit,
       execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: new URL(".", repoRoot).pathname,
+        cwd: repoRootPath,
         encoding: "utf8",
       }).trim(),
     );
@@ -74,13 +76,13 @@ test("fails closed when any platform artifact is missing", () => {
       execFileSync(
         process.execPath,
         [
-          new URL("scripts/create-paseo-update-manifest.mjs", repoRoot).pathname,
+          fileURLToPath(new URL("scripts/create-paseo-update-manifest.mjs", repoRoot)),
           "--artifacts",
           artifacts,
           "--output",
           path.join(root, "manifest.json"),
         ],
-        { cwd: new URL(".", repoRoot).pathname, stdio: "pipe" },
+        { cwd: repoRootPath, stdio: "pipe" },
       ),
     );
   } finally {

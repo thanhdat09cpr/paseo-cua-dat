@@ -356,9 +356,9 @@ write_update_status() {
   mkdir -p "$UPDATE_STATUS_DIR" || return 1
   updated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   if [ "$1" = "idle" ]; then
-    printf '{"phase":"idle","version":null,"message":null,"updatedAt":"%s","preparedBundlePath":null}\n' "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
+    printf '{"schemaVersion":2,"phase":"idle","version":null,"message":null,"updatedAt":"%s","preparedBundlePath":null}\n' "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
   else
-    printf '{"phase":"failed","version":"%s","message":"Update failed and the previous release was restored.","updatedAt":"%s","preparedBundlePath":null}\n' "$VERSION" "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
+    printf '{"schemaVersion":2,"phase":"failed","version":"%s","message":"Update failed and the previous release was restored.","updatedAt":"%s","preparedBundlePath":null}\n' "$VERSION" "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
   fi
   mv "$UPDATE_STATUS_DIR/status.json.tmp" "$UPDATE_STATUS_DIR/status.json"
 }
@@ -704,9 +704,9 @@ write_update_status() {
   mkdir -p "$UPDATE_STATUS_DIR" || return 1
   updated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   if [ "$1" = "idle" ]; then
-    printf '{"phase":"idle","version":null,"message":null,"updatedAt":"%s","preparedBundlePath":null}\n' "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
+    printf '{"schemaVersion":2,"phase":"idle","version":null,"message":null,"updatedAt":"%s","preparedBundlePath":null}\n' "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
   else
-    printf '{"phase":"failed","version":"%s","message":"Update failed and the previous release was restored.","updatedAt":"%s","preparedBundlePath":null}\n' "$VERSION" "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
+    printf '{"schemaVersion":2,"phase":"failed","version":"%s","message":"Update failed and the previous release was restored.","updatedAt":"%s","preparedBundlePath":null}\n' "$VERSION" "$updated_at" > "$UPDATE_STATUS_DIR/status.json.tmp"
   fi
   mv "$UPDATE_STATUS_DIR/status.json.tmp" "$UPDATE_STATUS_DIR/status.json"
 }
@@ -1048,9 +1048,9 @@ $UpdateStatusDir = Join-Path $UpdateHome "updates"
 function Write-UpdateStatus([string]$Phase) {
   New-Item -ItemType Directory -Force -Path $UpdateStatusDir | Out-Null
   $Status = if ($Phase -eq "idle") {
-    @{ phase = "idle"; version = $null; message = $null; updatedAt = [DateTime]::UtcNow.ToString("o"); preparedBundlePath = $null }
+    @{ schemaVersion = 2; phase = "idle"; version = $null; message = $null; updatedAt = [DateTime]::UtcNow.ToString("o"); preparedBundlePath = $null }
   } else {
-    @{ phase = "failed"; version = $Version; message = "Update failed and the previous release was restored."; updatedAt = [DateTime]::UtcNow.ToString("o"); preparedBundlePath = $null }
+    @{ schemaVersion = 2; phase = "failed"; version = $Version; message = "Update failed and the previous release was restored."; updatedAt = [DateTime]::UtcNow.ToString("o"); preparedBundlePath = $null }
   }
   $StatusPath = Join-Path $UpdateStatusDir "status.json"
   $StatusTemp = "$StatusPath.tmp"

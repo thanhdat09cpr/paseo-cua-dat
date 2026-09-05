@@ -11,7 +11,7 @@ import type pino from "pino";
 import { z } from "zod";
 import { writeJsonFileAtomic } from "../../atomic-file.js";
 
-export const DOWNSTREAM_REPOSITORY = "webplode/paseo-doctrine-downstream";
+export const DOWNSTREAM_REPOSITORY = "thanhdat09cpr/paseo-cua-dat";
 export const DOWNSTREAM_RELEASES_API = `https://api.github.com/repos/${DOWNSTREAM_REPOSITORY}/releases`;
 export const DISTRIBUTION_UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const DISTRIBUTION_UPDATE_MANUAL_COOLDOWN_MS = 5 * 60 * 1000;
@@ -67,7 +67,7 @@ const CandidateSchema = z.object({
 });
 
 const CacheDocumentSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   checkedAt: z.string(),
   etag: z.string().nullable(),
   rateLimitedUntil: z.string().nullable(),
@@ -76,6 +76,7 @@ const CacheDocumentSchema = z.object({
 });
 
 const UpdateStatusSchema = z.object({
+  schemaVersion: z.literal(2),
   phase: z.enum(["idle", "checking", "downloading", "prepared", "installing", "failed"]),
   version: z.string().nullable(),
   message: z.string().nullable(),
@@ -206,7 +207,12 @@ function rateLimitedUntil(response: Response, now: number): string | null {
 }
 
 function assertExtractedArtifactManifest(
-  manifest: { product?: unknown; version?: unknown; platform?: unknown; arch?: unknown },
+  manifest: {
+    product?: unknown;
+    version?: unknown;
+    platform?: unknown;
+    arch?: unknown;
+  },
   candidate: Candidate,
   platform: NodeJS.Platform,
   arch: string,
@@ -454,7 +460,7 @@ export class DistributionUpdateService {
         "User-Agent": "paseo-distribution-updater",
       };
       if (cached?.etag) headers["If-None-Match"] = cached.etag;
-      const response = await this.runtime.fetch(`${DOWNSTREAM_RELEASES_API}?per_page=10`, {
+      const response = await this.runtime.fetch(`${DOWNSTREAM_RELEASES_API}?per_page=100`, {
         headers,
       });
       return await this.processCheckResponse(response, cached, now, checkedAt);
@@ -462,7 +468,7 @@ export class DistributionUpdateService {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn({ err: error }, "Distribution update check failed");
       const failed: CacheDocument = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         checkedAt,
         etag: cached?.etag ?? null,
         rateLimitedUntil: cached?.rateLimitedUntil ?? null,
@@ -481,7 +487,12 @@ export class DistributionUpdateService {
     checkedAt: string,
   ): Promise<DistributionUpdateCheckResult> {
     if (response.status === 304 && cached) {
-      const refreshed = { ...cached, checkedAt, rateLimitedUntil: null, error: null };
+      const refreshed = {
+        ...cached,
+        checkedAt,
+        rateLimitedUntil: null,
+        error: null,
+      };
       await writeJsonFileAtomic(this.cachePath, refreshed);
       return this.toCheckResult(refreshed, "network");
     }
@@ -491,7 +502,7 @@ export class DistributionUpdateService {
       }
       const error = `GitHub returned HTTP ${response.status}.`;
       const limited: CacheDocument = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         checkedAt,
         etag: cached?.etag ?? null,
         rateLimitedUntil: rateLimitedUntil(response, now),
@@ -509,7 +520,7 @@ export class DistributionUpdateService {
       this.currentVersion !== null &&
       comparePaseoVersions(newest.version, this.currentVersion) <= 0;
     const document: CacheDocument = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       checkedAt,
       etag: response.headers.get("etag"),
       rateLimitedUntil: null,
@@ -838,6 +849,7 @@ export class DistributionUpdateService {
 
   private idleStatus(): DistributionUpdateStatus {
     return {
+      schemaVersion: 2,
       phase: "idle",
       version: null,
       message: null,
@@ -854,6 +866,7 @@ export class DistributionUpdateService {
     extras?: { preparedBundlePath?: string | null },
   ): Promise<void> {
     const status: DistributionUpdateStatus = {
+      schemaVersion: 2,
       phase,
       version,
       message,

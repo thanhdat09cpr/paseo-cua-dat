@@ -28,7 +28,7 @@ Do not publish either lane to the upstream `webplode` repository or use upstream
 
 ## Downstream Foundation release
 
-Repository `webplode/paseo-doctrine-downstream` không publish các package dưới upstream npm scope.
+Repository `thanhdat09cpr/paseo-cua-dat` không publish các package dưới upstream npm scope.
 `scripts/downstream-publish-guard.test.mjs` giữ boundary này fail-closed. Release downstream dùng
 version dạng `X.Y.Z-paseo.N` và tag khớp chính xác `paseo-vX.Y.Z-paseo.N`.
 
@@ -111,15 +111,22 @@ Không dùng `release:publish` hoặc upstream `vX.Y.Z` tag cho distribution nà
 
 ### Update portable downstream
 
-Updater chỉ đọc GitHub Releases của `webplode/paseo-doctrine-downstream`. Client thử check đúng một lần
+Updater chỉ đọc GitHub Releases của `thanhdat09cpr/paseo-cua-dat`. Client thử check đúng một lần
 khi WebUI process mở và kết nối host; daemon cache kết quả automatic trong 24 giờ, gộp request đồng
 thời, dùng `ETag`, và giữ cooldown manual 5 phút. Reconnect, focus, resume hoặc timer không tạo thêm
 GitHub request.
 
-Release chỉ được discover sau khi job cuối upload `paseo-update-manifest.json`. Khi rerun cùng tag,
+Feed dùng `per_page=100`, chỉ xét tag `paseo-v*`, và chỉ nhận release có đủ
+`paseo-update-manifest.json`, archive đúng platform và file checksum tương ứng. Release chỉ được
+discover sau khi job cuối upload `paseo-update-manifest.json`. Khi rerun cùng tag,
 workflow xóa manifest cũ trước khi thay platform assets; vì vậy client không bao giờ coi matrix đang
 upload dở là qualified. Manifest khóa đủ bốn archive/checksum macOS `arm64`/`x64`, Linux `x64` và
 Windows `x64`.
+
+Cache release từ upstream và prepared update cũ bị invalidated bằng schema version mới; daemon sẽ
+derive lại discovery và chuẩn bị bundle từ fork.
+
+Portable CI fail closed nếu workflow chạy ngoài `thanhdat09cpr/paseo-cua-dat`.
 
 Người dùng portable có thể apply từ WebUI callout hoặc CLI:
 

@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-$Repository = "webplode/paseo-doctrine-downstream"
+$Repository = "thanhdat09cpr/paseo-cua-dat"
 $ApiRoot = if ($env:PASEO_DOWNSTREAM_API_ROOT) { $env:PASEO_DOWNSTREAM_API_ROOT } else { "https://api.github.com/repos/$Repository" }
 $DownloadRoot = if ($env:PASEO_DOWNSTREAM_DOWNLOAD_ROOT) { $env:PASEO_DOWNSTREAM_DOWNLOAD_ROOT } else { "https://github.com/$Repository/releases/download" }
 
@@ -22,8 +22,12 @@ if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [Runtime.In
   throw "The Windows downstream release currently supports x64 only."
 }
 if (-not $Tag) {
-  $release = Invoke-RestMethod -Headers @{ Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2022-11-28" } -Uri "$ApiRoot/releases?per_page=1"
-  $Tag = @($release)[0].tag_name
+  $release = Invoke-RestMethod -Headers @{ Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2022-11-28" } -Uri "$ApiRoot/releases?per_page=100"
+  $release = @($release) | Where-Object { $_.tag_name -like 'paseo-v*' } | Select-Object -First 1
+  if (-not $release) {
+    throw "No published paseo-v* downstream release was found at $ApiRoot/releases."
+  }
+  $Tag = $release.tag_name
 }
 if (-not $Tag -or -not $Tag.StartsWith("paseo-v")) {
   throw "Expected a downstream tag shaped like paseo-v<version>; received $Tag"

@@ -83,7 +83,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
-  *'/releases?per_page=1') source="$FIXTURE_ROOT/releases.json" ;;
+  *'/releases?per_page=100') source="$FIXTURE_ROOT/releases.json" ;;
   *) source="$FIXTURE_ROOT/\${url##*/}" ;;
 esac
 if [ -n "$output" ]; then cp "$source" "$output"; else cat "$source"; fi
@@ -135,6 +135,16 @@ exit 0
     '#!/bin/sh\ncase "$*" in *process.stdout.write*) printf "127.0.0.1:6767" ;; esac\nexit 0\n',
   );
   writeExecutable(path.join(oldBin, "paseo"), existingPaseoSource);
+  writeExecutable(
+    path.join(oldBin, "launchctl"),
+    `#!/bin/sh
+case "$1" in
+  print) exit 1 ;;
+  bootout|bootstrap|kickstart) exit 0 ;;
+  *) exit 2 ;;
+esac
+`,
+  );
   return {
     root,
     bundle,
@@ -349,6 +359,7 @@ test("all generated platform installers preserve service config and gate the tra
     assert.match(source, /api\/health/);
     assert.match(source, /6769\/health\/ready/);
     assert.match(source, /restoring the previous Paseo release/i);
+    assert.match(source, /schemaVersion(?:"|\s*=)?["' ]*[:=]["' ]*2|schemaVersion\s*=\s*2/i);
   }
   for (const source of [macos, linux]) {
     assert.match(source, /HEALTHY=0[\s\S]*6769\/health\/ready[\s\S]*sleep 1/);

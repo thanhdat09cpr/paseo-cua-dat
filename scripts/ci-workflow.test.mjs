@@ -192,8 +192,20 @@ test("focused contracts stay inside existing required checks", () => {
 
 test("portable release gates the downstream distribution instead of upstream release surfaces", () => {
   const source = readFileSync(portableReleaseCoreWorkflowPath, "utf8");
+  const qualificationStart = source.indexOf("\n  qualification:");
+  const qualificationEnd = source.indexOf("\n  create-release:", qualificationStart);
+  const qualification = source.slice(qualificationStart, qualificationEnd);
 
   assert.match(source, /^  workflow_call:\s*$/m);
+  assert.match(
+    qualification,
+    /- name: Verify fork repository\s+shell: bash\s+run: \|\s+if \[ "\$GITHUB_REPOSITORY" != "thanhdat09cpr\/paseo-cua-dat" \]; then\s+echo "Portable release workflow must run in thanhdat09cpr\/paseo-cua-dat; got \$GITHUB_REPOSITORY\." >&2\s+exit 1\s+fi/u,
+  );
+  assert.ok(
+    qualification.indexOf("- name: Verify fork repository") <
+      qualification.indexOf("- uses: actions/checkout@v4"),
+    "fork repository guard must be the first qualification step",
+  );
   assert.match(source, /name: downstream-release-contracts/);
   assert.match(source, /npm run acp:pin-consistency:check/);
   assert.doesNotMatch(source, /npm run acp:version-drift:check/);

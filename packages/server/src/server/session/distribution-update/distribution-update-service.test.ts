@@ -36,7 +36,7 @@ function releaseFixture(version = "0.5.0-paseo.39") {
     tag_name: `paseo-v${version}`,
     draft: false,
     prerelease: true,
-    html_url: `https://github.com/webplode/paseo-doctrine-downstream/releases/tag/paseo-v${version}`,
+    html_url: `https://github.com/thanhdat09cpr/paseo-cua-dat/releases/tag/paseo-v${version}`,
     published_at: "2026-08-25T00:00:00Z",
     assets: [
       {
@@ -104,7 +104,7 @@ describe("DistributionUpdateService", () => {
     expect(comparePaseoVersions("0.5.0-paseo.38", "0.5.0-paseo.38")).toBe(0);
   });
 
-  test("checks only the downstream release list and reuses the persistent 24h cache", async () => {
+  test("checks only the fork release list and reuses the persistent 24h cache", async () => {
     const paseoHome = await createHome();
     let now = Date.parse("2026-08-25T01:00:00Z");
     const calls: string[] = [];
@@ -131,7 +131,13 @@ describe("DistributionUpdateService", () => {
     const [first, concurrent] = await Promise.all([service.check(), service.check()]);
     expect(first.update?.version).toBe("0.5.0-paseo.39");
     expect(concurrent.update?.version).toBe("0.5.0-paseo.39");
-    expect(calls).toEqual([`${DOWNSTREAM_RELEASES_API}?per_page=10`]);
+    expect(DOWNSTREAM_RELEASES_API).toBe(
+      "https://api.github.com/repos/thanhdat09cpr/paseo-cua-dat/releases",
+    );
+    expect(calls).toEqual([`${DOWNSTREAM_RELEASES_API}?per_page=100`]);
+    await expect(
+      fs.readFile(path.join(paseoHome, "updates", "release-cache.json"), "utf8"),
+    ).resolves.toMatch(/"schemaVersion": 2/);
 
     now += DISTRIBUTION_UPDATE_CACHE_TTL_MS - 1;
     const cached = await service.check();
@@ -187,8 +193,48 @@ describe("DistributionUpdateService", () => {
     const second = await service.check("automatic");
 
     expect(first.error).toBe("GitHub returned HTTP 403.");
-    expect(second).toMatchObject({ source: "cache", error: "GitHub returned HTTP 403." });
+    expect(second).toMatchObject({
+      source: "cache",
+      error: "GitHub returned HTTP 403.",
+    });
     expect(calls).toBe(1);
+  });
+
+  test("treats a prepared status without schema version 2 as idle", async () => {
+    const paseoHome = await createHome();
+    const statusPath = path.join(paseoHome, "updates", "status.json");
+    await fs.mkdir(path.dirname(statusPath), { recursive: true });
+    await fs.writeFile(
+      statusPath,
+      JSON.stringify({
+        phase: "prepared",
+        version: "0.5.0-paseo.39",
+        message: "Release is verified and ready",
+        updatedAt: "2026-08-25T00:00:00.000Z",
+        preparedBundlePath: "/tmp/stale-prepared-bundle",
+      }),
+    );
+    const service = new DistributionUpdateService({
+      paseoHome,
+      currentVersion: "0.5.0-paseo.38",
+      logger: createTestLogger(),
+      runtime: createRuntime({
+        paseoHome,
+        now: () => Date.parse("2026-08-25T01:00:00Z"),
+        fetch: async () => {
+          throw new Error("stale status must not trigger a release check");
+        },
+      }),
+    });
+
+    await expect(service.getStatus()).resolves.toEqual({
+      schemaVersion: 2,
+      phase: "idle",
+      version: null,
+      message: null,
+      updatedAt: "2026-08-25T01:00:00.000Z",
+      preparedBundlePath: null,
+    });
   });
 
   test("ignores a release until its final qualified manifest asset exists", async () => {
@@ -225,7 +271,7 @@ describe("DistributionUpdateService", () => {
     }> = [];
     const release = releaseFixture();
     const fetcher: DistributionUpdateRuntime["fetch"] = async (url) => {
-      if (url === `${DOWNSTREAM_RELEASES_API}?per_page=10`) {
+      if (url === `${DOWNSTREAM_RELEASES_API}?per_page=100`) {
         return new Response(JSON.stringify([release]));
       }
       if (url.endsWith("/manifest")) {

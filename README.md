@@ -3,7 +3,7 @@
 This is the Paseo downstream distribution for role- and skill-bound Paseo Foundation workflows. It
 packages the WebUI, CLI, Node.js runtime, and Foundation into self-contained host-native artifacts. It is
 **not** an official installer from `getpaseo/paseo`; installable artifacts are published only from
-[`webplode/paseo-doctrine-downstream`](https://github.com/webplode/paseo-doctrine-downstream).
+[`thanhdat09cpr/paseo-cua-dat`](https://github.com/thanhdat09cpr/paseo-cua-dat).
 
 Host-native artifacts are published for macOS (`arm64`, `x64`), Linux (`x64`), and Windows (`x64`).
 Every artifact bundles the same downstream version and is built, installed, and smoke-tested on its
@@ -25,13 +25,13 @@ Requirements:
 Install the latest published downstream release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/webplode/paseo-doctrine-downstream/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/thanhdat09cpr/paseo-cua-dat/main/scripts/install.sh | sh
 ```
 
 To inspect the bootstrap script before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/webplode/paseo-doctrine-downstream/main/scripts/install.sh -o /tmp/paseo-install.sh
+curl -fsSL https://raw.githubusercontent.com/thanhdat09cpr/paseo-cua-dat/main/scripts/install.sh -o /tmp/paseo-install.sh
 less /tmp/paseo-install.sh
 sh /tmp/paseo-install.sh
 ```
@@ -46,7 +46,7 @@ Requirements:
 - `curl`, `tar`, `sha256sum`, and a working user `systemd` session.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/webplode/paseo-doctrine-downstream/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/thanhdat09cpr/paseo-cua-dat/main/scripts/install.sh | sh
 ```
 
 The daemon is installed as `~/.config/systemd/user/paseo-web-cli.service`. On a headless machine,
@@ -66,14 +66,14 @@ Requirements:
 Run from PowerShell as the normal user; administrator privileges are not required:
 
 ```powershell
-irm https://raw.githubusercontent.com/webplode/paseo-doctrine-downstream/main/scripts/install-windows.ps1 | iex
+irm https://raw.githubusercontent.com/thanhdat09cpr/paseo-cua-dat/main/scripts/install-windows.ps1 | iex
 ```
 
 To inspect the script first:
 
 ```powershell
 $installer = Join-Path $env:TEMP "paseo-install-windows.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/webplode/paseo-doctrine-downstream/main/scripts/install-windows.ps1 -OutFile $installer
+Invoke-WebRequest https://raw.githubusercontent.com/thanhdat09cpr/paseo-cua-dat/main/scripts/install-windows.ps1 -OutFile $installer
 Get-Content $installer
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
@@ -137,7 +137,7 @@ Start-Process http://127.0.0.1:6767
 Install files without stopping or starting the daemon:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/webplode/paseo-doctrine-downstream/main/scripts/install.sh | sh -s -- --no-start
+curl -fsSL https://raw.githubusercontent.com/thanhdat09cpr/paseo-cua-dat/main/scripts/install.sh | sh -s -- --no-start
 ```
 
 On Windows, download the bootstrap script and pass `-NoStart`. Run the same OS-specific installer to

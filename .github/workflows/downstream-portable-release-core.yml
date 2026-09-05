@@ -45,6 +45,14 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
+      - name: Verify fork repository
+        shell: bash
+        run: |
+          if [ "$GITHUB_REPOSITORY" != "thanhdat09cpr/paseo-cua-dat" ]; then
+            echo "Portable release workflow must run in thanhdat09cpr/paseo-cua-dat; got $GITHUB_REPOSITORY." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
