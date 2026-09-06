@@ -163,16 +163,6 @@ function expectSingleTextContent(response: { content?: LooseContentBlock[] }): s
   return z.string().min(1).parse(block?.text);
 }
 
-async function waitForWorkspaceTitle(
-  workspaceRecords: Map<string, PersistedWorkspaceRecord>,
-  workspaceId: string,
-  title: string,
-): Promise<void> {
-  await vi.waitFor(() => expect(workspaceRecords.get(workspaceId)?.title).toBe(title), {
-    timeout: 5_000,
-  });
-}
-
 async function waitForWorkspaceBranch(
   workspaceRecords: Map<string, PersistedWorkspaceRecord>,
   workspaceId: string,
@@ -1464,45 +1454,16 @@ describe("ask_attention_question MCP tool", () => {
     expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
   });
 
-  it("preserves caller-generation authority when a .45 caller addresses a .46 target", async () => {
-    const registry = createDefaultSlpBundledPolicyRegistry();
-    const scenario = setupAttentionQuestionScenario(registry.resolveActive("slp").owner);
-    const frozen = registry.resolvePinned({
-      kind: "plugin",
-      pluginId: "slp",
-      policyVersion: "1.0.0",
-      generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
-    });
-    scenario.spies.agentManager.resolveSlpPolicyForRoleBinding.mockReturnValue(frozen.contribution);
-    const server = await createAgentMcpServer({
-      agentManager: scenario.agentManager,
-      agentStorage: scenario.agentStorage,
-      providerSnapshotManager: createOpenCodeManager().manager,
-      callerAgentId: scenario.caller.id,
-      sendAgentMessageAtSafeBoundary: vi.fn(async () => undefined),
-      logger,
-    });
-
-    await expect(
-      invokeToolWithParsedInput(registeredTool(server, "ask_attention_question"), {
-        agentId: "target-agent",
-        ...question,
-      }),
-    ).rejects.toThrow("attention_questions_unavailable_for_pinned_generation");
-    expect(scenario.spies.agentManager.assertAttentionQuestionTargetSupport).not.toHaveBeenCalled();
-    expect(scenario.getTarget().coordinationSignals).toEqual([]);
-  });
-
   it.each([
     {
-      name: ".45",
+      name: "removed-historical",
       owner: {
         kind: "plugin",
         pluginId: "slp",
         policyVersion: "1.0.0",
         generationDigest: "569c7f4633b7ffacb2e63c0ee3dda1ea882bc050bc456fdc8ac0c466f4f483f0",
       },
-      error: "target_generation_unsupported",
+      error: "target_generation_unavailable",
     },
     { name: "legacy", owner: { kind: "legacy-core" }, error: "legacy-or-non-slp" },
     { name: "missing", owner: null, error: "owner_missing" },
@@ -1882,6 +1843,160 @@ describe("create_agent MCP tool", () => {
     );
   });
 
+  it("rejects an exact Peer profile whose subrole conflicts with the assignment and rolls back its workspace", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "lead-agent",
+      provider: "codex",
+      config: { model: "gpt-5.4" },
+      cwd: existingCwd,
+      workspaceId: "wks_lead",
+      roleBinding: createTestRoleBinding("lead"),
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    const ensureWorkspace = vi.fn(async () => "wks_rejected_reviewer");
+    const rollbackWorkspace = vi.fn(async () => undefined);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      daemonConfigStore: {
+        get: () =>
+          MutableDaemonConfigSchema.parse({
+            mcp: { injectIntoAgents: true },
+            peerDelegation: {
+              enabled: true,
+              runMode: "unattended",
+              allowedModels: [{ provider: "codex", model: "gpt-5.4" }],
+            },
+            peerDelegationProfileIds: ["peer-engineer"],
+            agentProfiles: [
+              {
+                id: "peer-engineer",
+                name: "Peer Engineer",
+                provider: "codex",
+                model: "gpt-5.4",
+                modeId: "full-access",
+                peerSubrole: "engineer",
+              },
+            ],
+          }),
+      },
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      rollbackWorkspaceAfterFailedCreate: rollbackWorkspace,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Reviewer Peer",
+        launchProfileId: "peer-engineer",
+        role: "peer",
+        cwd: existingCwd,
+        assignment: {
+          version: 1,
+          disposition: "independent-review",
+          objective: "Review the bounded candidate.",
+          effectClass: "read-only",
+          mutationBoundary: { mode: "no-write" },
+          externalEffectBoundary: { mode: "denied" },
+          evidence: "Return exact findings.",
+          handbackAndStop: "Stop after the review handback.",
+        },
+        initialPrompt: "Review the bounded candidate",
+      }),
+    ).rejects.toThrow("cannot satisfy requested subrole 'reviewer'");
+
+    expect(ensureWorkspace).toHaveBeenCalledTimes(1);
+    expect(ensureWorkspace).toHaveBeenCalledWith(existingCwd, {
+      title: "Reviewer Peer",
+      prompt: "Review the bounded candidate",
+    });
+    expect(rollbackWorkspace).toHaveBeenCalledWith("wks_rejected_reviewer");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("reports an incompatible stored profile mode and rolls back its workspace", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "lead-agent",
+      provider: "claude",
+      config: { model: "claude-fable-5" },
+      cwd: existingCwd,
+      workspaceId: "wks_lead",
+      roleBinding: createTestRoleBinding("lead"),
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    const ensureWorkspace = vi.fn(async () => "wks_incompatible_mode");
+    const rollbackWorkspace = vi.fn(async () => undefined);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      daemonConfigStore: {
+        get: () =>
+          MutableDaemonConfigSchema.parse({
+            mcp: { injectIntoAgents: true },
+            peerDelegation: {
+              enabled: true,
+              runMode: "unattended",
+              allowedModels: [{ provider: "claude", model: "claude-fable-5" }],
+            },
+            peerDelegationProfileIds: ["peer-reviewer"],
+            agentProfiles: [
+              {
+                id: "peer-reviewer",
+                name: "Peer Reviewer",
+                provider: "claude",
+                model: "claude-fable-5",
+                modeId: "default",
+                peerSubrole: "reviewer",
+              },
+            ],
+          }),
+      },
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      rollbackWorkspaceAfterFailedCreate: rollbackWorkspace,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Reviewer Peer",
+        launchProfileId: "peer-reviewer",
+        role: "peer",
+        cwd: existingCwd,
+        initialPrompt: "Review the bounded candidate",
+      }),
+    ).rejects.toThrow("Peer Agent Profile 'Peer Reviewer' (peer-reviewer) uses mode 'default'");
+
+    expect(ensureWorkspace).toHaveBeenCalledTimes(1);
+    expect(rollbackWorkspace).toHaveBeenCalledWith("wks_incompatible_mode");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
   it("lets a no-write Peer assignment override an unattended Agent Profile mode", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const caller = createManagedAgent({
@@ -1961,7 +2076,15 @@ describe("create_agent MCP tool", () => {
         modeId: "default",
       }),
       undefined,
-      expect.objectContaining({ roleId: "peer", assignment }),
+      expect.objectContaining({
+        roleId: "peer",
+        assignment,
+        launchProfile: {
+          id: "peer-reviewer-claude",
+          name: "Peer Reviewer Claude",
+          peerSubrole: "reviewer",
+        },
+      }),
     );
   });
 
@@ -2053,11 +2176,22 @@ describe("create_agent MCP tool", () => {
         modeId: "bypassPermissions",
       }),
       undefined,
-      expect.objectContaining({ roleId: "peer" }),
+      expect.objectContaining({
+        roleId: "peer",
+        launchProfile: {
+          id: "claude-engineer",
+          name: "Peer Engineer — Claude",
+          peerSubrole: "engineer",
+        },
+      }),
     );
     expect(genericResponse.structuredContent).toEqual(
       expect.objectContaining({
-        launchProfile: { id: "claude-engineer", name: "Peer Engineer — Claude" },
+        launchProfile: {
+          id: "claude-engineer",
+          name: "Peer Engineer — Claude",
+          peerSubrole: "engineer",
+        },
       }),
     );
 
@@ -2071,7 +2205,14 @@ describe("create_agent MCP tool", () => {
     expect(spies.agentManager.createAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ provider: "codex", model: "gpt-5.4", modeId: "full-access" }),
       undefined,
-      expect.objectContaining({ roleId: "peer" }),
+      expect.objectContaining({
+        roleId: "peer",
+        launchProfile: {
+          id: "codex-engineer",
+          name: "Peer Engineer — Codex",
+          peerSubrole: "engineer",
+        },
+      }),
     );
   });
 
@@ -2125,6 +2266,7 @@ describe("create_agent MCP tool", () => {
     });
 
     expect(ensureWorkspace).toHaveBeenCalledWith(projectCwd, {
+      title: "Project Lead",
       prompt: "Own the bounded project",
     });
     expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
@@ -2571,7 +2713,10 @@ describe("create_agent MCP tool", () => {
       background: true,
     });
 
-    expect(ensureWorkspace).toHaveBeenCalledWith(existingCwd, { prompt: "Do work" });
+    expect(ensureWorkspace).toHaveBeenCalledWith(existingCwd, {
+      title: "Top-level agent",
+      prompt: "Do work",
+    });
     expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: existingCwd }),
       undefined,
@@ -3218,7 +3363,7 @@ describe("create_agent MCP tool", () => {
     }
   });
 
-  it("auto-titles and renames an agent-created branch-off worktree from the initial prompt", async () => {
+  it("keeps the explicit pane title while auto-renaming an agent-created branch-off worktree", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const tempDir = await mkdtemp(join(tmpdir(), "paseo-mcp-agent-worktree-auto-title-"));
     const repoDir = join(tempDir, "repo");
@@ -3282,7 +3427,7 @@ describe("create_agent MCP tool", () => {
         background: true,
       });
       const workspaceId = z.string().parse(createdWorkspaceIds[0]);
-      await waitForWorkspaceTitle(workspaceRecords, workspaceId, "Workspace Auto Title Flow");
+      await waitForWorkspaceBranch(workspaceRecords, workspaceId, "workspace-auto-title-flow");
 
       const agentCwd = z.string().parse(spies.agentManager.createAgent.mock.calls[0]?.[0].cwd);
       const workspace = workspaceRecords.get(workspaceId);
@@ -3303,7 +3448,7 @@ describe("create_agent MCP tool", () => {
       });
       expect(branchName).toBe("workspace-auto-title-flow");
       expect(workspace).toMatchObject({
-        title: "Workspace Auto Title Flow",
+        title: "Agent title",
         branch: "workspace-auto-title-flow",
       });
     } finally {
@@ -3410,7 +3555,7 @@ describe("create_agent MCP tool", () => {
     }
   });
 
-  it("uses create_agent title for the agent while still auto-titling the worktree workspace", async () => {
+  it("uses create_agent title for both the agent and its worktree pane", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const tempDir = await mkdtemp(join(tmpdir(), "paseo-mcp-agent-title-workspace-title-"));
     const repoDir = join(tempDir, "repo");
@@ -3474,7 +3619,7 @@ describe("create_agent MCP tool", () => {
         background: true,
       });
       const workspaceId = z.string().parse(createdWorkspaceIds[0]);
-      await waitForWorkspaceTitle(workspaceRecords, workspaceId, "Generated Workspace Title");
+      await waitForWorkspaceBranch(workspaceRecords, workspaceId, "generated-workspace-title");
 
       const workspace = workspaceRecords.get(workspaceId);
       expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
@@ -3485,7 +3630,7 @@ describe("create_agent MCP tool", () => {
         { workspaceId },
       );
       expect(workspace).toMatchObject({
-        title: "Generated Workspace Title",
+        title: "Explicit Agent Title",
         branch: "generated-workspace-title",
       });
     } finally {
@@ -3493,7 +3638,7 @@ describe("create_agent MCP tool", () => {
     }
   });
 
-  it("auto-titles an agent-created directory workspace from the initial prompt", async () => {
+  it("uses the create_agent title for an agent-created directory workspace pane", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const tempDir = await mkdtemp(join(tmpdir(), "paseo-mcp-agent-directory-auto-title-"));
     const workspaceDir = join(tempDir, "workspace");
@@ -3556,7 +3701,7 @@ describe("create_agent MCP tool", () => {
             cwd,
             kind: "directory",
             displayName: "workspace",
-            title: firstAgentContext?.prompt ?? null,
+            title: firstAgentContext?.title ?? firstAgentContext?.prompt ?? null,
             createdAt: "2026-07-03T00:00:00.000Z",
             updatedAt: "2026-07-03T00:00:00.000Z",
           });
@@ -3580,11 +3725,7 @@ describe("create_agent MCP tool", () => {
         initialPrompt: "Name a directory workspace from the prompt",
         background: true,
       });
-      await waitForWorkspaceTitle(
-        workspaceRecords,
-        "workspace-directory-auto-title",
-        "Directory Workspace Title",
-      );
+      await vi.waitFor(() => expect(broadcasts).toEqual(["workspace-directory-auto-title"]));
 
       expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3595,7 +3736,7 @@ describe("create_agent MCP tool", () => {
         { workspaceId: "workspace-directory-auto-title" },
       );
       expect(workspaceRecords.get("workspace-directory-auto-title")).toMatchObject({
-        title: "Directory Workspace Title",
+        title: "Directory agent",
         branch: null,
       });
       expect(broadcasts).toEqual(["workspace-directory-auto-title"]);
@@ -3604,7 +3745,7 @@ describe("create_agent MCP tool", () => {
     }
   });
 
-  it("auto-titles without renaming a create_agent checkout worktree from the initial prompt", async () => {
+  it("keeps the explicit pane title without renaming a create_agent checkout worktree", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const tempDir = await mkdtemp(join(tmpdir(), "paseo-mcp-agent-checkout-name-context-"));
     const repoDir = join(tempDir, "repo");
@@ -3690,18 +3831,14 @@ describe("create_agent MCP tool", () => {
 
       const agentCwd = z.string().parse(spies.agentManager.createAgent.mock.calls[0]?.[0].cwd);
       const workspaceId = z.string().parse(createdWorkspaceIds[0]);
-      await waitForWorkspaceTitle(
-        workspaceRecords,
-        workspaceId,
-        "Generated Checkout Workspace Title",
-      );
+      await vi.waitFor(() => expect(generateCalls).toBe(1));
       expect(
         execFileSync("git", ["branch", "--show-current"], { cwd: agentCwd, stdio: "pipe" })
           .toString()
           .trim(),
       ).toBe("existing-feature");
       expect(workspaceRecords.get(workspaceId)).toMatchObject({
-        title: "Generated Checkout Workspace Title",
+        title: "Checkout agent",
         branch: "existing-feature",
       });
       expect(readPaseoWorktreeMetadata(agentCwd)).toMatchObject({
@@ -3798,7 +3935,10 @@ describe("create_agent MCP tool", () => {
     expect(createPaseoWorktree).toHaveBeenCalledWith(
       expect.objectContaining({
         githubPrNumber: 123,
-        firstAgentContext: { prompt: "Rename this PR branch from prompt" },
+        firstAgentContext: {
+          title: "PR agent",
+          prompt: "Rename this PR branch from prompt",
+        },
       }),
       expect.objectContaining({
         setupContinuation: expect.objectContaining({ kind: "agent" }),

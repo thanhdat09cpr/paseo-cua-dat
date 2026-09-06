@@ -1046,6 +1046,7 @@ describe("relay external socket reconnect behavior", () => {
     expect(serverInfo.features?.paseoToolPolicies).toBe(true);
     expect(serverInfo.features?.chatRooms).toBe(true);
     expect(serverInfo.features?.beadsIssues).toBe(true);
+    expect(serverInfo.features?.coordinationSignalResolution).toBe(true);
     expect(serverInfo.features?.agentTurnIdentity).toBeUndefined();
     expect(serverInfo.permissions).toEqual(DAEMON_PERMISSIONS);
     await server.close();

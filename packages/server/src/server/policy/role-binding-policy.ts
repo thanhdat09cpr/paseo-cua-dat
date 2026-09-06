@@ -29,6 +29,7 @@ export interface RoleBindingInstructionCompositionInput<
   hasProtocolException: boolean;
   assignmentContract: PersistedAssignmentContract;
   roleProfile: RoleProfileBindingReceipt;
+  customInstructions?: string;
 }
 
 /**

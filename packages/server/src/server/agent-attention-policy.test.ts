@@ -231,4 +231,9 @@ describe("isPushEligibleAttentionReason", () => {
     expect(isPushEligibleAttentionReason("permission")).toBe(true);
     expect(isPushEligibleAttentionReason("error")).toBe(false);
   });
+
+  it("allows the coordination category without widening ordinary error eligibility", () => {
+    expect(isPushEligibleAttentionReason("error", "coordination")).toBe(true);
+    expect(isPushEligibleAttentionReason("error")).toBe(false);
+  });
 });

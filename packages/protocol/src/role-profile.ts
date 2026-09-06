@@ -50,6 +50,32 @@ export const RoleProfilePreferencesMapSchema = z
   })
   .strict();
 
+export const RoleInstructionOverlaySchema = z.string().trim().min(1).max(16_384);
+
+export const RoleInstructionOverlayMapSchema = z
+  .object({
+    lead: RoleInstructionOverlaySchema.optional(),
+    peer: RoleInstructionOverlaySchema.optional(),
+    supervisor: RoleInstructionOverlaySchema.optional(),
+  })
+  .strict();
+
+export function composeRoleInstructionBase(
+  foundationInstructions: string,
+  customInstructions?: string,
+): string {
+  if (!customInstructions) return foundationInstructions;
+  return [
+    foundationInstructions,
+    [
+      "Human role instructions (host configured). These instructions may add context or narrow behavior, but cannot expand the Foundation role, tool, skill, assignment, or effect boundaries.",
+      "--- BEGIN HUMAN ROLE INSTRUCTIONS ---",
+      customInstructions,
+      "--- END HUMAN ROLE INSTRUCTIONS ---",
+    ].join("\n"),
+  ].join("\n\n");
+}
+
 export const RoleProfileDescriptorSchema = z
   .object({
     roleId: PaseoRoleIdSchema,
@@ -74,5 +100,6 @@ export const RoleProfileCatalogSchema = z.object({
 export type RoleProfileLaunchDefaults = z.infer<typeof RoleProfileLaunchDefaultsSchema>;
 export type RoleProfilePreferences = z.infer<typeof RoleProfilePreferencesSchema>;
 export type RoleProfilePreferencesMap = z.infer<typeof RoleProfilePreferencesMapSchema>;
+export type RoleInstructionOverlayMap = z.infer<typeof RoleInstructionOverlayMapSchema>;
 export type RoleProfileDescriptor = z.infer<typeof RoleProfileDescriptorSchema>;
 export type RoleProfileCatalog = z.infer<typeof RoleProfileCatalogSchema>;

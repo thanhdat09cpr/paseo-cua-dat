@@ -3,6 +3,7 @@ import type {
   RoleProfileBindingReceipt,
   WorkspaceProtocolBindingReceipt,
 } from "@getpaseo/protocol/role-binding";
+import { composeRoleInstructionBase } from "@getpaseo/protocol/role-profile";
 
 import {
   buildSlpAssignmentInstruction,
@@ -47,7 +48,11 @@ function buildProtocolInstruction(
     return `Workspace Protocol binding: assignment-only. Do not load ${receipt.path}; receive only relevant constraints in the Lead assignment.`;
   }
   if (receipt.readership === "governance-only") {
-    return `Workspace Protocol binding: governance-only at ${receipt.path}. Read it only when the exact Human mandate requires protocol create/audit/update. Bound status: ${receipt.status}${receipt.digest ? `; sha256=${receipt.digest}` : ""}.`;
+    return `Workspace Protocol binding: governance-only at ${
+      receipt.path
+    }. Read it only when the exact Human mandate requires protocol create/audit/update. Bound status: ${
+      receipt.status
+    }${receipt.digest ? `; sha256=${receipt.digest}` : ""}.`;
   }
   return `Workspace Protocol binding: full-read required at ${receipt.path}; sha256=${receipt.digest}. Read the exact current file before orchestration. If current bytes no longer match this digest, stop and request a fresh binding instead of relying on stale protocol state.`;
 }
@@ -73,7 +78,7 @@ function buildBeadsSkillAdmissionInstruction(
 
 function composeInstructions(input: RoleBindingInstructionCompositionInput): string {
   return [
-    input.definition.instructions,
+    composeRoleInstructionBase(input.definition.instructions, input.customInstructions),
     input.executionProfile?.instructions,
     buildProtocolInstruction(input.workspaceProtocol, input.hasProtocolException),
     buildSlpAssignmentInstruction(input.assignmentContract),

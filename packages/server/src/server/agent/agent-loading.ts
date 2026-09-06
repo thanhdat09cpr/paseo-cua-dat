@@ -137,6 +137,7 @@ async function reserveAgentInitialization(
           ...extractTimestamps(record),
           roleBinding: record.launchContract ? undefined : record.roleBinding,
           launchContract: record.launchContract,
+          launchProfile: record.launchProfile,
         },
         record.archivedAt ? { purpose: "history" } : undefined,
       );
@@ -154,6 +155,7 @@ async function reserveAgentInitialization(
         owner: record.owner,
         roleBinding: record.launchContract ? undefined : record.roleBinding,
         launchContract: record.launchContract,
+        launchProfile: record.launchProfile,
       });
       deps.logger.info({ agentId, provider: record.provider }, "Agent created from stored config");
     }

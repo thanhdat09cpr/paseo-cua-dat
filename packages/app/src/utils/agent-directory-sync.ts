@@ -41,6 +41,12 @@ function preserveFoundationReceipts(previous: Agent | undefined, incoming: Agent
     ...(incoming.launchContract || !previous?.launchContract
       ? {}
       : { launchContract: previous.launchContract }),
+    ...(incoming.launchProfile || !previous?.launchProfile
+      ? {}
+      : { launchProfile: previous.launchProfile }),
+    ...(incoming.coordinationSignals || !previous?.coordinationSignals
+      ? {}
+      : { coordinationSignals: previous.coordinationSignals }),
   };
 }
 

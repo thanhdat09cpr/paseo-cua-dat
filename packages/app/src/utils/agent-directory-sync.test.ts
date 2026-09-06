@@ -41,6 +41,7 @@ function createAgentPayload(
     labels: input.labels ?? {},
     ...(input.roleBinding ? { roleBinding: input.roleBinding } : {}),
     ...(input.launchContract ? { launchContract: input.launchContract } : {}),
+    ...(input.coordinationSignals ? { coordinationSignals: input.coordinationSignals } : {}),
   };
 }
 
@@ -83,6 +84,19 @@ const roleBindingReceipt = {
   },
   createdAt: "2026-08-20T00:00:00.000Z",
 } as const;
+
+const coordinationSignal: NonNullable<AgentSnapshotPayload["coordinationSignals"]>[number] = {
+  id: "signal-1",
+  targetAgentId: "peer-agent",
+  requestedByAgentId: null,
+  kind: "continuity_attention",
+  reason: "Bounded attention question",
+  evidenceRefs: ["timeline:turn-7"],
+  status: "pending",
+  createdAt: "2026-08-20T00:00:00.000Z",
+  deliveredAt: null,
+  resolvedAt: null,
+};
 
 const launchContractReceipt = {
   version: 1,
@@ -309,6 +323,42 @@ describe("replaceFetchedAgentDirectory", () => {
       expect.objectContaining({
         roleBinding: roleBindingReceipt,
         launchContract: launchContractReceipt,
+      }),
+    );
+    store.clearSession(serverId);
+  });
+
+  it("preserves current coordination signals when later directory snapshots omit compact fields", () => {
+    const serverId = "server-coordination-signals-snapshot";
+    const store = useSessionStore.getState();
+    store.initializeSession(serverId, null as unknown as DaemonClient);
+
+    replaceFetchedAgentDirectory({
+      serverId,
+      entries: [
+        createEntry(
+          createAgentPayload({
+            id: "peer-agent",
+            coordinationSignals: [coordinationSignal],
+          }),
+        ),
+      ],
+    });
+    replaceFetchedAgentDirectory({
+      serverId,
+      entries: [
+        createEntry(
+          createAgentPayload({
+            id: "peer-agent",
+            updatedAt: "2026-08-20T00:02:00.000Z",
+          }),
+        ),
+      ],
+    });
+
+    expect(store.getSession(serverId)?.agents.get("peer-agent")).toEqual(
+      expect.objectContaining({
+        coordinationSignals: [coordinationSignal],
       }),
     );
     store.clearSession(serverId);

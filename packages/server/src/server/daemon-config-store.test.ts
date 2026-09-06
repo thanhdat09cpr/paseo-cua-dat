@@ -189,6 +189,36 @@ describe("DaemonConfigStore", () => {
     expect(loadPersistedConfig(paseoHome).daemon?.roleProfiles?.peer).toBeUndefined();
   });
 
+  test("persists and resets Human role instruction overlays separately", () => {
+    const paseoHome = mkdtempSync(path.join(tmpdir(), "paseo-role-instruction-overlay-"));
+    tempDirs.push(paseoHome);
+    const store = new DaemonConfigStore(paseoHome, {
+      relay: { enabled: false },
+      mcp: { injectIntoAgents: false },
+      browserTools: { enabled: false },
+      providers: {},
+      roleProfiles: {},
+      roleInstructionOverlays: {},
+      metadataGeneration: { providers: [] },
+      autoArchiveAfterMerge: false,
+      enableTerminalAgentHooks: false,
+      appendSystemPrompt: "",
+    });
+
+    store.patch({ roleInstructionOverlays: { lead: "Prefer bounded evidence." } });
+
+    expect(store.get().roleInstructionOverlays?.lead).toBe("Prefer bounded evidence.");
+    expect(loadPersistedConfig(paseoHome).daemon?.roleInstructionOverlays?.lead).toBe(
+      "Prefer bounded evidence.",
+    );
+    expect(store.get().roleProfiles).toEqual({});
+
+    store.patch({ resetRoleInstructionOverlays: ["lead"] });
+
+    expect(store.get().roleInstructionOverlays?.lead).toBeUndefined();
+    expect(loadPersistedConfig(paseoHome).daemon?.roleInstructionOverlays?.lead).toBeUndefined();
+  });
+
   test("persists Peer Agent Profile policy and keeps the legacy model mirror synchronized", () => {
     const paseoHome = mkdtempSync(path.join(tmpdir(), "paseo-daemon-config-store-peer-policy-"));
     tempDirs.push(paseoHome);

@@ -84,9 +84,17 @@ function normalizedBaseUrl(rawValue: string): string {
   return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
 }
 
-function parseAuditRoute(raw: unknown): { provider: string; model: string } {
-  if (!isRecord(raw) || !isRecord(raw.providers) || typeof raw.providers.audit !== "string") {
-    throw new Error("orchestration preference providers.audit is missing");
+function parseAuditRoute(raw: unknown): { provider: string; model: string } | null {
+  if (!isRecord(raw)) {
+    throw new Error("orchestration preference root is not an object");
+  }
+  if (raw.providers === undefined) return null;
+  if (!isRecord(raw.providers)) {
+    throw new Error("orchestration preference providers is not an object");
+  }
+  if (raw.providers.audit === undefined) return null;
+  if (typeof raw.providers.audit !== "string") {
+    throw new Error("orchestration preference providers.audit must be provider/model");
   }
   const separator = raw.providers.audit.indexOf("/");
   if (separator <= 0 || separator === raw.providers.audit.length - 1) {
@@ -145,6 +153,12 @@ export function inspectAuditRoute(input: {
       return { status: "UNKNOWN", evidence: ["audit orchestration preference is absent"] };
     }
     const route = parseAuditRoute(readRegularJson(preferencePath));
+    if (!route) {
+      return {
+        status: "UNKNOWN",
+        evidence: ["audit route qualification is not configured"],
+      };
+    }
     if (!input.daemonIdentity.availableProviders.includes(route.provider)) {
       return {
         status: "FAIL",

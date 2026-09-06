@@ -1,6 +1,7 @@
 const NOTIFICATION_PREVIEW_LIMIT = 220;
 
 export type AgentAttentionReason = "finished" | "error" | "permission";
+export type AgentAttentionNotificationCategory = "coordination";
 
 export interface AgentAttentionNotificationData {
   [key: string]: unknown;
@@ -8,6 +9,7 @@ export interface AgentAttentionNotificationData {
   workspaceId?: string;
   agentId: string;
   reason: AgentAttentionReason;
+  category?: AgentAttentionNotificationCategory;
 }
 
 export interface AgentAttentionNotificationPayload {
@@ -18,6 +20,7 @@ export interface AgentAttentionNotificationPayload {
 
 interface BuildAgentAttentionNotificationPayloadInput {
   reason: AgentAttentionReason;
+  category?: AgentAttentionNotificationCategory;
   serverId: string;
   workspaceId: string;
   agentId: string;
@@ -169,7 +172,11 @@ export function findLatestPermissionRequest(
   return latest;
 }
 
-function resolveAgentAttentionTitle(reason: AgentAttentionReason): string {
+function resolveAgentAttentionTitle(
+  reason: AgentAttentionReason,
+  category?: AgentAttentionNotificationCategory,
+): string {
+  if (category === "coordination") return "Lead needs attention";
   if (reason === "permission") return "Agent needs permission";
   if (reason === "error") return "Agent needs attention";
   return "Agent finished";
@@ -178,6 +185,9 @@ function resolveAgentAttentionTitle(reason: AgentAttentionReason): string {
 function resolveAgentAttentionPreview(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): string | null {
+  if (input.category === "coordination") {
+    return null;
+  }
   if (input.reason === "finished") {
     return buildNotificationPreview(input.assistantMessage);
   }
@@ -187,7 +197,13 @@ function resolveAgentAttentionPreview(
   return null;
 }
 
-function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string {
+function resolveAgentAttentionFallbackBody(
+  reason: AgentAttentionReason,
+  category?: AgentAttentionNotificationCategory,
+): string {
+  if (category === "coordination") {
+    return "Lead reached the repeated runtime-failure threshold and may be unable to self-recover.";
+  }
   if (reason === "permission") return "Permission requested.";
   if (reason === "error") return "Encountered an error.";
   return "Finished working.";
@@ -196,9 +212,9 @@ function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string
 export function buildAgentAttentionNotificationPayload(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): AgentAttentionNotificationPayload {
-  const title = resolveAgentAttentionTitle(input.reason);
+  const title = resolveAgentAttentionTitle(input.reason, input.category);
   const preview = resolveAgentAttentionPreview(input);
-  const body = preview ?? resolveAgentAttentionFallbackBody(input.reason);
+  const body = preview ?? resolveAgentAttentionFallbackBody(input.reason, input.category);
 
   return {
     title,
@@ -208,6 +224,7 @@ export function buildAgentAttentionNotificationPayload(
       workspaceId: input.workspaceId,
       agentId: input.agentId,
       reason: input.reason,
+      ...(input.category ? { category: input.category } : {}),
     },
   };
 }

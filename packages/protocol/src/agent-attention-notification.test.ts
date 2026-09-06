@@ -90,6 +90,29 @@ describe("buildAgentAttentionNotificationPayload", () => {
       },
     });
   });
+
+  it("uses generic coordination copy and never previews model output", () => {
+    const payload = buildAgentAttentionNotificationPayload({
+      reason: "error",
+      category: "coordination",
+      serverId: "srv-4",
+      workspaceId: "workspace-4",
+      agentId: "agent-4",
+      assistantMessage: "Sensitive model output and lastError must not be exposed.",
+    });
+
+    expect(payload).toEqual({
+      title: "Lead needs attention",
+      body: "Lead reached the repeated runtime-failure threshold and may be unable to self-recover.",
+      data: {
+        serverId: "srv-4",
+        workspaceId: "workspace-4",
+        agentId: "agent-4",
+        reason: "error",
+        category: "coordination",
+      },
+    });
+  });
 });
 
 describe("findLatestAssistantMessageFromTimeline", () => {

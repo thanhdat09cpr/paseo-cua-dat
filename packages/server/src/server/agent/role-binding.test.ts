@@ -127,6 +127,33 @@ describe("native Foundation role materialization", () => {
     expect(JSON.stringify(receipt)).not.toContain("Stop after evidence handback");
   });
 
+  test("composes a Human overlay after Foundation and snapshots it only in a new binding", async () => {
+    const cwd = await createWorkspace();
+    await writeFile(
+      join(cwd, "WORKSPACE_PROTOCOL.md"),
+      buildWorkspaceProtocolTemplate(cwd),
+      "utf8",
+    );
+
+    const binding = await materializeRoleBinding({
+      roleId: "lead",
+      provider: "claude",
+      cwd,
+      ...assignmentBinding("lead", cwd),
+      customInstructions: "Prefer short evidence packets.",
+    });
+
+    const foundationIndex = binding.instructions.indexOf("Role: Lead");
+    const overlayIndex = binding.instructions.indexOf("--- BEGIN HUMAN ROLE INSTRUCTIONS ---");
+    const assignmentIndex = binding.instructions.indexOf("Assignment Contract");
+    expect(foundationIndex).toBeGreaterThanOrEqual(0);
+    expect(overlayIndex).toBeGreaterThan(foundationIndex);
+    expect(binding.instructions).toContain("Prefer short evidence packets.");
+    expect(assignmentIndex).toBeGreaterThan(overlayIndex);
+    expect(binding.bindingDigest).not.toBe(binding.definitionDigest);
+    expect(toRoleBindingReceipt(binding)).not.toHaveProperty("instructions");
+  });
+
   test("reads bindings created before policy ownership as legacy-core", async () => {
     const cwd = await createWorkspace();
     await writeFile(
@@ -704,7 +731,7 @@ describe("native Foundation role materialization", () => {
         "record_council_seat",
       ]),
     });
-    expect(leadPolicy?.allowedTools).toHaveLength(29);
+    expect(leadPolicy?.allowedTools).toHaveLength(34);
     expect(leadPolicy?.allowedTools).toEqual(
       expect.not.arrayContaining([
         "signal_agent",
@@ -713,6 +740,15 @@ describe("native Foundation role materialization", () => {
       ]),
     );
     expect(leadPolicy?.allowedTools).toContain("resolve_agent_signal");
+    expect(leadPolicy?.allowedTools).toEqual(
+      expect.arrayContaining([
+        "browser_list_tabs",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_screenshot",
+        "browser_logs",
+      ]),
+    );
     expect(
       applyRolePaseoToolPolicy("lead", undefined, ["beads_status", "beads_get", "beads_prime"]),
     ).toEqual({
@@ -721,7 +757,8 @@ describe("native Foundation role materialization", () => {
     });
     expect(leadPolicy?.allowedTools).not.toEqual(
       expect.arrayContaining([
-        "browser_list_tabs",
+        "browser_new_tab",
+        "browser_click",
         "create_terminal",
         "create_schedule",
         "respond_to_permission",
@@ -745,6 +782,11 @@ describe("native Foundation role materialization", () => {
         "beads_claim",
         "beads_update",
         "beads_add_dependency",
+        "browser_list_tabs",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_screenshot",
+        "browser_logs",
       ]),
     });
     expect(applyRolePaseoToolPolicy("peer", { enabled: false }, undefined, "read-only")).toEqual({
@@ -780,7 +822,16 @@ describe("native Foundation role materialization", () => {
     ).toEqual({ enabled: true, allowedTools: ["post_room", "beads_get"] });
     expect(applyRolePaseoToolPolicy("supervisor", { enabled: false })).toEqual({
       enabled: true,
-      allowedTools: expect.arrayContaining(["get_agent_status", "list_agents", "beads_get"]),
+      allowedTools: expect.arrayContaining([
+        "get_agent_status",
+        "list_agents",
+        "beads_get",
+        "browser_list_tabs",
+        "browser_snapshot",
+        "browser_wait",
+        "browser_screenshot",
+        "browser_logs",
+      ]),
     });
     expect(
       applyRolePaseoToolPolicy("supervisor", {

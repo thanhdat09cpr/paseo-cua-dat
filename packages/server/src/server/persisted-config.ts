@@ -22,7 +22,10 @@ import {
 } from "@getpaseo/protocol/messages";
 import { PaseoServicePortAllocationSchema } from "@getpaseo/protocol/paseo-config-schema";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
-import { RoleProfilePreferencesMapSchema } from "@getpaseo/protocol/role-profile";
+import {
+  RoleInstructionOverlayMapSchema,
+  RoleProfilePreferencesMapSchema,
+} from "@getpaseo/protocol/role-profile";
 
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
 export const LogFormatSchema = z.enum(["pretty", "json"]);
@@ -286,6 +289,7 @@ export const PersistedConfigSchema = z
         enableTerminalAgentHooks: z.boolean().optional(),
         appendSystemPrompt: z.string().optional(),
         roleProfiles: RoleProfilePreferencesMapSchema.optional(),
+        roleInstructionOverlays: RoleInstructionOverlayMapSchema.optional(),
         peerDelegation: z
           .object({
             enabled: z.boolean(),

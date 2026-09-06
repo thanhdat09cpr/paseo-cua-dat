@@ -22,6 +22,7 @@ import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
+import { CoordinationSignalsSection } from "@/components/coordination-signals-section";
 import { KeyboardDock } from "@/components/keyboard-dock";
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -1577,29 +1578,49 @@ const AgentComposerSection = memo(function AgentComposerSection({
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
 }) {
+  const coordinationSignals = useSessionStore((state) =>
+    agentId ? state.sessions[serverId]?.agents.get(agentId)?.coordinationSignals : undefined,
+  );
+
   if (!agentId) {
     return null;
   }
+  const coordinationSignalsSection = (
+    <CoordinationSignalsSection
+      signals={coordinationSignals}
+      agentId={agentId}
+      serverId={serverId}
+      canResolve={!archivedAt}
+    />
+  );
   if (archivedAt) {
-    return <ArchivedAgentCallout serverId={serverId} agentId={agentId} />;
+    return (
+      <>
+        {coordinationSignalsSection}
+        <ArchivedAgentCallout serverId={serverId} agentId={agentId} />
+      </>
+    );
   }
   if (isArchivingCurrentAgent) {
     return null;
   }
 
   return (
-    <ActiveAgentComposer
-      agentId={agentId}
-      serverId={serverId}
-      isPaneFocused={isPaneFocused}
-      cwd={cwd}
-      isSubmitLoading={isSubmitLoading}
-      agentInputDraft={agentInputDraft}
-      onAttentionInputFocus={onAttentionInputFocus}
-      onAttentionPromptSend={onAttentionPromptSend}
-      onComposerHeightChange={onComposerHeightChange}
-      onMessageSent={onMessageSent}
-    />
+    <>
+      {coordinationSignalsSection}
+      <ActiveAgentComposer
+        agentId={agentId}
+        serverId={serverId}
+        isPaneFocused={isPaneFocused}
+        cwd={cwd}
+        isSubmitLoading={isSubmitLoading}
+        agentInputDraft={agentInputDraft}
+        onAttentionInputFocus={onAttentionInputFocus}
+        onAttentionPromptSend={onAttentionPromptSend}
+        onComposerHeightChange={onComposerHeightChange}
+        onMessageSent={onMessageSent}
+      />
+    </>
   );
 });
 

@@ -5,7 +5,12 @@ import { Pressable, ScrollView, Text, View, type PressableStateCallbackType } fr
 import { StyleSheet } from "react-native-unistyles";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { buildHostTopology, type TopologyEdge, type TopologyNode } from "@/panels/topology-model";
+import {
+  buildHostTopology,
+  formatTopologyAssignment,
+  type TopologyEdge,
+  type TopologyNode,
+} from "@/panels/topology-model";
 import { useSessionStore } from "@/stores/session-store";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
 
@@ -30,6 +35,7 @@ function TopologyAgentCard({
   edge: TopologyEdge | undefined;
   parent: TopologyNode | undefined;
 }) {
+  const assignmentLabel = formatTopologyAssignment(node);
   const handlePress = useCallback(() => {
     router.push(buildHostAgentDetailRoute(serverId, node.id, node.workspaceId ?? undefined));
   }, [node.id, node.workspaceId, serverId]);
@@ -46,8 +52,18 @@ function TopologyAgentCard({
         <View style={[styles.statusDot, styles[`status_${node.status}`]]} />
       </View>
       <Text style={styles.agentMeta} numberOfLines={1}>
-        {node.provider}/{node.model ?? "default"}
+        {node.provider}/{node.model ?? "default"} · mode {node.modeId ?? "default"}
       </Text>
+      {node.launchProfile ? (
+        <Text style={styles.agentMeta} numberOfLines={1}>
+          Profile {node.launchProfile.name} ({node.launchProfile.id})
+        </Text>
+      ) : null}
+      {assignmentLabel ? (
+        <Text style={styles.agentMeta} numberOfLines={1}>
+          {assignmentLabel}
+        </Text>
+      ) : null}
       {parent && edge ? (
         <Text style={styles.relation} numberOfLines={1}>
           {edge.kind === "supervision" ? "supervised" : "delegated"} by {parent.title}
@@ -140,7 +156,7 @@ export function HostTopologyScreen({ serverId }: { serverId: string }) {
     content = (
       <View style={styles.centered}>
         <Network size={28} color={styles.muted.color} />
-        <Text style={styles.emptyTitle}>No active agents</Text>
+        <Text style={styles.emptyTitle}>No agents in topology</Text>
         <Text style={styles.emptyText}>Create role-bound agents to populate project topology.</Text>
       </View>
     );
@@ -150,7 +166,7 @@ export function HostTopologyScreen({ serverId }: { serverId: string }) {
         <View style={styles.summary}>
           <Text style={styles.summaryTitle}>All projects</Text>
           <Text style={styles.summaryMeta}>
-            {topology.nodes.length} active agents · {topology.edges.length} exact relationship
+            {topology.nodes.length} agents · {topology.edges.length} exact relationship
             {topology.edges.length === 1 ? "" : "s"}
           </Text>
           {topology.counts.unbound > 0 ? (

@@ -13,6 +13,9 @@ export interface TopologyNode {
   status: Agent["status"];
   provider: string;
   model: string | null;
+  modeId: string | null;
+  assignmentDisposition: string | null;
+  launchProfile: Agent["launchProfile"] | null;
   workspaceId: string | null;
   requiresAttention: boolean;
   issueIds: string[];
@@ -44,6 +47,24 @@ export interface WorkspaceTopology {
   counts: Record<TopologyRole, number>;
 }
 
+export function formatTopologyAssignment(
+  node: Pick<TopologyNode, "role" | "assignmentDisposition" | "launchProfile">,
+): string | null {
+  if (!node.launchProfile?.peerSubrole && !node.assignmentDisposition) return null;
+
+  let roleLabel: string;
+  if (node.launchProfile?.peerSubrole) {
+    roleLabel = `Peer ${node.launchProfile.peerSubrole}`;
+  } else if (node.role === "unbound") {
+    roleLabel = "Unbound";
+  } else {
+    roleLabel = `${node.role[0].toUpperCase()}${node.role.slice(1)}`;
+  }
+  return node.assignmentDisposition
+    ? `${roleLabel} · ${node.assignmentDisposition.replaceAll("_", " ")}`
+    : roleLabel;
+}
+
 function roleOf(agent: Agent): TopologyRole {
   return agent.roleBinding?.roleId ?? agent.launchContract?.roleId ?? "unbound";
 }
@@ -70,20 +91,20 @@ function parentAgentIdOf(agent: Agent): string | null {
 }
 
 function selectTopologyAgentIds(
-  activeAgents: readonly Agent[],
+  visibleAgents: readonly Agent[],
   seedAgentIds: readonly string[],
   includeDescendants = true,
 ): Set<string> {
-  const activeById = new Map(activeAgents.map((agent) => [agent.id, agent]));
+  const visibleById = new Map(visibleAgents.map((agent) => [agent.id, agent]));
   const selectedIds = new Set(seedAgentIds);
 
   for (const seedId of seedAgentIds) {
-    let current = activeById.get(seedId);
+    let current = visibleById.get(seedId);
     const visited = new Set<string>();
     let parentAgentId = current ? parentAgentIdOf(current) : null;
     while (parentAgentId && !visited.has(parentAgentId)) {
       visited.add(parentAgentId);
-      const parent = activeById.get(parentAgentId);
+      const parent = visibleById.get(parentAgentId);
       if (!parent) break;
       selectedIds.add(parent.id);
       current = parent;
@@ -96,7 +117,7 @@ function selectTopologyAgentIds(
   const descendantQueue = [...seedAgentIds];
   for (let index = 0; index < descendantQueue.length; index += 1) {
     const parentId = descendantQueue[index];
-    for (const candidate of activeAgents) {
+    for (const candidate of visibleAgents) {
       if (parentAgentIdOf(candidate) !== parentId || selectedIds.has(candidate.id)) continue;
       selectedIds.add(candidate.id);
       descendantQueue.push(candidate.id);
@@ -110,13 +131,13 @@ export function buildWorkspaceTopology(
   workspaceId: string,
 ): WorkspaceTopology {
   const normalizedWorkspaceId = normalizeWorkspaceOpaqueId(workspaceId);
-  const activeAgents = [...(agents?.values() ?? [])].filter((agent) => !agent.archivedAt);
-  const workspaceSeedIds = activeAgents
+  const visibleAgents = [...(agents?.values() ?? [])].filter((agent) => !agent.archivedAt);
+  const workspaceSeedIds = visibleAgents
     .filter((agent) => normalizeWorkspaceOpaqueId(agent.workspaceId) === normalizedWorkspaceId)
     .map((agent) => agent.id);
-  const selectedIds = selectTopologyAgentIds(activeAgents, workspaceSeedIds);
+  const selectedIds = selectTopologyAgentIds(visibleAgents, workspaceSeedIds);
 
-  const workspaceAgents = activeAgents
+  const workspaceAgents = visibleAgents
     .filter((agent) => selectedIds.has(agent.id))
     .sort(
       (left, right) =>
@@ -133,14 +154,14 @@ export function buildProjectTopology(
   const normalizedWorkspaceIds = new Set(
     workspaceIds.map(normalizeWorkspaceOpaqueId).filter((id): id is string => id !== null),
   );
-  const activeAgents = [...(agents?.values() ?? [])].filter((agent) => !agent.archivedAt);
-  const projectSeedIds = activeAgents
+  const visibleAgents = [...(agents?.values() ?? [])].filter((agent) => !agent.archivedAt);
+  const projectSeedIds = visibleAgents
     .filter((agent) =>
       normalizedWorkspaceIds.has(normalizeWorkspaceOpaqueId(agent.workspaceId) ?? ""),
     )
     .map((agent) => agent.id);
-  const selectedIds = selectTopologyAgentIds(activeAgents, projectSeedIds, false);
-  const projectAgents = activeAgents
+  const selectedIds = selectTopologyAgentIds(visibleAgents, projectSeedIds, false);
+  const projectAgents = visibleAgents
     .filter((agent) => selectedIds.has(agent.id))
     .sort(
       (left, right) =>
@@ -152,13 +173,13 @@ export function buildProjectTopology(
 export function buildHostTopology(
   agents: ReadonlyMap<string, Agent> | undefined,
 ): WorkspaceTopology {
-  const activeAgents = [...(agents?.values() ?? [])]
+  const visibleAgents = [...(agents?.values() ?? [])]
     .filter((agent) => !agent.archivedAt)
     .sort(
       (left, right) =>
         left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
     );
-  return buildTopology(activeAgents);
+  return buildTopology(visibleAgents);
 }
 
 function buildTopology(topologyAgents: readonly Agent[]): WorkspaceTopology {
@@ -170,6 +191,9 @@ function buildTopology(topologyAgents: readonly Agent[]): WorkspaceTopology {
     status: agent.status,
     provider: agent.provider,
     model: agent.model,
+    modeId: agent.currentModeId,
+    assignmentDisposition: agent.roleBinding?.assignment?.disposition ?? null,
+    launchProfile: agent.launchProfile ?? null,
     workspaceId: agent.workspaceId ?? null,
     requiresAttention: agent.requiresAttention ?? false,
     issueIds: issueIdsOf(agent),

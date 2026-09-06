@@ -5,7 +5,12 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { BeadsIssue } from "@getpaseo/protocol/beads/rpc-schemas";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { PanelRegistration } from "@/panels/panel-registry";
-import type { TopologyNode, TopologyRole } from "@/panels/topology-model";
+import {
+  formatTopologyAssignment,
+  type TopologyEdge,
+  type TopologyNode,
+  type TopologyRole,
+} from "@/panels/topology-model";
 import { useTopologyPanelDescriptor, useTopologyPanelState } from "@/panels/use-topology-panel";
 import type { Theme } from "@/styles/theme";
 
@@ -30,11 +35,16 @@ function TopologyNodeRow({
   node,
   openAgent,
   issueById,
+  parentTitle,
+  relationship,
 }: {
   node: TopologyNode;
   openAgent: (agentId: string) => void;
   issueById: ReadonlyMap<string, BeadsIssue>;
+  parentTitle?: string;
+  relationship?: TopologyEdge["kind"];
 }) {
+  const assignmentLabel = formatTopologyAssignment(node);
   const handleOpen = useCallback(() => openAgent(node.id), [node.id, openAgent]);
   return (
     <Pressable
@@ -51,9 +61,23 @@ function TopologyNodeRow({
         {node.title}
       </Text>
       <Text style={styles.nodeMeta} numberOfLines={1}>
-        {node.status} · {node.provider}
-        {node.model ? ` · ${node.model}` : ""}
+        {node.status} · {node.provider}/{node.model ?? "default"} · mode {node.modeId ?? "default"}
       </Text>
+      {node.launchProfile ? (
+        <Text style={styles.nodeMeta} numberOfLines={1}>
+          Profile {node.launchProfile.name} ({node.launchProfile.id})
+        </Text>
+      ) : null}
+      {assignmentLabel ? (
+        <Text style={styles.nodeMeta} numberOfLines={1}>
+          {assignmentLabel}
+        </Text>
+      ) : null}
+      {parentTitle && relationship ? (
+        <Text style={styles.nodeRelation} numberOfLines={1}>
+          {relationship === "delegation" ? "Delegated" : "Supervised"} by {parentTitle}
+        </Text>
+      ) : null}
       {node.issueIds.length > 0 ? (
         <View style={styles.nodeIssues}>
           <Text style={styles.nodeIssuesLabel}>Assigned issues</Text>
@@ -77,6 +101,8 @@ function TopologyNodeRow({
 function TopologyPanel() {
   const { topology, hydrated, openAgent, issueById, grantedIssueCount, issuesError, projectName } =
     useTopologyPanelState();
+  const nodeById = new Map(topology.nodes.map((node) => [node.id, node]));
+  const parentByChild = new Map(topology.edges.map((edge) => [edge.target, edge]));
   if (!hydrated) {
     return (
       <View style={styles.centered} testID="workspace-topology-loading">
@@ -88,7 +114,7 @@ function TopologyPanel() {
     return (
       <View style={styles.centered} testID="workspace-topology-empty">
         <ThemedNetwork size={24} uniProps={mutedColorMapping} />
-        <Text style={styles.emptyTitle}>No active agents</Text>
+        <Text style={styles.emptyTitle}>No agents in topology</Text>
         <Text style={styles.emptyText}>Create role-bound agents to populate this topology.</Text>
       </View>
     );
@@ -132,14 +158,20 @@ function TopologyPanel() {
           <View key={role} style={styles.section}>
             <Text style={styles.sectionLabel}>{ROLE_LABELS[role]}</Text>
             <View style={styles.nodeList}>
-              {nodes.map((node) => (
-                <TopologyNodeRow
-                  key={node.id}
-                  node={node}
-                  openAgent={openAgent}
-                  issueById={issueById}
-                />
-              ))}
+              {nodes.map((node) => {
+                const relationship = parentByChild.get(node.id);
+                const parent = relationship ? nodeById.get(relationship.source) : undefined;
+                return (
+                  <TopologyNodeRow
+                    key={node.id}
+                    node={node}
+                    openAgent={openAgent}
+                    issueById={issueById}
+                    parentTitle={parent?.title}
+                    relationship={relationship?.kind}
+                  />
+                );
+              })}
             </View>
           </View>
         );
@@ -224,6 +256,10 @@ const styles = StyleSheet.create((theme) => ({
   nodeTitle: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   nodeMeta: {
     color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  nodeRelation: {
+    color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
   },
   nodeIssues: {

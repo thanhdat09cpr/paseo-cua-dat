@@ -10,6 +10,12 @@ category: Browser
 
 The `browser_*` tools are injected into agents alongside the other [Paseo MCP tools](/docs/mcp) when [browser automation](/docs/browser) is enabled.
 
+Foundation role-bound agents receive a read-only inspection subset by default:
+`browser_list_tabs`, `browser_snapshot`, `browser_wait`, `browser_screenshot`, and `browser_logs`.
+Opening or closing tabs, navigation, clicks, typing, uploads, scrolling, and page scripting require a
+separate policy grant; they are not silently added to Lead, Peer, or Supervisor sessions. The global
+browser setting and a connected browser host are still required.
+
 Shared concepts:
 
 - **`browserId`** identifies a tab. It comes from `browser_new_tab` or `browser_list_tabs` and is required by every tab-scoped tool.

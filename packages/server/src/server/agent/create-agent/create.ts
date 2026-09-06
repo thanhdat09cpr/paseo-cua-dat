@@ -10,7 +10,12 @@ import type {
   CreatePaseoWorktreeWorkflowFn,
   CreatePaseoWorktreeWorkflowResult,
 } from "../../worktree-session.js";
-import type { AgentAttachment, FirstAgentContext, GitSetupOptions } from "../../messages.js";
+import type {
+  AgentAttachment,
+  AgentProfileLaunchReceipt,
+  FirstAgentContext,
+  GitSetupOptions,
+} from "../../messages.js";
 import type { AgentManager, CreateAgentOptions, ManagedAgent } from "../agent-manager.js";
 import type { AgentPromptInput, AgentRunOptions, AgentSessionConfig } from "../agent-sdk-types.js";
 import type { AgentStorage } from "../agent-storage.js";
@@ -105,6 +110,12 @@ export interface CreateAgentFromMcpInput {
   config?: Partial<AgentSessionConfig>;
   cwd?: string;
   workspaceId?: string;
+  /**
+   * Directory workspace provisioned by the caller before this command ran.
+   * The command adopts rollback ownership until an agent is durably created.
+   */
+  createdDirectoryWorkspaceId?: string;
+  launchProfile?: AgentProfileLaunchReceipt;
   thinking?: string;
   features?: Record<string, unknown>;
   labels?: Record<string, string>;
@@ -196,18 +207,59 @@ interface CreateAgentTransaction {
   createdWorktree: CreatePaseoWorktreeWorkflowResult | null;
 }
 
+function createAgentTransaction(input: CreateAgentCommandInput): CreateAgentTransaction {
+  return {
+    createdDirectoryWorkspaceId:
+      input.kind === "mcp" ? (input.createdDirectoryWorkspaceId ?? null) : null,
+    createdWorktree: null,
+  };
+}
+
+async function rollbackFailedCreate(
+  dependencies: CreateAgentCommandDependencies,
+  transaction: CreateAgentTransaction,
+  createdAgentId: string | null,
+): Promise<void> {
+  if (createdAgentId) return;
+
+  if (transaction.createdWorktree && dependencies.rollbackWorktreeAfterFailedCreate) {
+    await dependencies
+      .rollbackWorktreeAfterFailedCreate(transaction.createdWorktree)
+      .catch((rollbackError) => {
+        dependencies.logger.warn(
+          {
+            err: rollbackError,
+            workspaceId: transaction.createdWorktree?.workspace.workspaceId,
+          },
+          "Failed to roll back worktree after agent create failed",
+        );
+      });
+  }
+
+  if (transaction.createdDirectoryWorkspaceId && dependencies.rollbackWorkspaceAfterFailedCreate) {
+    await dependencies
+      .rollbackWorkspaceAfterFailedCreate(transaction.createdDirectoryWorkspaceId)
+      .catch((rollbackError) => {
+        dependencies.logger.warn(
+          {
+            err: rollbackError,
+            workspaceId: transaction.createdDirectoryWorkspaceId,
+          },
+          "Failed to roll back directory workspace after agent create failed",
+        );
+      });
+  }
+}
+
 export async function createAgentCommand(
   dependencies: CreateAgentCommandDependencies,
   input: CreateAgentCommandInput,
 ): Promise<CreateAgentCommandResult> {
-  assertCouncilCreateAuthority(input);
-  preflightRoleCreate(dependencies.agentManager, input);
-  const transaction = {
-    createdDirectoryWorkspaceId: null as string | null,
-    createdWorktree: null as CreatePaseoWorktreeWorkflowResult | null,
-  };
+  const transaction = createAgentTransaction(input);
   let createdAgentId: string | null = null;
   try {
+    assertCouncilCreateAuthority(input);
+    preflightRoleCreate(dependencies.agentManager, input);
     const resolved =
       input.kind === "session"
         ? await resolveSessionCreateAgent(dependencies, input)
@@ -265,40 +317,7 @@ export async function createAgentCommand(
       ...(resolved.createdWorktree ? { createdWorktree: resolved.createdWorktree } : {}),
     };
   } catch (error) {
-    if (
-      !createdAgentId &&
-      transaction.createdWorktree &&
-      dependencies.rollbackWorktreeAfterFailedCreate
-    ) {
-      await dependencies
-        .rollbackWorktreeAfterFailedCreate(transaction.createdWorktree)
-        .catch((rollbackError) => {
-          dependencies.logger.warn(
-            {
-              err: rollbackError,
-              workspaceId: transaction.createdWorktree?.workspace.workspaceId,
-            },
-            "Failed to roll back worktree after agent create failed",
-          );
-        });
-    }
-    if (
-      !createdAgentId &&
-      transaction.createdDirectoryWorkspaceId &&
-      dependencies.rollbackWorkspaceAfterFailedCreate
-    ) {
-      await dependencies
-        .rollbackWorkspaceAfterFailedCreate(transaction.createdDirectoryWorkspaceId)
-        .catch((rollbackError) => {
-          dependencies.logger.warn(
-            {
-              err: rollbackError,
-              workspaceId: transaction.createdDirectoryWorkspaceId,
-            },
-            "Failed to roll back directory workspace after agent create failed",
-          );
-        });
-    }
+    await rollbackFailedCreate(dependencies, transaction, createdAgentId);
     throw error;
   }
 }
@@ -454,6 +473,7 @@ async function resolveMcpCreateAgent(
       dependencies,
       cwd,
       worktree: input.worktree,
+      title: input.title,
       initialPrompt: input.initialPrompt ?? "",
     });
   recordMcpWorktreeProvision({
@@ -476,7 +496,12 @@ async function resolveMcpCreateAgent(
     resolveWorkspace: async (workspaceId) => ({ workspaceId, cwd: resolvedCwd }),
     createWorkspace: async () => {
       const workspaceId = requireResolvedWorkspaceId(
-        await ensureWorkspaceForMcpCreate(dependencies, resolvedCwd, input.initialPrompt ?? ""),
+        await ensureWorkspaceForMcpCreate(
+          dependencies,
+          resolvedCwd,
+          input.title,
+          input.initialPrompt ?? "",
+        ),
       );
       transaction.createdDirectoryWorkspaceId = workspaceId;
       return { workspaceId, cwd: resolvedCwd };
@@ -505,6 +530,7 @@ async function resolveMcpCreateAgent(
       ...(Object.keys(intent.labels).length > 0 ? { labels: intent.labels } : {}),
       workspaceId: intent.workspaceId,
       ...(input.owner ? { owner: input.owner } : {}),
+      ...(input.launchProfile ? { launchProfile: input.launchProfile } : {}),
       ...(input.env ? { env: input.env } : {}),
       ...(input.roleId
         ? {
@@ -625,12 +651,13 @@ function buildMcpSessionConfig(params: {
 async function ensureWorkspaceForMcpCreate(
   dependencies: CreateAgentCommandDependencies,
   cwd: string,
+  title: string,
   initialPrompt: string,
 ): Promise<string | undefined> {
   if (!dependencies.ensureWorkspaceForCreate) {
     return undefined;
   }
-  return dependencies.ensureWorkspaceForCreate(cwd, { prompt: initialPrompt });
+  return dependencies.ensureWorkspaceForCreate(cwd, { title, prompt: initialPrompt });
 }
 
 async function sendInitialPrompt(
@@ -694,6 +721,7 @@ function resolveChildAgentCwd(params: {
 async function resolveMcpCwd(params: {
   dependencies: CreateAgentCommandDependencies;
   cwd: string;
+  title: string;
   initialPrompt: string;
   worktree: CreateAgentFromMcpInput["worktree"];
 }): Promise<{
@@ -730,7 +758,7 @@ async function resolveMcpCwd(params: {
       refName: worktree.refName,
       action: worktree.action,
       githubPrNumber: worktree.githubPrNumber,
-      firstAgentContext: { prompt: params.initialPrompt },
+      firstAgentContext: { title: params.title, prompt: params.initialPrompt },
       runSetup: false,
       paseoHome: dependencies.paseoHome,
       worktreesRoot: dependencies.worktreesRoot,

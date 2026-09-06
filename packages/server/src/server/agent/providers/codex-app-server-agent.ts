@@ -3578,6 +3578,7 @@ export class CodexAppServerAgentSession implements AgentSession {
   private cachedSkills: Array<{ name: string; description: string; path: string }> | null = null;
   private readonly foundationSkillPolicy: FoundationSkillPolicy | null;
   private readonly productSkillPolicy: ProductSkillPolicy | null;
+  private readonly roleBound: boolean;
 
   constructor(
     config: AgentSessionConfig,
@@ -3606,6 +3607,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.productSkillPolicy = roleId
       ? loadProductSkillPolicy(roleId, this.deps.productSkillBundleRoot)
       : null;
+    this.roleBound = roleId !== undefined;
     if (config.modeId !== undefined) {
       validateCodexMode(config.modeId);
     }
@@ -4450,11 +4452,13 @@ export class CodexAppServerAgentSession implements AgentSession {
     params: Record<string, unknown>,
     preset: CodexModePreset,
   ): { approvalPolicy?: string; sandboxPolicyType?: string } {
+    const forceFullAccess = this.roleBound && this.currentMode === "full-access";
     const approvalPolicy = this.hasWorkflowModeOverride ? preset.approvalPolicy : undefined;
-    const sandboxPolicyType =
-      this.providerOptions.sandbox_mode ??
-      (this.hasWorkflowModeOverride ? preset.sandbox : undefined);
-    if (approvalPolicy && this.providerOptions.approval_policy === undefined) {
+    const sandboxPolicyType = forceFullAccess
+      ? preset.sandbox
+      : (this.providerOptions.sandbox_mode ??
+        (this.hasWorkflowModeOverride ? preset.sandbox : undefined));
+    if (approvalPolicy && (forceFullAccess || this.providerOptions.approval_policy === undefined)) {
       params.approvalPolicy = approvalPolicy;
     }
     if (sandboxPolicyType) {
@@ -5455,6 +5459,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     sandbox?: string;
   } {
     const preset = MODE_PRESETS[this.currentMode] ?? MODE_PRESETS[DEFAULT_CODEX_MODE_ID];
+    const forceFullAccess = this.roleBound && this.currentMode === "full-access";
     const approvalPolicy = this.hasWorkflowModeOverride ? preset.approvalPolicy : undefined;
     const sandbox = this.hasWorkflowModeOverride ? preset.sandbox : undefined;
     const innerConfig = this.buildCodexInnerConfig();
@@ -5466,10 +5471,12 @@ export class CodexAppServerAgentSession implements AgentSession {
     const params: Record<string, unknown> = {
       model,
       cwd: this.config.cwd ?? null,
-      ...(approvalPolicy && this.providerOptions.approval_policy === undefined
+      ...(approvalPolicy && (forceFullAccess || this.providerOptions.approval_policy === undefined)
         ? { approvalPolicy }
         : {}),
-      ...(sandbox && this.providerOptions.sandbox_mode === undefined ? { sandbox } : {}),
+      ...(sandbox && (forceFullAccess || this.providerOptions.sandbox_mode === undefined)
+        ? { sandbox }
+        : {}),
       ...(developerInstructions ? { developerInstructions } : {}),
       ...(innerConfig ? { config: innerConfig } : {}),
       ...(this.ephemeral ? { ephemeral: true } : {}),
@@ -5483,6 +5490,11 @@ export class CodexAppServerAgentSession implements AgentSession {
   private buildCodexInnerConfig(): Record<string, unknown> | null {
     const innerConfig: Record<string, unknown> = {};
     Object.assign(innerConfig, this.providerOptions);
+    if (this.roleBound && this.currentMode === "full-access") {
+      delete innerConfig.approval_policy;
+      delete innerConfig.sandbox_mode;
+      delete innerConfig.sandbox_workspace_write;
+    }
     if (this.deps.customCodexConfig) {
       Object.assign(innerConfig, this.deps.customCodexConfig);
     }

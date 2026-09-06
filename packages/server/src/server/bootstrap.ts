@@ -218,7 +218,10 @@ import type {
   AgentProviderRuntimeSettingsMap,
   ProviderOverride,
 } from "./agent/provider-launch-config.js";
-import type { RoleProfilePreferencesMap } from "@getpaseo/protocol/role-profile";
+import type {
+  RoleInstructionOverlayMap,
+  RoleProfilePreferencesMap,
+} from "@getpaseo/protocol/role-profile";
 import { loadPersistedConfig, type PersistedConfig } from "./persisted-config.js";
 import { createServiceProxySubsystem, type ServiceProxySubsystem } from "./service-proxy.js";
 import { releaseWorkspaceServicePortPlan } from "./workspace-service-port-registry.js";
@@ -245,7 +248,7 @@ import { createGitMutationService } from "./session/git-mutation/git-mutation-se
 import { workspaceIdsOnCheckout } from "./workspace-directory.js";
 import { configureGitProcessPolicy } from "../utils/run-git-command.js";
 import { resolveGitProcessPolicy } from "../utils/git-process-scheduler.js";
-import { resolveFirstAgentPromptTitle } from "./agent/create-agent-title.js";
+import { resolveFirstAgentWorkspaceTitle } from "./agent/create-agent-title.js";
 import {
   createAgentCommand,
   type CreateAgentCommandDependencies,
@@ -442,6 +445,7 @@ export interface PaseoDaemonConfig {
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
   roleProfiles?: RoleProfilePreferencesMap;
+  roleInstructionOverlays?: RoleInstructionOverlayMap;
   peerDelegation?: MutableDaemonConfig["peerDelegation"];
   peerDelegationProfileIds?: MutableDaemonConfig["peerDelegationProfileIds"];
   peerDelegationProviderPriority?: MutableDaemonConfig["peerDelegationProviderPriority"];
@@ -649,6 +653,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
     },
     providers,
     roleProfiles: config.roleProfiles ?? {},
+    roleInstructionOverlays: config.roleInstructionOverlays ?? {},
     ...(config.peerDelegation !== undefined ? { peerDelegation: config.peerDelegation } : {}),
     metadataGeneration: {
       providers: config.metadataGeneration?.providers ?? [],
@@ -1095,6 +1100,8 @@ export async function createPaseoDaemon(
     resolvePaseoToolPolicy: (provider) =>
       resolvePaseoToolPolicy(provider, daemonConfigStore.get().providers),
     resolveRoleProfilePreferences: (roleId) => daemonConfigStore.get().roleProfiles?.[roleId],
+    resolveRoleInstructionOverlay: (roleId) =>
+      daemonConfigStore.get().roleInstructionOverlays?.[roleId],
     verifyRoleResourceGrants: createMutatingPeerGrantVerifier({
       service: beadsService,
       workspaceRegistry,
@@ -1174,7 +1181,7 @@ export async function createPaseoDaemon(
   ): Promise<string> => {
     const workspace = await workspaceProvisioning.createWorkspaceForDirectory(
       cwd,
-      resolveFirstAgentPromptTitle(firstAgentContext),
+      resolveFirstAgentWorkspaceTitle(firstAgentContext),
     );
     if (firstAgentContext) {
       workspaceAutoName.scheduleForDirectory({
@@ -1444,7 +1451,7 @@ export async function createPaseoDaemon(
   }) => {
     const workspace = await workspaceProvisioning.createWorkspaceForDirectory(
       input.cwd,
-      resolveFirstAgentPromptTitle(input.firstAgentContext),
+      resolveFirstAgentWorkspaceTitle(input.firstAgentContext),
     );
     workspaceAutoName.scheduleForDirectory({
       workspaceId: workspace.workspaceId,

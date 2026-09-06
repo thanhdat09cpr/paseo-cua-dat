@@ -68,6 +68,7 @@ export interface MaterializeRoleBindingInput<TExecutionProfileId extends string 
   assignment?: AssignmentEnvelope;
   assignmentAssigner: AssignmentAssignerReceipt;
   roleProfilePreferences?: RoleProfilePreferences;
+  customInstructions?: string;
   createdAt?: Date;
 }
 
@@ -394,6 +395,7 @@ export async function materializeRoleBindingWithPolicy<TExecutionProfileId exten
     hasProtocolException,
     assignmentContract,
     roleProfile,
+    customInstructions: input.customInstructions,
   });
 
   return {

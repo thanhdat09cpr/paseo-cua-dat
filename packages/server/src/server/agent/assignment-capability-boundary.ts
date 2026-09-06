@@ -12,16 +12,21 @@ export const ASSIGNMENT_CAPABILITY_BOUNDARY_ERROR = "assignment_capability_bound
 
 const NO_WRITE_MODE_BY_INJECTION_METHOD: Partial<Record<RoleBindingInjectionMethod, string>> = {
   "codex-developer-instructions": "read-only",
-  // Claude plan mode injects a planning workflow that tells the model to avoid
-  // every state-changing call, including exact daemon-preapproved Paseo Room
-  // coordination. The adapter enforces no-write independently with a strict
-  // built-in tools allowlist plus explicit write-tool denies, so pin the
-  // guarded default mode and keep the model out of the Plan workflow.
+  // Claude plan mode injects a planning workflow that blocks role coordination.
+  // Role-bound Claude and Codex agents use the host-wide unattended overrides
+  // below. This table remains the fallback for other no-write transports.
   "claude-system-prompt": "default",
   "cursor-project-rule-capsule": "plan",
   "cursor-always-apply-plugin": "plan",
   "antigravity-custom-agent": "plan",
   "mock-launch-context": "read-only",
+};
+
+const ROLE_UNATTENDED_MODE_BY_INJECTION_METHOD: Partial<
+  Record<RoleBindingInjectionMethod, string>
+> = {
+  "codex-developer-instructions": "full-access",
+  "claude-system-prompt": "bypassPermissions",
 };
 
 export function noWriteModeForInjectionMethod(
@@ -38,6 +43,10 @@ export function requiredNoWriteMode(roleBinding: PersistedRoleBinding | undefine
   if (!roleBinding || !requiresTechnicalNoWrite(roleBinding)) {
     return null;
   }
+  const unattendedMode = ROLE_UNATTENDED_MODE_BY_INJECTION_METHOD[roleBinding.injectionMethod];
+  if (unattendedMode) {
+    return unattendedMode;
+  }
   const modeId = noWriteModeForInjectionMethod(roleBinding.injectionMethod);
   if (!modeId) {
     throw new Error(
@@ -47,11 +56,18 @@ export function requiredNoWriteMode(roleBinding: PersistedRoleBinding | undefine
   return modeId;
 }
 
+function requiredRoleMode(roleBinding: PersistedRoleBinding | undefined): string | null {
+  if (!roleBinding) return null;
+  const unattendedMode = ROLE_UNATTENDED_MODE_BY_INJECTION_METHOD[roleBinding.injectionMethod];
+  if (unattendedMode) return unattendedMode;
+  return requiredNoWriteMode(roleBinding);
+}
+
 export function enforceRoleAssignmentCapability(
   config: AgentSessionConfig,
   roleBinding: PersistedRoleBinding | undefined,
 ): AgentSessionConfig {
-  const modeId = requiredNoWriteMode(roleBinding);
+  const modeId = requiredRoleMode(roleBinding);
   if (!modeId) {
     return config;
   }
@@ -76,10 +92,10 @@ export function assertRoleAssignmentModeAllowed(
   roleBinding: PersistedRoleBinding | undefined,
   requestedModeId: string,
 ): void {
-  const requiredModeId = requiredNoWriteMode(roleBinding);
+  const requiredModeId = requiredRoleMode(roleBinding);
   if (requiredModeId && requestedModeId !== requiredModeId) {
     throw new Error(
-      `${ASSIGNMENT_CAPABILITY_BOUNDARY_ERROR}: no-write ${roleBinding?.roleId ?? "role"} assignment is pinned to provider mode '${requiredModeId}'`,
+      `${ASSIGNMENT_CAPABILITY_BOUNDARY_ERROR}: ${roleBinding?.roleId ?? "role"} assignment is pinned to provider mode '${requiredModeId}'`,
     );
   }
 }

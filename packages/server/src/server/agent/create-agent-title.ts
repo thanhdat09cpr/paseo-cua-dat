@@ -44,3 +44,14 @@ export function resolveFirstAgentPromptTitle(firstAgentContext?: FirstAgentConte
     }).provisionalTitle ?? null
   );
 }
+
+export function resolveFirstAgentWorkspaceTitle(
+  firstAgentContext?: FirstAgentContext,
+): string | null {
+  return (
+    resolveCreateAgentTitles({
+      configTitle: firstAgentContext?.title,
+      initialPrompt: firstAgentContext?.prompt,
+    }).provisionalTitle ?? null
+  );
+}

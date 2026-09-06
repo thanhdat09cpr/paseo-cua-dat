@@ -4,7 +4,11 @@ import { z } from "zod";
 import type { Logger } from "pino";
 
 import { writeJsonFileAtomic } from "../atomic-file.js";
-import { AgentFeatureSchema, AgentStatusSchema } from "../messages.js";
+import {
+  AgentFeatureSchema,
+  AgentProfileLaunchReceiptSchema,
+  AgentStatusSchema,
+} from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
@@ -91,6 +95,7 @@ const STORED_AGENT_SCHEMA = z.object({
   owner: AgentOwnerSchema.optional(),
   roleBinding: PersistedRoleBindingSchema.optional(),
   launchContract: PersistedLaunchContractSchema.optional(),
+  launchProfile: AgentProfileLaunchReceiptSchema.optional(),
   beadsStatusCheckpoint: BEADS_STATUS_CHECKPOINT_SCHEMA.optional(),
   coordinationSignals: z.array(CoordinationSignalSchema).optional(),
   leadHandoffs: z.array(LeadHandoffPacketSchema).optional(),

@@ -18,13 +18,19 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { BeadsIssue } from "@getpaseo/protocol/beads/rpc-schemas";
 import type { PanelRegistration } from "@/panels/panel-registry";
-import type { TopologyNode } from "@/panels/topology-model";
+import {
+  formatTopologyAssignment,
+  type TopologyEdge,
+  type TopologyNode,
+} from "@/panels/topology-model";
 import { layoutProjectTopologyXFirst } from "@/panels/topology-layout";
 import { useTopologyPanelDescriptor, useTopologyPanelState } from "@/panels/use-topology-panel";
 import type { Theme } from "@/styles/theme";
 
 interface FlowNodeData extends Record<string, unknown> {
   topologyNode: TopologyNode;
+  parentTitle: string | null;
+  relationship: TopologyEdge["kind"] | null;
   issues: {
     id: string;
     title: string;
@@ -41,6 +47,7 @@ const mutedColorMapping = (theme: Theme) => ({
 
 function AgentTopologyNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.topologyNode;
+  const assignmentLabel = formatTopologyAssignment(node);
   return (
     <View style={[styles.node, selected && styles.nodeSelected]}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
@@ -52,11 +59,26 @@ function AgentTopologyNode({ data, selected }: NodeProps<FlowNode>) {
         {node.title}
       </Text>
       <Text style={styles.nodeMeta} numberOfLines={1}>
-        {node.status} · {node.provider}
+        {node.status} · {node.provider}/{node.model ?? "default"}
       </Text>
       <Text style={styles.nodeMeta} numberOfLines={1}>
-        {node.model ?? node.shortId}
+        Mode {node.modeId ?? "default"}
       </Text>
+      {node.launchProfile ? (
+        <Text style={styles.nodeMeta} numberOfLines={1}>
+          Profile {node.launchProfile.name} ({node.launchProfile.id})
+        </Text>
+      ) : null}
+      {assignmentLabel ? (
+        <Text style={styles.nodeMeta} numberOfLines={1}>
+          {assignmentLabel}
+        </Text>
+      ) : null}
+      {data.parentTitle && data.relationship ? (
+        <Text style={styles.nodeRelation} numberOfLines={1}>
+          {data.relationship === "delegation" ? "Delegated" : "Supervised"} by {data.parentTitle}
+        </Text>
+      ) : null}
       {data.issues.length > 0 ? (
         <View style={styles.nodeIssues}>
           <Text style={styles.nodeIssuesLabel}>Assigned issues</Text>
@@ -85,17 +107,23 @@ const FIT_VIEW_OPTIONS = { padding: 0.24, minZoom: 0.4, maxZoom: 1.15 };
 
 function toFlowNodes(
   nodes: TopologyNode[],
-  edges: Edge[],
+  edges: readonly TopologyEdge[],
   issueById: ReadonlyMap<string, BeadsIssue>,
 ): FlowNode[] {
   const positions = layoutProjectTopologyXFirst(nodes, edges);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const parentByChild = new Map(edges.map((edge) => [edge.target, edge]));
   return nodes.map((node) => {
+    const parentEdge = parentByChild.get(node.id);
+    const parent = parentEdge ? nodeById.get(parentEdge.source) : undefined;
     return {
       id: node.id,
       type: "agent",
       position: positions.get(node.id) ?? { x: 0, y: 0 },
       data: {
         topologyNode: node,
+        parentTitle: parent?.title ?? null,
+        relationship: parentEdge?.kind ?? null,
         issues: node.issueIds.map((issueId) => {
           const issue = issueById.get(issueId);
           return {
@@ -141,8 +169,8 @@ function TopologyPanel() {
     [topology.edges],
   );
   const nodes = useMemo(
-    () => toFlowNodes(topology.nodes, edges, issueById),
-    [edges, issueById, topology.nodes],
+    () => toFlowNodes(topology.nodes, topology.edges, issueById),
+    [issueById, topology.edges, topology.nodes],
   );
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: FlowNode) => openAgent(node.id),
@@ -160,7 +188,7 @@ function TopologyPanel() {
     return (
       <View style={styles.centered} testID="project-topology-empty">
         <ThemedNetwork size={24} uniProps={mutedColorMapping} />
-        <Text style={styles.emptyTitle}>No active agents</Text>
+        <Text style={styles.emptyTitle}>No agents in topology</Text>
         <Text style={styles.emptyText}>Create role-bound agents to populate this topology.</Text>
       </View>
     );
@@ -276,6 +304,10 @@ const styles = StyleSheet.create((theme) => ({
   nodeTitle: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   nodeMeta: {
     color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  nodeRelation: {
+    color: theme.colors.accent,
     fontSize: theme.fontSize.xs,
   },
   nodeIssues: {

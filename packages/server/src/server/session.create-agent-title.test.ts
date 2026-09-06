@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { resolveCreateAgentTitles } from "./agent/create-agent-title.js";
+import {
+  resolveCreateAgentTitles,
+  resolveFirstAgentPromptTitle,
+  resolveFirstAgentWorkspaceTitle,
+} from "./agent/create-agent-title.js";
 
 describe("resolveCreateAgentTitles", () => {
   test("derives a provisional title from prompt when explicit title is absent", () => {
@@ -31,5 +35,20 @@ describe("resolveCreateAgentTitles", () => {
 
     expect(resolved.explicitTitle).toBeNull();
     expect(resolved.provisionalTitle).toBeNull();
+  });
+});
+
+describe("first-agent workspace title", () => {
+  test("uses the explicit agent title for the workspace while preserving prompt-only rename guards", () => {
+    const context = {
+      title: "Peer Reviewer",
+      prompt: "Review every changed file and report exact findings",
+      attachments: [],
+    };
+
+    expect(resolveFirstAgentWorkspaceTitle(context)).toBe("Peer Reviewer");
+    expect(resolveFirstAgentPromptTitle(context)).toBe(
+      "Review every changed file and report exact findings",
+    );
   });
 });

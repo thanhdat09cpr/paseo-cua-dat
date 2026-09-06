@@ -125,6 +125,41 @@ test("role preflight fails before MCP worktree or workspace creation", async () 
   expect(createAgent).not.toHaveBeenCalled();
 });
 
+test("MCP create adopts and rolls back a workspace provisioned by its tool wrapper", async () => {
+  const rollbackWorkspaceAfterFailedCreate = vi.fn(async () => undefined);
+  const createAgent = vi.fn();
+  const dependencies: Parameters<typeof createAgentCommand>[0] = {
+    agentManager: {
+      preflightRoleCreate: vi.fn(() => {
+        throw new Error("workspace_protocol_admission_required: invalid");
+      }),
+      createAgent,
+    } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
+    agentStorage: {} as Parameters<typeof createAgentCommand>[0]["agentStorage"],
+    logger,
+    providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+    rollbackWorkspaceAfterFailedCreate,
+  };
+
+  await expect(
+    createAgentCommand(dependencies, {
+      kind: "mcp",
+      provider: "codex/gpt-5.5",
+      roleId: "lead",
+      title: "Reject invalid protocol",
+      cwd: "/tmp/paseo-precreated-workspace",
+      workspaceId: "workspace-precreated",
+      createdDirectoryWorkspaceId: "workspace-precreated",
+      labels: {},
+      background: true,
+      notifyOnFinish: false,
+    }),
+  ).rejects.toThrow("workspace_protocol_admission_required: invalid");
+
+  expect(rollbackWorkspaceAfterFailedCreate).toHaveBeenCalledWith("workspace-precreated");
+  expect(createAgent).not.toHaveBeenCalled();
+});
+
 test("MCP create rolls back a freshly minted directory workspace when later admission fails", async () => {
   const ensureWorkspaceForCreate = vi.fn(async () => "workspace-rollback");
   const rollbackWorkspaceAfterFailedCreate = vi.fn(async () => undefined);

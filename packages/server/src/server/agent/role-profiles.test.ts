@@ -18,9 +18,24 @@ describe("Foundation role profiles", () => {
       "peer",
       "supervisor",
     ]);
-    expect(catalog.profiles.find((profile) => profile.roleId === "peer")?.toolCeiling).toHaveLength(
-      11,
-    );
+    expect(catalog.profiles.find((profile) => profile.roleId === "peer")?.toolCeiling).toEqual([
+      "post_room",
+      "resolve_agent_signal",
+      "beads_status",
+      "beads_ready",
+      "beads_list",
+      "beads_get",
+      "beads_create",
+      "beads_claim",
+      "beads_update",
+      "beads_add_dependency",
+      "beads_prime",
+      "browser_list_tabs",
+      "browser_snapshot",
+      "browser_wait",
+      "browser_screenshot",
+      "browser_logs",
+    ]);
     expect(catalog.profiles.find((profile) => profile.roleId === "lead")?.toolCeiling).toContain(
       "list_profiles",
     );

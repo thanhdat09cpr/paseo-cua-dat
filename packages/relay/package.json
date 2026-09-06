@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/relay",
-  "version": "0.7.0-paseo.52",
+  "version": "0.7.0-paseo.57",
   "private": true,
   "description": "Paseo relay for bridging daemon and client connections",
   "files": [
@@ -44,7 +44,7 @@
   "dependencies": {
     "base64-js": "^1.5.1",
     "tweetnacl": "^1.0.3",
-    "ws": "^8.14.2"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "^20.9.0",

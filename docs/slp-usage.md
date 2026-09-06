@@ -81,6 +81,27 @@ Agent profile là route shortlist do Human cấu hình, không phải role profi
 `provider/model` vào `provider` và đặt mode, thinking, features dưới `settings`. Preset không cấp
 assignment authority và không được apply lên live role-bound agent; đổi route cần create replacement.
 
+Daemon ép mọi role-bound **Lead**, **Peer** và **Supervisor** sang mode unattended: Claude dùng
+`bypassPermissions`, Codex dùng `full-access` (`approvalPolicy: never`, sandbox
+`danger-full-access`). Provider khác giữ mapping hiện có. SLP vẫn khóa Paseo MCP tool và topology theo
+immutable role binding, nhưng Codex `full-access` và Claude bounded-write có thể dùng native shell/file
+tools ngoài assignment path hoặc external-effect envelope. Claude no-write vẫn được adapter chặn
+Bash/Write/Edit/NotebookEdit; Codex full-access không có rào no-write tương đương.
+
+## Xem và tùy chỉnh role instructions
+
+Trong **Settings → Host → Role profiles**, mỗi role có ba phần tách biệt:
+
+- **Foundation instructions · read only**: baseline immutable được import từ Foundation;
+- **Human custom instructions**: overlay mutable do Human lưu trên host;
+- **Effective role base for new agents**: preview baseline cộng overlay theo đúng thứ tự compose.
+
+Overlay chỉ áp dụng khi daemon materialize role binding cho agent mới. Agent đang chạy và binding đã
+persist không đổi; muốn áp dụng phải tạo replacement theo authority hiện có. Reset xóa riêng Human
+overlay và trả preview về Foundation baseline. Overlay không thay đổi normative SLP authority hoặc
+Paseo MCP tool/topology ceiling. Với policy unattended đã chọn, native shell/file tools của Codex và
+Claude bounded-write không được daemon technically contain theo mutation/external-effect envelope.
+
 Ở agent-scoped action boundary, Lead đã bind role chỉ được tạo `role=peer` và prompt direct Peer child.
 Supervisor với delegation lease chỉ được tạo `role=lead` và prompt direct Lead child. Observe Supervisor
 và Peer không có create/prompt authority; session cũ không có `RoleBinding` giữ behavior hiện tại.
@@ -186,6 +207,11 @@ generic subscription, versioned state, persistence, safe-boundary delivery, coal
 Emergency rollback đặt `PASEO_DISABLE_SLP_ATTENTION_POLICY=1`. Missing telemetry hoặc missing/ambiguous
 role target fail closed.
 
+F-06 Phase 2B chỉ có bằng chứng source/test: semantic-friction được gate trước khi buffer/classify,
+Lead failure không có Supervisor duy nhất phát một coordination attention bounded, và protocol validator
+được regenerate đồng bộ. Các receipt này không chứng minh release artifact, daemon đã cài, WebSocket live
+hay multi-day operational effect; những lớp đó vẫn `UNPROVEN` cho tới khi có readback riêng.
+
 Role-bound Supervisor có thể dùng bounded `ask_attention_question`, hoặc Human dùng CLI `--kind
 question`, để hỏi Lead/Peer tại safe boundary. Request bắt buộc tách observation, open question và
 evidence references. Nó không command, decide, accept hoặc transfer ownership; Peer không nhờ vậy có
@@ -193,9 +219,6 @@ signal/orchestration authority. Agent-scoped caller/target phải cùng exact wo
 hình hoặc wording command/acceptance/ownership/handoff/write/recovery bị reject. Attention đã
 resolve/defer/decline/complete có thể re-arm ở episode/fingerprint mới, trong khi pending duplicate cùng
 rule/fingerprint merge occurrence evidence thay vì phát prompt mới.
-
-Đây chỉ là source/test candidate. Release artifact, installed/live daemon behavior và multi-day effect
-vẫn `UNPROVEN`; không suy diễn các state đó từ focused tests.
 
 ## Manual stop conditions
 

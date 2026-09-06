@@ -69,6 +69,7 @@ import {
 import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
+  type AgentAttentionNotificationCategory,
 } from "@getpaseo/protocol/agent-attention-notification";
 import { createGitHubService } from "../services/github-service.js";
 import type { ForgeService } from "../services/forge-service.js";
@@ -1691,9 +1692,16 @@ export class VoiceAssistantWebSocketServer {
         providersSnapshot: true,
         // COMPAT(roleProfiles): host-owned role profile editor and catalog RPC.
         roleProfiles: true,
+        // COMPAT(roleInstructionOverlays): Foundation remains immutable while
+        // Human additions are edited and persisted as a separate role layer.
+        roleInstructionOverlays: true,
         // COMPAT(attentionQuestions): added in v0.6.0-paseo.46; clients gate the
         // additive request branch when connected to older daemons.
         attentionQuestions: true,
+        // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; clients gate
+        // the additive resolve/disposition request branch when connected to older
+        // daemons. Remove gate after 2027-09-04.
+        coordinationSignalResolution: true,
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: true,
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.2.0-beta.1. Remove the
@@ -2600,6 +2608,7 @@ export class VoiceAssistantWebSocketServer {
     agentId: string;
     provider: AgentProvider;
     reason: "finished" | "error" | "permission";
+    category?: AgentAttentionNotificationCategory;
   }): Promise<void> {
     const agent = this.agentManager.getAgent(params.agentId);
     if (!agent?.workspaceId) {
@@ -2624,6 +2633,7 @@ export class VoiceAssistantWebSocketServer {
     const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
     const notification = buildAgentAttentionNotificationPayload({
       reason: params.reason,
+      category: params.category,
       serverId: this.serverId,
       workspaceId: agent.workspaceId,
       agentId: params.agentId,
@@ -2634,7 +2644,7 @@ export class VoiceAssistantWebSocketServer {
     const plan = computeNotificationPlan({
       allStates,
       focusTarget: { kind: "agent", id: params.agentId },
-      pushEligible: isPushEligibleAttentionReason(params.reason),
+      pushEligible: isPushEligibleAttentionReason(params.reason, params.category),
       nowMs,
     });
 

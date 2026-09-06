@@ -33,6 +33,7 @@ const OUTPUT_DIR = path.join(ARTIFACTS_ROOT, BUNDLE_NAME);
 const OUTPUT_ARCHIVE = path.join(ARTIFACTS_ROOT, `${BUNDLE_NAME}${ARCHIVE_EXTENSION}`);
 const OUTPUT_CHECKSUM = `${OUTPUT_ARCHIVE}.sha256`;
 const BEADS_CENTRAL_VERSION = "1.2.0";
+const CAPTURE_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const INTERNAL_PACKAGES = [
   "@getpaseo/highlight",
   "@getpaseo/plugin",
@@ -53,6 +54,7 @@ function run(command, args, options = {}) {
     cwd: REPO_ROOT,
     encoding: "utf8",
     stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
+    maxBuffer: options.capture ? CAPTURE_MAX_BUFFER_BYTES : undefined,
     env: options.env ?? process.env,
   });
   if (result.status !== 0) {

@@ -281,13 +281,15 @@ Each entry may include a Paseo-tool policy:
 
 Absent `paseoTools`, or absent fields within it, means Paseo tools are enabled and all tools are
 allowed. For a session without a Foundation role, `enabled: false` disables the provider's Paseo
-catalog. A role-bound session takes enablement from its role: Lead receives the orchestration catalog,
-Peer receives none, and Supervisor receives its observation subset. Set either `allowedTools` to narrow
-the role/provider catalog to the listed tool IDs or `disabledTools` to omit listed tool IDs; the two
-fields are mutually exclusive. An allowlist also denies unknown future tools, while a denylist preserves
-the default forward-compatible behavior. The policy covers the core and browser catalog, not the
-voice-only `speak` tool.
-Browser tools also require `daemon.browserTools.enabled` and a connected browser host.
+catalog. A role-bound session takes enablement from its role-specific bundled-policy allowlist. Lead,
+Peer, and Supervisor all receive the read-only browser inspection subset (`browser_list_tabs`,
+`browser_snapshot`, `browser_wait`, `browser_screenshot`, and `browser_logs`); navigation and mutation
+tools such as `browser_new_tab`, `browser_navigate`, `browser_click`, `browser_fill`, and
+`browser_type` remain outside the defaults. Set either `allowedTools` to narrow the role/provider
+catalog to the listed tool IDs or `disabledTools` to omit listed tool IDs; the two fields are mutually
+exclusive. An allowlist also denies unknown future tools, while a denylist preserves the default
+forward-compatible behavior. The policy covers the core and browser catalog, not the voice-only
+`speak` tool. Browser tools also require `daemon.browserTools.enabled` and a connected browser host.
 
 `daemon.mcp.injectIntoAgents` is the global override. When it is `false`, no provider receives
 Paseo tools; otherwise the role/provider policy applies. Policy is resolved when a session is created,

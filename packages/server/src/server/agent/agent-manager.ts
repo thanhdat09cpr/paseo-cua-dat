@@ -5,6 +5,7 @@ import {
   AGENT_LIFECYCLE_STATUSES,
   type AgentLifecycleStatus,
 } from "@getpaseo/protocol/agent-lifecycle";
+import type { AgentAttentionNotificationCategory } from "@getpaseo/protocol/agent-attention-notification";
 import {
   getParentAgentIdFromLabels,
   hasOpenAgentTab,
@@ -14,6 +15,7 @@ import {
 } from "@getpaseo/protocol/agent-labels";
 import type { Logger } from "pino";
 import type { ProviderOptions, ToolPolicy } from "@getpaseo/protocol/agent-types";
+import type { AgentProfileLaunchReceipt } from "@getpaseo/protocol/messages";
 import { z } from "zod";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
 
@@ -103,9 +105,10 @@ import type {
   AssignmentAssignerReceipt,
   AssignmentEnvelope,
 } from "@getpaseo/protocol/assignment-contract";
-import type { RoleProfilePreferences } from "@getpaseo/protocol/role-profile";
 import type {
+  RoleInstructionOverlayMap,
   RoleProfileCatalog,
+  RoleProfilePreferences,
   RoleProfilePreferencesMap,
 } from "@getpaseo/protocol/role-profile";
 import {
@@ -282,7 +285,11 @@ export type AgentAttentionCallback = (params: {
   agentId: string;
   provider: AgentProvider;
   reason: "finished" | "error" | "permission";
+  category?: AgentAttentionNotificationCategory;
 }) => void;
+
+type AgentAttentionCallbackParams = Parameters<AgentAttentionCallback>[0];
+const MAX_PENDING_AGENT_ATTENTION_NOTIFICATIONS = 64;
 
 export type AgentArchivedCallback = (agentId: string) => Promise<void> | void;
 
@@ -346,6 +353,8 @@ export interface CreateAgentOptions {
   roleBinding?: PersistedRoleBinding;
   /** Internal storage reload path for an exact role plus provider route. */
   launchContract?: PersistedLaunchContract;
+  /** Immutable snapshot of the Human-approved Agent Profile selected for this launch. */
+  launchProfile?: AgentProfileLaunchReceipt;
 }
 
 interface RoleSessionInput {
@@ -403,6 +412,7 @@ export interface AgentManagerOptions {
   paseoToolCatalogFactory?: PaseoToolCatalogFactory;
   resolvePaseoToolPolicy?: (provider: AgentProvider) => ProviderPaseoToolsPolicy | undefined;
   resolveRoleProfilePreferences?: (roleId: PaseoRoleId) => RoleProfilePreferences | undefined;
+  resolveRoleInstructionOverlay?: (roleId: PaseoRoleId) => string | undefined;
   verifyRoleResourceGrants?: RoleResourceGrantVerifier;
   bundledPolicyPacks?: BundledPolicyPackRegistry<SlpBundledPolicyContribution>;
   appendSystemPrompt?: string;
@@ -415,6 +425,12 @@ export interface AgentManagerOptions {
     expectedTurnId: string;
   }) => Promise<void>;
   logger: Logger;
+}
+
+function resolveRoleInstructionOverlayOption(
+  options: AgentManagerOptions,
+): NonNullable<AgentManagerOptions["resolveRoleInstructionOverlay"]> {
+  return options.resolveRoleInstructionOverlay ?? (() => undefined);
 }
 
 export interface RoleResourceGrantVerificationInput {
@@ -504,6 +520,7 @@ interface ManagedAgentBase {
   owner?: AgentOwner;
   roleBinding?: PersistedRoleBinding;
   launchContract?: PersistedLaunchContract;
+  launchProfile?: AgentProfileLaunchReceipt;
   capabilities: AgentCapabilityFlags;
   config: AgentSessionConfig;
   runtimeInfo?: AgentRuntimeInfo;
@@ -863,11 +880,15 @@ export class AgentManager {
   private readonly resolveRoleProfilePreferences: (
     roleId: PaseoRoleId,
   ) => RoleProfilePreferences | undefined;
+  private readonly resolveRoleInstructionOverlay: (
+    roleId: PaseoRoleId,
+  ) => RoleInstructionOverlayMap[PaseoRoleId];
   private readonly verifyRoleResourceGrants?: RoleResourceGrantVerifier;
   private readonly bundledPolicyPacks: BundledPolicyPackRegistry<SlpBundledPolicyContribution>;
   private readonly trustedSembleRuntime: TrustedSembleRuntime | null;
   private appendSystemPrompt: string;
   private onAgentAttention?: AgentAttentionCallback;
+  private readonly pendingAgentAttentions: AgentAttentionCallbackParams[] = [];
   private onAgentArchived?: AgentArchivedCallback;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
   private logger: Logger;
@@ -888,6 +909,7 @@ export class AgentManager {
     this.configurePaseoTools(options);
     this.resolvePaseoToolPolicy = options.resolvePaseoToolPolicy ?? (() => undefined);
     this.resolveRoleProfilePreferences = options.resolveRoleProfilePreferences ?? (() => undefined);
+    this.resolveRoleInstructionOverlay = resolveRoleInstructionOverlayOption(options);
     this.verifyRoleResourceGrants = options.verifyRoleResourceGrants;
     this.bundledPolicyPacks = resolveBundledPolicyPacks(options);
     this.appendSystemPrompt = options.appendSystemPrompt ?? "";
@@ -973,6 +995,25 @@ export class AgentManager {
 
   setAgentAttentionCallback(callback: AgentAttentionCallback): void {
     this.onAgentAttention = callback;
+    if (this.pendingAgentAttentions.length === 0) {
+      return;
+    }
+    const pending = this.pendingAgentAttentions.splice(0);
+    for (const params of pending) {
+      callback(params);
+    }
+  }
+
+  notifyAgentAttention(
+    agentId: string,
+    reason: "finished" | "error" | "permission",
+    category?: AgentAttentionNotificationCategory,
+  ): void {
+    const agent = this.agents.get(agentId);
+    if (!agent || agent.internal) {
+      return;
+    }
+    this.broadcastAgentAttention(agent, reason, category);
   }
 
   setAgentArchivedCallback(callback: AgentArchivedCallback): void {
@@ -1468,6 +1509,18 @@ export class AgentManager {
       : LEGACY_CORE_OPERATIONAL_POLICY;
   }
 
+  isStoredAgentPolicyGenerationAvailable(record: StoredAgentRecord): boolean {
+    if (!record.roleBinding) return true;
+    const owner = policyOwnerForRoleBinding(record.roleBinding);
+    if (owner.kind !== "plugin") return true;
+    try {
+      this.bundledPolicyPacks.resolvePinned(owner);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   assertAttentionQuestionTargetSupport(roleBinding: PersistedRoleBinding | undefined): void {
     if (!roleBinding) {
       throw new Error("attention_question_target_policy_owner_missing");
@@ -1585,6 +1638,7 @@ export class AgentManager {
         owner: options.owner,
         roleBinding,
         launchContract,
+        launchProfile: options.launchProfile,
         historyPrimed: true,
       });
     } finally {
@@ -1631,6 +1685,7 @@ export class AgentManager {
       owner?: AgentOwner;
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
+      launchProfile?: AgentProfileLaunchReceipt;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1652,6 +1707,7 @@ export class AgentManager {
       owner?: AgentOwner;
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
+      launchProfile?: AgentProfileLaunchReceipt;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1703,6 +1759,7 @@ export class AgentManager {
         persistence: handle,
         roleBinding,
         launchContract,
+        launchProfile: options?.launchProfile,
       });
     } finally {
       this.roleBindingsAwaitingRegistration.delete(resolvedAgentId);
@@ -1906,6 +1963,7 @@ export class AgentManager {
         attention: preservedAttention,
         roleBinding,
         launchContract,
+        launchProfile: existing.launchProfile,
       });
     } finally {
       if (!handedToRegistration) {
@@ -2246,6 +2304,7 @@ export class AgentManager {
         owner: record.owner,
         roleBinding: record.roleBinding,
         launchContract: record.launchContract,
+        launchProfile: record.launchProfile,
         session: null,
         capabilities: STORED_AGENT_CAPABILITIES,
         config: buildStoredAgentConfig(record),
@@ -3837,6 +3896,7 @@ export class AgentManager {
       owner?: AgentOwner;
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
+      launchProfile?: AgentProfileLaunchReceipt;
     },
   ): Promise<ManagedAgent> {
     let registered = false;
@@ -3993,6 +4053,7 @@ export class AgentManager {
           owner?: AgentOwner;
           roleBinding?: PersistedRoleBinding;
           launchContract?: PersistedLaunchContract;
+          launchProfile?: AgentProfileLaunchReceipt;
         }
       | undefined;
   }): ActiveManagedAgent {
@@ -4006,6 +4067,7 @@ export class AgentManager {
       owner: registration.owner,
       roleBinding: registration.roleBinding,
       launchContract: registration.launchContract,
+      launchProfile: registration.launchProfile,
       session,
       capabilities: session.capabilities,
       config,
@@ -5364,16 +5426,33 @@ export class AgentManager {
   private broadcastAgentAttention(
     agent: ManagedAgent,
     reason: "finished" | "error" | "permission",
+    category?: AgentAttentionNotificationCategory,
   ): void {
     if (isDelegatedAgent(agent)) {
       return;
     }
 
-    this.onAgentAttention?.({
+    const params = {
       agentId: agent.id,
       provider: agent.provider,
       reason,
-    });
+      ...(category ? { category } : {}),
+    } satisfies AgentAttentionCallbackParams;
+    if (this.onAgentAttention) {
+      this.onAgentAttention(params);
+      return;
+    }
+    if (reason !== "error" || category !== "coordination") {
+      return;
+    }
+    if (this.pendingAgentAttentions.length >= MAX_PENDING_AGENT_ATTENTION_NOTIFICATIONS) {
+      this.logger.warn(
+        { agentId: agent.id, reason, category },
+        "Dropping agent attention while callback is unavailable because the bounded queue is full",
+      );
+      return;
+    }
+    this.pendingAgentAttentions.push(params);
   }
 
   private dispatchStream(
@@ -5583,6 +5662,7 @@ export class AgentManager {
             kind: "human-session",
           },
           roleProfilePreferences: this.resolveRoleProfilePreferences(role.roleId),
+          customInstructions: this.resolveRoleInstructionOverlay(role.roleId),
         },
         slpGeneration.owner,
       );

@@ -99,6 +99,7 @@ export function toStoredAgentRecord(
     owner: agent.owner,
     ...(agent.roleBinding ? { roleBinding: agent.roleBinding } : {}),
     ...(agent.launchContract ? { launchContract: agent.launchContract } : {}),
+    ...(agent.launchProfile ? { launchProfile: agent.launchProfile } : {}),
   } satisfies StoredAgentRecord;
 }
 
@@ -144,6 +145,7 @@ export function toAgentPayload(
     ...(agent.launchContract
       ? { launchContract: toLaunchContractReceipt(agent.launchContract) }
       : {}),
+    ...(agent.launchProfile ? { launchProfile: agent.launchProfile } : {}),
   };
 
   const usage = sanitizeUsage(agent.lastUsage);
@@ -304,6 +306,12 @@ function projectStoredLeadHandoffs(
   return record.leadHandoffs ? { leadHandoffs: record.leadHandoffs } : {};
 }
 
+function projectStoredLaunchProfile(
+  record: StoredAgentRecord,
+): Pick<AgentSnapshotPayload, "launchProfile"> | Record<string, never> {
+  return record.launchProfile ? { launchProfile: record.launchProfile } : {};
+}
+
 export function buildStoredAgentPayload(
   record: StoredAgentRecord,
   validProviders: Iterable<AgentProvider>,
@@ -361,6 +369,7 @@ export function buildStoredAgentPayload(
     ...(record.launchContract
       ? { launchContract: toLaunchContractReceipt(record.launchContract) }
       : {}),
+    ...projectStoredLaunchProfile(record),
     ...projectStoredCoordinationSignals(record),
     ...projectStoredLeadHandoffs(record),
     ...(providerAvailable ? {} : { providerUnavailable: true }),

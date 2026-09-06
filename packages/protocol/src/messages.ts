@@ -14,8 +14,15 @@ import {
   RoleBindingReceiptSchema,
 } from "./role-binding.js";
 import { LaunchContractReceiptSchema } from "./launch-contract.js";
-import { RoleProfileCatalogSchema, RoleProfilePreferencesMapSchema } from "./role-profile.js";
-import { CoordinationSignalSchema } from "./coordination-signal.js";
+import {
+  RoleInstructionOverlayMapSchema,
+  RoleProfileCatalogSchema,
+  RoleProfilePreferencesMapSchema,
+} from "./role-profile.js";
+import {
+  CoordinationSignalResolutionSchema,
+  CoordinationSignalSchema,
+} from "./coordination-signal.js";
 import { LeadHandoffPacketSchema } from "./lead-handoff.js";
 import { WORKSPACE_LABEL_COLORS } from "./workspace-labels.js";
 import {
@@ -278,6 +285,17 @@ export const AgentProfileSchema = z
 
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
 
+/** Immutable snapshot of the Human-approved Agent Profile used for one launch. */
+export const AgentProfileLaunchReceiptSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    peerSubrole: PeerSubroleSchema.optional(),
+  })
+  .strict();
+
+export type AgentProfileLaunchReceipt = z.infer<typeof AgentProfileLaunchReceiptSchema>;
+
 const MutableBrowserToolsConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -365,6 +383,7 @@ export const MutableDaemonConfigSchema = z
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
     // COMPAT(roleProfiles): optional so current clients can still read older daemons.
     roleProfiles: RoleProfilePreferencesMapSchema.optional(),
+    roleInstructionOverlays: RoleInstructionOverlayMapSchema.optional(),
     // COMPAT(peerDelegation): absent/disabled or an empty allowlist denies new
     // Lead-to-Peer creation. Enabled routes are exact provider/model grants.
     peerDelegation: MutablePeerDelegationConfigSchema.optional(),
@@ -405,6 +424,8 @@ export const MutableDaemonConfigPatchSchema = z
     removeProviders: z.array(z.string().min(1)).optional(),
     roleProfiles: RoleProfilePreferencesMapSchema.optional(),
     resetRoleProfiles: z.array(PaseoRoleIdSchema).optional(),
+    roleInstructionOverlays: RoleInstructionOverlayMapSchema.optional(),
+    resetRoleInstructionOverlays: z.array(PaseoRoleIdSchema).optional(),
     peerDelegation: MutablePeerDelegationConfigSchema.partial().optional(),
     peerDelegationProfileIds: z.array(z.string().trim().min(1)).optional(),
     peerDelegationProviderPriority: z.array(z.string().trim().min(1)).optional(),
@@ -950,6 +971,7 @@ export const AgentStreamEventPayloadSchema = z.discriminatedUnion("type", [
           workspaceId: z.string().optional(),
           agentId: z.string(),
           reason: z.enum(["finished", "error", "permission"]),
+          category: z.literal("coordination").optional(),
         }),
       })
       .optional(),
@@ -1036,6 +1058,7 @@ export const AgentSnapshotPayloadSchema = z.object({
   providerUnavailable: z.boolean().optional(),
   roleBinding: RoleBindingReceiptSchema.optional(),
   launchContract: LaunchContractReceiptSchema.optional(),
+  launchProfile: AgentProfileLaunchReceiptSchema.optional(),
   coordinationSignals: z.array(CoordinationSignalSchema).optional(),
   leadHandoffs: z.array(LeadHandoffPacketSchema).optional(),
   continuityAwareness: AgentContinuityAwarenessSchema.optional(),
@@ -2211,6 +2234,18 @@ export const AgentCoordinationSignalRequestMessageSchema = z.discriminatedUnion(
     relatedAgentId: z.string().min(1).optional(),
     evidenceRefs: CoordinationSignalSchema.shape.evidenceRefs.optional(),
   }),
+  z.object({
+    type: z.literal("agent.coordination_signal.request"),
+    requestId: z.string(),
+    agentId: z.string(),
+    // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; additive
+    // resolve/disposition branch on the existing coordination-signal RPC. Remove
+    // after 2027-09-04 once all supported daemons/clients understand it.
+    kind: z.literal("resolve"),
+    signalId: z.string().min(1),
+    resolution: CoordinationSignalResolutionSchema,
+    note: z.string().trim().max(1_000).optional(),
+  }),
 ]);
 
 export const AgentCoordinationSignalResponseMessageSchema = z.object({
@@ -2719,6 +2754,7 @@ export const PaseoWorktreeArchiveRequestSchema = z.object({
 });
 
 export const FirstAgentContextSchema = z.object({
+  title: z.string().optional(),
   prompt: z.string().optional(),
   attachments: AgentAttachmentsSchema,
 });
@@ -3693,9 +3729,15 @@ export const ServerInfoStatusPayloadSchema = z
         providersSnapshot: z.boolean().optional(),
         // COMPAT(roleProfiles): host-owned role profile editor and catalog RPC.
         roleProfiles: z.boolean().optional(),
+        // COMPAT(roleInstructionOverlays): separate Human overlay editor for role instructions.
+        roleInstructionOverlays: z.boolean().optional(),
         // COMPAT(attentionQuestions): added in v0.6.0-paseo.46; old daemons do not
         // understand the continuity-attention question request branch.
         attentionQuestions: z.boolean().optional(),
+        // COMPAT(coordinationSignalResolution): added in v0.7.0-paseo.55; old daemons
+        // do not understand the resolve/disposition request branch. Remove gate
+        // after 2027-09-04.
+        coordinationSignalResolution: z.boolean().optional(),
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: z.boolean().optional(),
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
@@ -4858,6 +4900,7 @@ export const AgentAttentionRequiredMessageSchema = z.object({
           workspaceId: z.string().optional(),
           agentId: z.string(),
           reason: z.enum(["finished", "error", "permission"]),
+          category: z.literal("coordination").optional(),
         }),
       })
       .optional(),

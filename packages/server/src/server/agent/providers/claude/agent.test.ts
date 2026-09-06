@@ -815,6 +815,51 @@ describe("ClaudeAgentSession features", () => {
     }
   });
 
+  test("keeps bypass enabled for a no-write Lead while retaining the daemon tool boundary", async () => {
+    const { queryFactory, launches } = createQueryMock();
+    const client = new ClaudeAgentClient({
+      logger,
+      queryFactory,
+      resolveBinary: async () => "/test/claude/bin",
+    });
+    const session = await client.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+        modeId: "bypassPermissions",
+      },
+      {
+        roleBinding: {
+          roleId: "lead",
+          instructions: "PASEO ROLE LEAD",
+          noWrite: true,
+        },
+      },
+    );
+
+    try {
+      await session.startTurn("coordinate without changing workspace files");
+
+      expect(launches[0]?.options.permissionMode).toBe("bypassPermissions");
+      expect(launches[0]?.options.allowDangerouslySkipPermissions).toBe(true);
+      expect(launches[0]?.options.tools).toEqual([
+        "Read",
+        "Glob",
+        "Grep",
+        "WebFetch",
+        "WebSearch",
+        "AskUserQuestion",
+        "Skill",
+        "ToolSearch",
+      ]);
+      expect(launches[0]?.options.disallowedTools).toEqual(
+        expect.arrayContaining(["Bash", "Write", "Edit", "NotebookEdit"]),
+      );
+    } finally {
+      await session.close();
+    }
+  });
+
   test("projects bundled Council as a Lead-only Claude session plugin", async () => {
     const { queryFactory, launches } = createQueryMock();
     const client = new ClaudeAgentClient({

@@ -12,10 +12,11 @@ import type { PersistedRoleBinding } from "./role-binding.js";
 function roleBinding(input: {
   injectionMethod: PersistedRoleBinding["injectionMethod"];
   mutationMode?: "no-write" | "bounded-write";
+  roleId?: PersistedRoleBinding["roleId"];
 }): PersistedRoleBinding {
   const mutationMode = input.mutationMode ?? "no-write";
   return {
-    roleId: "lead",
+    roleId: input.roleId ?? "lead",
     injectionMethod: input.injectionMethod,
     assignment: {
       mutationBoundary:
@@ -26,20 +27,35 @@ function roleBinding(input: {
   } as PersistedRoleBinding;
 }
 
-test("no-write Codex assignment overrides an unattended full-access request", () => {
-  const config: AgentSessionConfig = {
-    provider: "codex",
-    cwd: "/workspace/repo",
-    modeId: "full-access",
-  };
+test.each([
+  ["codex-developer-instructions", "auto", "full-access"],
+  ["claude-system-prompt", "acceptEdits", "bypassPermissions"],
+] as const)(
+  "all role-bound %s assignments are pinned to the provider unattended mode",
+  (injectionMethod, requestedMode, requiredMode) => {
+    for (const roleId of ["lead", "peer", "supervisor"] as const) {
+      for (const mutationMode of ["no-write", "bounded-write"] as const) {
+        const config: AgentSessionConfig = {
+          provider: injectionMethod === "codex-developer-instructions" ? "codex" : "claude",
+          cwd: "/workspace/repo",
+          modeId: requestedMode,
+        };
 
-  expect(
-    enforceRoleAssignmentCapability(
-      config,
-      roleBinding({ injectionMethod: "codex-developer-instructions" }),
-    ),
-  ).toMatchObject({ modeId: "read-only" });
-});
+        expect(
+          enforceRoleAssignmentCapability(
+            config,
+            roleBinding({ injectionMethod, mutationMode, roleId }),
+          ),
+        ).toMatchObject({ modeId: requiredMode });
+        const binding = roleBinding({ injectionMethod, mutationMode, roleId });
+        expect(() => assertRoleAssignmentModeAllowed(binding, requiredMode)).not.toThrow();
+        expect(() => assertRoleAssignmentModeAllowed(binding, requestedMode)).toThrow(
+          `pinned to provider mode '${requiredMode}'`,
+        );
+      }
+    }
+  },
+);
 
 test("no-write Cursor assignment disables ACP auto-accept and pins plan mode", () => {
   const config: AgentSessionConfig = {
@@ -57,50 +73,17 @@ test("no-write Cursor assignment disables ACP auto-accept and pins plan mode", (
   ).toMatchObject({ modeId: "plan", featureValues: { auto_accept: false, fast: true } });
 });
 
-test("no-write Claude assignment pins guarded default mode for the strict tool boundary", () => {
-  const config: AgentSessionConfig = {
-    provider: "claude",
-    cwd: "/workspace/repo",
-    modeId: "bypassPermissions",
-  };
-
-  expect(
-    enforceRoleAssignmentCapability(
-      config,
-      roleBinding({ injectionMethod: "claude-system-prompt" }),
-    ),
-  ).toMatchObject({ modeId: "default" });
-});
-
-test("bounded-write assignment preserves the requested provider capability", () => {
-  const config: AgentSessionConfig = {
-    provider: "claude",
-    cwd: "/workspace/repo",
-    modeId: "bypassPermissions",
-  };
-
-  expect(
-    enforceRoleAssignmentCapability(
-      config,
-      roleBinding({
-        injectionMethod: "claude-system-prompt",
-        mutationMode: "bounded-write",
-      }),
-    ),
-  ).toBe(config);
-});
-
 test("no-write assignment fails closed for a provider without a qualified mode", () => {
   expect(() =>
     requiredNoWriteMode(roleBinding({ injectionMethod: "omp-append-system-prompt" })),
   ).toThrow("assignment_capability_boundary_required");
 });
 
-test("no-write assignment rejects mode and permission escalation", () => {
-  const binding = roleBinding({ injectionMethod: "claude-system-prompt" });
+test("no-write Claude Peer assignment rejects leaving bypass and permission escalation", () => {
+  const binding = roleBinding({ injectionMethod: "claude-system-prompt", roleId: "peer" });
 
-  expect(() => assertRoleAssignmentModeAllowed(binding, "bypassPermissions")).toThrow(
-    "pinned to provider mode 'default'",
+  expect(() => assertRoleAssignmentModeAllowed(binding, "default")).toThrow(
+    "pinned to provider mode 'bypassPermissions'",
   );
   expect(() =>
     assertRoleAssignmentPermissionResponseAllowed(binding, { behavior: "allow" }),

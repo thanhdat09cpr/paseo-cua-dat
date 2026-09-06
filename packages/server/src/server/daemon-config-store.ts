@@ -13,12 +13,15 @@ import { resolvePeerDelegationProviderPriority } from "@getpaseo/protocol/peer-d
 import { resolveFoundationCredentialFile } from "./foundation-credential-store.js";
 import { validateRoleProfilePreferencesMap } from "./policy/bundled/slp/role-profiles.js";
 import type { AgentSkillSelection } from "@getpaseo/protocol/messages";
+import { RoleInstructionOverlayMapSchema } from "@getpaseo/protocol/role-profile";
 
 export type { MutableDaemonConfig, MutableDaemonConfigPatch } from "@getpaseo/protocol/messages";
 
 type MutableDaemonConfig = import("@getpaseo/protocol/messages").MutableDaemonConfig;
 type MutableDaemonConfigPatch = import("@getpaseo/protocol/messages").MutableDaemonConfigPatch;
 type ProviderOverride = import("./agent/provider-launch-config.js").ProviderOverride;
+type RoleInstructionOverlayMap =
+  import("@getpaseo/protocol/role-profile").RoleInstructionOverlayMap;
 
 interface SupportedMutableConfigPatch {
   relay?: { enabled?: boolean };
@@ -33,6 +36,8 @@ interface SupportedMutableConfigPatch {
   appendSystemPrompt?: string;
   roleProfiles?: MutableDaemonConfigPatch["roleProfiles"];
   resetRoleProfiles?: MutableDaemonConfigPatch["resetRoleProfiles"];
+  roleInstructionOverlays?: MutableDaemonConfigPatch["roleInstructionOverlays"];
+  resetRoleInstructionOverlays?: MutableDaemonConfigPatch["resetRoleInstructionOverlays"];
   peerDelegation?: MutableDaemonConfigPatch["peerDelegation"];
   peerDelegationProfileIds?: MutableDaemonConfig["peerDelegationProfileIds"];
   peerDelegationProviderPriority?: MutableDaemonConfig["peerDelegationProviderPriority"];
@@ -47,6 +52,38 @@ interface SupportedMutableConfigPatch {
 interface LoggerLike {
   child(bindings: Record<string, unknown>): LoggerLike;
   info(...args: unknown[]): void;
+}
+
+function applyRoleProfilePatch(
+  current: MutableDaemonConfig["roleProfiles"],
+  patch: MutableDaemonConfigPatch["roleProfiles"],
+  resets: NonNullable<MutableDaemonConfigPatch["resetRoleProfiles"]>,
+) {
+  const next = { ...current };
+  for (const [roleId, preferences] of Object.entries(patch ?? {})) {
+    if (preferences) next[roleId as keyof typeof next] = preferences;
+  }
+  for (const roleId of new Set(resets)) delete next[roleId];
+  return {
+    changed: patch !== undefined || resets.length > 0,
+    next: validateRoleProfilePreferencesMap(next),
+  };
+}
+
+function applyRoleInstructionOverlayPatch(
+  current: RoleInstructionOverlayMap | undefined,
+  patch: MutableDaemonConfigPatch["roleInstructionOverlays"],
+  resets: NonNullable<MutableDaemonConfigPatch["resetRoleInstructionOverlays"]>,
+) {
+  const next = { ...current };
+  for (const [roleId, instructions] of Object.entries(patch ?? {})) {
+    if (instructions) next[roleId as keyof typeof next] = instructions;
+  }
+  for (const roleId of new Set(resets)) delete next[roleId];
+  return {
+    changed: patch !== undefined || resets.length > 0,
+    next: RoleInstructionOverlayMapSchema.parse(next),
+  };
 }
 
 export interface DaemonConfigChangeDetails {
@@ -218,6 +255,7 @@ const RELOADABLE_PATHS = [
   "daemon.enableTerminalAgentHooks",
   "daemon.appendSystemPrompt",
   "daemon.roleProfiles",
+  "daemon.roleInstructionOverlays",
   "daemon.peerDelegation",
   "daemon.peerDelegationProfileIds",
   "daemon.peerDelegationProviderPriority",
@@ -247,6 +285,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.enableTerminalAgentHooks", "enableTerminalAgentHooks"],
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.roleProfiles", "roleProfiles"],
+  ["daemon.roleInstructionOverlays", "roleInstructionOverlays"],
   ["daemon.peerDelegation", "peerDelegation"],
   ["daemon.peerDelegationProfileIds", "peerDelegationProfileIds"],
   ["daemon.peerDelegationProviderPriority", "peerDelegationProviderPriority"],
@@ -303,6 +342,8 @@ function pickFoundationPatchFields(
   | "beadsCentral"
   | "roleProfiles"
   | "resetRoleProfiles"
+  | "roleInstructionOverlays"
+  | "resetRoleInstructionOverlays"
   | "peerDelegation"
   | "peerDelegationProfileIds"
   | "peerDelegationProviderPriority"
@@ -313,6 +354,12 @@ function pickFoundationPatchFields(
     ...(patch.roleProfiles !== undefined ? { roleProfiles: patch.roleProfiles } : {}),
     ...(patch.resetRoleProfiles !== undefined
       ? { resetRoleProfiles: patch.resetRoleProfiles }
+      : {}),
+    ...(patch.roleInstructionOverlays !== undefined
+      ? { roleInstructionOverlays: patch.roleInstructionOverlays }
+      : {}),
+    ...(patch.resetRoleInstructionOverlays !== undefined
+      ? { resetRoleInstructionOverlays: patch.resetRoleInstructionOverlays }
       : {}),
     ...(patch.peerDelegation !== undefined ? { peerDelegation: patch.peerDelegation } : {}),
     ...(patch.peerDelegationProfileIds !== undefined
@@ -491,22 +538,27 @@ export class DaemonConfigStore {
       removeProviders = [],
       roleProfiles: roleProfilePatch,
       resetRoleProfiles = [],
+      roleInstructionOverlays: roleInstructionOverlayPatch,
+      resetRoleInstructionOverlays = [],
       ...rawConfigPatch
     } = parsedPatch;
     const configPatch = synchronizePeerDelegationProfilePatch(this.current, rawConfigPatch);
     const removedProviders = Array.from(new Set(removeProviders));
-    const nextRoleProfiles = { ...this.current.roleProfiles };
-    for (const [roleId, preferences] of Object.entries(roleProfilePatch ?? {})) {
-      if (preferences) nextRoleProfiles[roleId as keyof typeof nextRoleProfiles] = preferences;
-    }
-    for (const roleId of new Set(resetRoleProfiles)) {
-      delete nextRoleProfiles[roleId];
-    }
-    const roleProfilesChanged = roleProfilePatch !== undefined || resetRoleProfiles.length > 0;
+    const roleProfiles = applyRoleProfilePatch(
+      this.current.roleProfiles,
+      roleProfilePatch,
+      resetRoleProfiles,
+    );
+    const roleInstructionOverlays = applyRoleInstructionOverlayPatch(
+      this.current.roleInstructionOverlays,
+      roleInstructionOverlayPatch,
+      resetRoleInstructionOverlays,
+    );
     const merged = {
       ...deepMerge(this.current, configPatch),
-      ...(roleProfilesChanged
-        ? { roleProfiles: validateRoleProfilePreferencesMap(nextRoleProfiles) }
+      ...(roleProfiles.changed ? { roleProfiles: roleProfiles.next } : {}),
+      ...(roleInstructionOverlays.changed
+        ? { roleInstructionOverlays: roleInstructionOverlays.next }
         : {}),
     };
     if (parsedPatch.skills?.selection !== undefined) {
@@ -527,9 +579,13 @@ export class DaemonConfigStore {
       return this.current;
     }
 
-    const persistencePatch = roleProfilesChanged
-      ? { ...configPatch, roleProfiles: nextRoleProfiles }
-      : configPatch;
+    const persistencePatch = {
+      ...configPatch,
+      ...(roleProfiles.changed ? { roleProfiles: roleProfiles.next } : {}),
+      ...(roleInstructionOverlays.changed
+        ? { roleInstructionOverlays: roleInstructionOverlays.next }
+        : {}),
+    };
     const { previous: persistedBeforePatch, knownNext } = this.persistConfig(
       persistencePatch,
       removedProviders,
@@ -816,6 +872,11 @@ function mergeMutableDaemonPatch(
   if (patch.appendSystemPrompt !== undefined) next.appendSystemPrompt = patch.appendSystemPrompt;
   if (patch.roleProfiles !== undefined) {
     next.roleProfiles = validateRoleProfilePreferencesMap(patch.roleProfiles);
+  }
+  if (patch.roleInstructionOverlays !== undefined) {
+    next.roleInstructionOverlays = RoleInstructionOverlayMapSchema.parse(
+      patch.roleInstructionOverlays,
+    );
   }
   Object.assign(next, mergePeerDelegationPatch(next.peerDelegation, patch.peerDelegation));
   if (patch.peerDelegationProfileIds !== undefined) {

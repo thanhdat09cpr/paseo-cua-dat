@@ -3480,7 +3480,10 @@ class ClaudeAgentSession implements AgentSession {
         "Skill",
         "ToolSearch",
       ];
-      base.allowDangerouslySkipPermissions = false;
+      // Every role-bound Claude session may run in bypassPermissions to remove
+      // provider ceremony. For no-write assignments, the daemon-owned tool
+      // allowlist and explicit write denies above remain the native-tool boundary.
+      base.allowDangerouslySkipPermissions = this.currentMode === "bypassPermissions";
     }
   }
 

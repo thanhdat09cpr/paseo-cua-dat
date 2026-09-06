@@ -277,14 +277,23 @@ describe("sendOsNotification", () => {
     const sent = await sendOsNotification({
       title: "Paseo notification test",
       body: "If you can see this, desktop notifications work.",
-      data: { serverId: "srv-1" },
+      data: { serverId: "srv-1", category: "coordination" },
     });
 
     expect(sent).toBe(true);
     expect(sendNotification).toHaveBeenCalledWith({
       title: "Paseo notification test",
       body: "If you can see this, desktop notifications work.",
-      data: { serverId: "srv-1" },
+      data: { serverId: "srv-1", category: "coordination" },
     });
+  });
+});
+
+describe("isAgentAttentionNotificationEligible", () => {
+  it("suppresses ordinary errors but allows coordination errors", async () => {
+    const { isAgentAttentionNotificationEligible } = await loadModuleForPlatform("web");
+
+    expect(isAgentAttentionNotificationEligible("error")).toBe(false);
+    expect(isAgentAttentionNotificationEligible("error", "coordination")).toBe(true);
   });
 });

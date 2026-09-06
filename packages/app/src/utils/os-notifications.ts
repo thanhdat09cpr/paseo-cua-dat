@@ -2,6 +2,10 @@ import { Asset } from "expo-asset";
 import { getDesktopHost } from "@/desktop/host";
 import { buildNotificationRoute, resolveNotificationTarget } from "./notification-routing";
 import { isNative } from "@/constants/platform";
+import type {
+  AgentAttentionNotificationCategory,
+  AgentAttentionReason,
+} from "@getpaseo/protocol/agent-attention-notification";
 
 interface OsNotificationPayload {
   title: string;
@@ -18,6 +22,13 @@ interface WebNotificationInstance {
 }
 
 export const WEB_NOTIFICATION_CLICK_EVENT = "paseo:web-notification-click";
+
+export function isAgentAttentionNotificationEligible(
+  reason: AgentAttentionReason,
+  category?: AgentAttentionNotificationCategory,
+): boolean {
+  return reason !== "error" || category === "coordination";
+}
 
 let permissionRequest: Promise<boolean> | null = null;
 let notificationIconUrl: string | null | undefined;

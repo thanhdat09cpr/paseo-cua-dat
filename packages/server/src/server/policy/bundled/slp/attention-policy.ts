@@ -16,8 +16,8 @@ import type {
 } from "../../../agent/event-policy-runtime.js";
 
 export const SLP_ATTENTION_POLICY_ID = "slp.attention";
-export const SLP_ATTENTION_POLICY_VERSION = "4";
-export const SLP_ATTENTION_STATE_VERSION = 4;
+export const SLP_ATTENTION_POLICY_VERSION = "5";
+export const SLP_ATTENTION_STATE_VERSION = 5;
 export const SLP_ATTENTION_DISABLE_FLAG = "PASEO_DISABLE_SLP_ATTENTION_POLICY";
 
 const CONTEXT_PRESSURE_RATIO = 0.85;
@@ -333,10 +333,17 @@ async function handleTerminalEvent(
     SLP_ATTENTION_STATE,
     (state) => {
       const consecutiveTurnFailures = state.consecutiveTurnFailures + 1;
-      const notify =
+      const crossedThreshold = consecutiveTurnFailures === FAILURE_ATTENTION_THRESHOLD;
+      const notifyCoordination =
         consecutiveTurnFailures >= FAILURE_ATTENTION_THRESHOLD &&
         !state.failureEpisodeSignaled &&
         route.target !== null;
+      const notifyHuman =
+        crossedThreshold &&
+        !state.failureEpisodeSignaled &&
+        route.target === null &&
+        route.recipientRole === "supervisor";
+      const notify = notifyCoordination || notifyHuman;
       return {
         state: {
           ...state,
@@ -344,13 +351,17 @@ async function handleTerminalEvent(
           failureEpisodeSignaled: state.failureEpisodeSignaled || notify,
         },
         result: {
-          notify,
-          crossedThreshold: consecutiveTurnFailures === FAILURE_ATTENTION_THRESHOLD,
+          notifyCoordination,
+          notifyHuman,
+          crossedThreshold,
         },
       };
     },
   );
-  if (!outcome.notify || !route.target) {
+  if (outcome.notifyHuman) {
+    dependencies.agentManager.notifyAgentAttention(agent.id, "error", "coordination");
+  }
+  if (!outcome.notifyCoordination || !route.target) {
     if (!route.target && outcome.crossedThreshold && route.recipientRole === "supervisor") {
       dependencies.logger.warn(
         { agentId: agent.id, workspaceId: agent.workspaceId },
@@ -399,6 +410,11 @@ function createSlpAttentionProcessor(
     ) {
       return;
     }
+    const supervisor = findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor");
+    if (!supervisor) {
+      visibleAssistantBuffers.delete(agent.id);
+      return;
+    }
     const text = appendVisibleAssistantText(
       visibleAssistantBuffers.get(agent.id) ?? "",
       event.event.item.text,
@@ -406,14 +422,6 @@ function createSlpAttentionProcessor(
     visibleAssistantBuffers.set(agent.id, text);
     const friction = classifySemanticFriction(text);
     if (!friction) return;
-    const supervisor = findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor");
-    if (!supervisor) {
-      dependencies.logger.warn(
-        { agentId: agent.id, workspaceId: agent.workspaceId },
-        "Semantic friction attention has no unique Supervisor target",
-      );
-      return;
-    }
     const turnId = event.event.turnId ?? agent.activeTurnId ?? "unknown-turn";
     const coalescingKey = `semantic_friction:${agent.id}:${turnId}:${friction.fingerprint}`;
     await requestCoordinationSignal(dependencies, {

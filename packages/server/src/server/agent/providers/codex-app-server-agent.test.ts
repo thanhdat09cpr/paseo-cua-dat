@@ -148,7 +148,11 @@ function createConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSession
 
 function createSession(
   configOverrides: Partial<AgentSessionConfig> = {},
-  options: { goalsEnabled?: boolean; autoReviewEnabled?: boolean } = {},
+  options: {
+    goalsEnabled?: boolean;
+    autoReviewEnabled?: boolean;
+    roleId?: "lead" | "peer" | "supervisor";
+  } = {},
 ): CodexTestSession {
   const session = new CodexAppServerAgentSession(
     createConfig(configOverrides),
@@ -161,6 +165,11 @@ function createSession(
     false,
     options.goalsEnabled === true,
     options.autoReviewEnabled === true,
+    undefined,
+    "interactive",
+    undefined,
+    undefined,
+    options.roleId,
   ) as CodexTestSession;
   session.connected = true;
   session.currentThreadId = "test-thread";
@@ -1292,6 +1301,83 @@ describe("Codex app-server provider", () => {
           excludeTmpdirEnvVar: true,
         },
       });
+      appServer.assertNoErrors();
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("role-bound full-access overrides conflicting persisted provider permissions", async () => {
+    const session = createSession(
+      {
+        modeId: "full-access",
+        providerOptions: {
+          approval_policy: "on-request",
+          sandbox_mode: "read-only",
+          sandbox_workspace_write: { writable_roots: ["/tmp/limited"] },
+        },
+      },
+      { roleId: "peer" },
+    );
+    const request = vi.fn(async (method: string) => {
+      if (method === "thread/loaded/list") return { data: ["test-thread"] };
+      if (method === "turn/start") return {};
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    session.activeForegroundTurnId = null;
+    session.client = createStub<CodexClientLike>({ request });
+
+    await session.startTurn("work without permission prompts");
+
+    const turnStart = request.mock.calls.find(([method]) => method === "turn/start")?.[1];
+    expect(turnStart).toMatchObject({
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" },
+    });
+    const innerConfig = turnStart?.config ?? {};
+    expect(innerConfig).not.toHaveProperty("approval_policy");
+    expect(innerConfig).not.toHaveProperty("sandbox_mode");
+    expect(innerConfig).not.toHaveProperty("sandbox_workspace_write");
+  });
+
+  test("role-bound full-access overrides conflicting provider permissions on thread creation", async () => {
+    const appServer = createFakeCodexAppServer();
+    const session = new CodexAppServerAgentSession(
+      createConfig({
+        modeId: "full-access",
+        providerOptions: {
+          approval_policy: "on-request",
+          sandbox_mode: "read-only",
+        },
+      }),
+      null,
+      createTestLogger(),
+      async () => appServer.child,
+      {},
+      false,
+      false,
+      false,
+      undefined,
+      "interactive",
+      undefined,
+      undefined,
+      "supervisor",
+    );
+
+    try {
+      await session.connect();
+      await session.startTurn("start without permission prompts");
+      await appServer.waitForTurnStart();
+
+      const threadStart = appServer.requests().find((request) => request.method === "thread/start");
+      expect(threadStart?.params).toMatchObject({
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+      });
+      const innerConfig =
+        (threadStart?.params as { config?: Record<string, unknown> } | undefined)?.config ?? {};
+      expect(innerConfig).not.toHaveProperty("approval_policy");
+      expect(innerConfig).not.toHaveProperty("sandbox_mode");
       appServer.assertNoErrors();
     } finally {
       await session.close();

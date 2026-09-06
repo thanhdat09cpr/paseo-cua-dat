@@ -11725,7 +11725,7 @@ test("role-bound create persists immutable binding and passes only launch instru
       ROLE_DEFAULT_TOOLS.lead.length,
     );
     expect(created.config.systemPrompt).toBeUndefined();
-    expect(created.config.modeId).toBe("read-only");
+    expect(created.config.modeId).toBe("full-access");
     expect(created.roleBinding?.policyOwner).toMatchObject({
       kind: "plugin",
       pluginId: "slp",
@@ -11817,7 +11817,7 @@ test("role-bound create persists immutable binding and passes only launch instru
     await expect(manager.setAgentModel(created.id, "gpt-5.4-mini")).rejects.toThrow(
       "Cannot change model on role-bound agent",
     );
-    await expect(manager.setAgentMode(created.id, "full-access")).rejects.toThrow(
+    await expect(manager.setAgentMode(created.id, "auto")).rejects.toThrow(
       "assignment_capability_boundary_required",
     );
     await expect(
@@ -12459,6 +12459,49 @@ test("Antigravity Peer fails before launch when its bridge cannot carry mandator
     ).rejects.toThrow("no qualified native Paseo-tool transport");
     expect(client.createdConfigs).toHaveLength(0);
     expect(manager.getAgent("00000000-0000-4000-8000-000000000122")).toBeNull();
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("buffers attention until the callback is registered with a bounded one-time flush", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-attention-callback-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000141",
+  });
+
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: "workspace-1",
+    });
+    manager.notifyAgentAttention(agent.id, "finished");
+    manager.notifyAgentAttention(agent.id, "permission");
+    manager.notifyAgentAttention(agent.id, "error");
+    for (let index = 0; index < 128; index += 1) {
+      manager.notifyAgentAttention(agent.id, "error", "coordination");
+    }
+
+    const attentionCalls = vi.fn();
+    manager.setAgentAttentionCallback(attentionCalls);
+
+    expect(attentionCalls).toHaveBeenCalledTimes(64);
+    expect(attentionCalls.mock.calls[0]?.[0]).toMatchObject({
+      agentId: agent.id,
+      provider: "codex",
+      reason: "error",
+      category: "coordination",
+    });
+
+    const replacementCalls = vi.fn();
+    manager.setAgentAttentionCallback(replacementCalls);
+    expect(replacementCalls).not.toHaveBeenCalled();
+
+    manager.notifyAgentAttention(agent.id, "error", "coordination");
+    expect(replacementCalls).toHaveBeenCalledTimes(1);
   } finally {
     rmSync(workdir, { recursive: true, force: true });
   }

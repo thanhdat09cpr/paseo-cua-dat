@@ -46,7 +46,10 @@ import {
   waitForAgentRunStartWithTimeout,
   unarchiveAgentState,
 } from "./agent/agent-prompt.js";
-import { requestCoordinationSignal } from "./agent/coordination-signals.js";
+import {
+  requestCoordinationSignal,
+  resolveCoordinationSignal,
+} from "./agent/coordination-signals.js";
 import {
   resolveCreateAgentTitles,
   resolveFirstAgentPromptTitle,
@@ -1927,6 +1930,9 @@ export class Session {
     const storedRecord = await this.agentStorage.get(payload.id);
     payload.title = storedRecord?.title ?? null;
     payload.archivedAt = storedRecord?.archivedAt ?? null;
+    if (storedRecord?.coordinationSignals) {
+      payload.coordinationSignals = storedRecord.coordinationSignals;
+    }
     return payload;
   }
 
@@ -3188,6 +3194,49 @@ export class Session {
         throw new Error(`Agent ${msg.agentId} is not available`);
       }
       const coordinationPolicy = this.agentManager.resolveActiveSlpPolicy().coordinationPolicy;
+      if (msg.kind === "resolve") {
+        const targetAgentId = coordinationPolicy.assertResolveAgentSignalAuthority({
+          callerAgentId: undefined,
+          requestedAgentId: msg.agentId,
+        });
+        const signal = await resolveCoordinationSignal(
+          {
+            agentManager: this.agentManager,
+            agentStorage: this.agentStorage,
+            sendAtSafeBoundary: async (agentId, text) => {
+              if (this.agentManager.hasInFlightRun(agentId)) {
+                throw new Error(`Agent ${agentId} is still running`);
+              }
+              await sendPromptToAgent({
+                agentManager: this.agentManager,
+                agentStorage: this.agentStorage,
+                agentId,
+                prompt: formatSystemNotificationPrompt(text),
+                unarchive: false,
+                replaceRunning: false,
+                logger: this.sessionLogger,
+              });
+            },
+            logger: this.sessionLogger,
+          },
+          {
+            targetAgentId,
+            signalId: msg.signalId,
+            resolution: msg.resolution,
+            note: msg.note,
+          },
+        );
+        this.emit({
+          type: "agent.coordination_signal.response",
+          payload: {
+            requestId: msg.requestId,
+            agentId: msg.agentId,
+            signal,
+            error: null,
+          },
+        });
+        return;
+      }
       if (msg.kind === "continuity_attention") {
         coordinationPolicy.assertAttentionQuestionAuthority({
           targetAgentId: msg.agentId,
@@ -7462,6 +7511,15 @@ export class Session {
     return this.selectProjectedTimelineProjection(input);
   }
 
+  private shouldReadAgentTimelineFromDurableStorage(
+    agentId: string,
+    storedRecord: StoredAgentRecord | null,
+  ): boolean {
+    if (hasReleasedAgentWriteLease(storedRecord)) return true;
+    if (!storedRecord || this.agentManager.getAgent(agentId)) return false;
+    return !this.agentManager.isStoredAgentPolicyGenerationAvailable(storedRecord);
+  }
+
   private async handleFetchAgentTimelineRequest(
     msg: Extract<SessionInboundMessage, { type: "fetch_agent_timeline_request" }>,
     source?: object,
@@ -7479,8 +7537,11 @@ export class Session {
 
     try {
       const storedRecord = await this.agentStorage.get(msg.agentId);
-      const released = hasReleasedAgentWriteLease(storedRecord);
-      const agentPayload = released
+      const readFromDurableStorage = this.shouldReadAgentTimelineFromDurableStorage(
+        msg.agentId,
+        storedRecord,
+      );
+      const agentPayload = readFromDurableStorage
         ? this.buildStoredAgentPayload(storedRecord as StoredAgentRecord)
         : await this.buildAgentPayload(
             await ensureAgentLoaded(msg.agentId, {
@@ -7490,7 +7551,7 @@ export class Session {
             }),
           );
 
-      const fetchedControlTimeline = released
+      const fetchedControlTimeline = readFromDurableStorage
         ? await this.agentManager.fetchDurableTimeline(msg.agentId, {
             direction,
             cursor,
@@ -7502,7 +7563,7 @@ export class Session {
             limit: pageLimit,
           });
       const fullTimeline =
-        released && projection === "projected"
+        readFromDurableStorage && projection === "projected"
           ? await this.agentManager.fetchDurableTimeline(msg.agentId, {
               direction: "tail",
               limit: 0,
@@ -7611,18 +7672,21 @@ export class Session {
   ): Promise<void> {
     try {
       const storedRecord = await this.agentStorage.get(msg.agentId);
-      const released = hasReleasedAgentWriteLease(storedRecord);
-      if (!released) {
+      const readFromDurableStorage = this.shouldReadAgentTimelineFromDurableStorage(
+        msg.agentId,
+        storedRecord,
+      );
+      if (!readFromDurableStorage) {
         await ensureAgentLoaded(msg.agentId, {
           agentManager: this.agentManager,
           agentStorage: this.agentStorage,
           logger: this.sessionLogger,
         });
       }
-      const rows = released
+      const rows = readFromDurableStorage
         ? await this.agentManager.getDurableTimelineRows(msg.agentId)
         : await this.agentManager.getTimelineRows(msg.agentId);
-      const timeline = released
+      const timeline = readFromDurableStorage
         ? await this.agentManager.fetchDurableTimeline(msg.agentId, {
             direction: "tail",
             limit: 1,

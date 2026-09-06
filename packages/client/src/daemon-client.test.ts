@@ -4678,6 +4678,87 @@ test("rejects attention questions before sending when the daemon lacks support",
   expect(mock.sent).toHaveLength(0);
 });
 
+test("resolves a coordination signal through the additive resolve branch", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen({ features: { coordinationSignalResolution: true } });
+  await connectPromise;
+
+  const promise = client.resolveCoordinationSignal({
+    agentId: "lead-agent",
+    signalId: "signal-1",
+    resolution: "acknowledged",
+    note: "Reviewed at a safe boundary",
+  });
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({
+    type: "agent.coordination_signal.request",
+    kind: "resolve",
+    signalId: "signal-1",
+    resolution: "acknowledged",
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent.coordination_signal.response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "lead-agent",
+        signal: {
+          id: "signal-1",
+          targetAgentId: "lead-agent",
+          requestedByAgentId: null,
+          kind: "handoff_recommended",
+          reason: "Context dilution",
+          evidenceRefs: ["room-message-1"],
+          status: "acknowledged",
+          createdAt: "2026-08-07T00:00:00.000Z",
+          deliveredAt: null,
+          resolvedAt: "2026-08-07T00:05:00.000Z",
+          resolutionNote: "Reviewed at a safe boundary",
+        },
+        error: null,
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toMatchObject({ id: "signal-1", status: "acknowledged" });
+});
+
+test("rejects coordination signal resolution before sending when the daemon lacks support", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  await expect(
+    client.resolveCoordinationSignal({
+      agentId: "lead-agent",
+      signalId: "signal-1",
+      resolution: "acknowledged",
+    }),
+  ).rejects.toThrow("Update the host");
+  expect(mock.sent).toHaveLength(0);
+});
+
 test("sends active-scoped fetch_agents_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

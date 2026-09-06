@@ -34,6 +34,7 @@ function createSnapshot(
     labels: (input.labels ?? {}) as AgentSnapshotPayload["labels"],
     roleBinding: input.roleBinding,
     launchContract: input.launchContract,
+    coordinationSignals: input.coordinationSignals,
   };
 }
 
@@ -139,6 +140,30 @@ describe("normalizeAgentSnapshot", () => {
 
     expect(projected.roleBinding).toEqual(roleBinding);
     expect(projected.launchContract).toEqual(launchContract);
+  });
+
+  it("round-trips current coordination signals through the canonical snapshot boundary", () => {
+    const coordinationSignals: NonNullable<AgentSnapshotPayload["coordinationSignals"]> = [
+      {
+        id: "signal-1",
+        targetAgentId: "agent-1",
+        requestedByAgentId: null,
+        kind: "continuity_attention",
+        reason: "Bounded attention question",
+        evidenceRefs: ["timeline:turn-7"],
+        occurrenceCount: 2,
+        status: "pending",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        deliveredAt: null,
+        resolvedAt: null,
+      },
+    ];
+
+    const projected = projectAgentSnapshot(
+      normalizeAgentSnapshot(createSnapshot({ coordinationSignals }), "server-1"),
+    );
+
+    expect(projected.coordinationSignals).toEqual(coordinationSignals);
   });
 
   it("trims whitespace around the parent label", () => {

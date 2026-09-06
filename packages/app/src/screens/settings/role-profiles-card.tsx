@@ -3,8 +3,10 @@ import { ChevronDown, ChevronRight, LockKeyhole, RotateCcw, Save } from "lucide-
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import type { MutableDaemonConfigPatch } from "@getpaseo/protocol/messages";
 import type { PaseoRoleId } from "@getpaseo/protocol/role-binding";
 import type {
+  RoleInstructionOverlayMap,
   RoleProfileDescriptor,
   RoleProfilePreferences,
   RoleProfilePreferencesMap,
@@ -15,6 +17,8 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Switch } from "@/components/ui/switch";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useRoleProfiles } from "@/hooks/use-role-profiles";
+import { useHostFeature } from "@/runtime/host-features";
+import { RoleInstructionEditor } from "@/screens/settings/role-instruction-editor";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 
@@ -22,6 +26,21 @@ const ThemedLockKeyhole = withUnistyles(LockKeyhole);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+
+function roleInstructionConfigPatch(
+  supported: boolean,
+  roleId: PaseoRoleId,
+  instructions: string,
+): Pick<MutableDaemonConfigPatch, "roleInstructionOverlays" | "resetRoleInstructionOverlays"> {
+  if (!supported) return {};
+  const trimmedInstructions = instructions.trim();
+  if (!trimmedInstructions) return { resetRoleInstructionOverlays: [roleId] };
+  return {
+    roleInstructionOverlays: {
+      [roleId]: trimmedInstructions,
+    } as RoleInstructionOverlayMap,
+  };
+}
 
 function ToggleRow({
   name,
@@ -119,10 +138,18 @@ function ProfileEditor({
   descriptor,
   draft,
   setDraft,
+  customInstructions,
+  savedCustomInstructions,
+  instructionEditingSupported,
+  setCustomInstructions,
 }: {
   descriptor: RoleProfileDescriptor;
   draft: RoleProfilePreferences;
   setDraft: React.Dispatch<React.SetStateAction<RoleProfilePreferences>>;
+  customInstructions: string;
+  savedCustomInstructions: string;
+  instructionEditingSupported: boolean;
+  setCustomInstructions: (value: string) => void;
 }) {
   const selectedTools = draft.allowedTools ?? descriptor.effective.allowedTools;
   const selectedSkills = draft.allowedSkills ?? descriptor.effective.allowedSkills;
@@ -164,6 +191,15 @@ function ProfileEditor({
           {descriptor.definitionVersion} · sha256:{descriptor.definitionDigest.slice(0, 12)}
         </Text>
       </View>
+
+      <RoleInstructionEditor
+        foundationInstructions={descriptor.instructions}
+        customInstructions={customInstructions}
+        savedCustomInstructions={savedCustomInstructions}
+        editable={instructionEditingSupported}
+        onChangeCustomInstructions={setCustomInstructions}
+        roleId={descriptor.roleId}
+      />
 
       <View style={styles.sectionBlock}>
         <Text style={styles.groupTitle}>Launch routing</Text>
@@ -208,9 +244,11 @@ function ProfileEditor({
 
 export function RoleProfilesCard({ serverId }: { serverId: string }) {
   const roleProfiles = useRoleProfiles(serverId);
-  const { patchConfig } = useDaemonConfig(serverId);
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const instructionEditingSupported = useHostFeature(serverId, "roleInstructionOverlays");
   const [selectedRole, setSelectedRole] = useState<PaseoRoleId>("lead");
   const [draft, setDraft] = useState<RoleProfilePreferences>({});
+  const [customInstructions, setCustomInstructions] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const descriptor = roleProfiles.catalog?.profiles.find(
@@ -226,36 +264,57 @@ export function RoleProfilesCard({ serverId }: { serverId: string }) {
     [roleProfiles.catalog],
   );
 
+  const savedCustomInstructions = config?.roleInstructionOverlays?.[selectedRole] ?? "";
+
   useEffect(() => {
     setDraft(descriptor?.preferences ?? {});
+    setCustomInstructions(savedCustomInstructions);
     setError(null);
-  }, [descriptor]);
+  }, [descriptor, savedCustomInstructions]);
 
-  const isDirty = descriptor ? !equal(draft, descriptor.preferences) : false;
+  const isDirty = descriptor
+    ? !equal(draft, descriptor.preferences) || customInstructions !== savedCustomInstructions
+    : false;
 
   const handleSave = useCallback(() => {
     if (!descriptor) return;
     setIsSaving(true);
     setError(null);
     const roleProfilesPatch = { [selectedRole]: draft } as RoleProfilePreferencesMap;
-    void patchConfig({ roleProfiles: roleProfilesPatch })
+    const instructionPatch = roleInstructionConfigPatch(
+      instructionEditingSupported,
+      selectedRole,
+      customInstructions,
+    );
+    void patchConfig({ roleProfiles: roleProfilesPatch, ...instructionPatch })
       .then(() => roleProfiles.refetch())
       .catch((cause) => {
         setError(cause instanceof Error ? cause.message : String(cause));
       })
       .finally(() => setIsSaving(false));
-  }, [descriptor, draft, patchConfig, roleProfiles, selectedRole]);
+  }, [
+    customInstructions,
+    descriptor,
+    draft,
+    instructionEditingSupported,
+    patchConfig,
+    roleProfiles,
+    selectedRole,
+  ]);
 
   const handleReset = useCallback(() => {
     setIsSaving(true);
     setError(null);
-    void patchConfig({ resetRoleProfiles: [selectedRole] })
+    void patchConfig({
+      resetRoleProfiles: [selectedRole],
+      ...(instructionEditingSupported ? { resetRoleInstructionOverlays: [selectedRole] } : {}),
+    })
       .then(() => roleProfiles.refetch())
       .catch((cause) => {
         setError(cause instanceof Error ? cause.message : String(cause));
       })
       .finally(() => setIsSaving(false));
-  }, [patchConfig, roleProfiles, selectedRole]);
+  }, [instructionEditingSupported, patchConfig, roleProfiles, selectedRole]);
 
   if (!roleProfiles.supported) {
     return (
@@ -280,7 +339,17 @@ export function RoleProfilesCard({ serverId }: { serverId: string }) {
       </View>
     );
   } else if (descriptor) {
-    profileContent = <ProfileEditor descriptor={descriptor} draft={draft} setDraft={setDraft} />;
+    profileContent = (
+      <ProfileEditor
+        descriptor={descriptor}
+        draft={draft}
+        setDraft={setDraft}
+        customInstructions={customInstructions}
+        savedCustomInstructions={savedCustomInstructions}
+        instructionEditingSupported={instructionEditingSupported}
+        setCustomInstructions={setCustomInstructions}
+      />
+    );
   } else {
     profileContent = (
       <View style={styles.stateBlock}>
@@ -305,7 +374,11 @@ export function RoleProfilesCard({ serverId }: { serverId: string }) {
             size="sm"
             leftIcon={RotateCcw}
             onPress={handleReset}
-            disabled={isSaving || !descriptor || equal(descriptor.preferences, {})}
+            disabled={
+              isSaving ||
+              !descriptor ||
+              (equal(descriptor.preferences, {}) && savedCustomInstructions.length === 0)
+            }
             testID="role-profile-reset"
           >
             Reset

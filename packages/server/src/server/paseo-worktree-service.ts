@@ -25,7 +25,7 @@ import {
   writePaseoWorktreeFirstAgentBranchAutoNameMetadata,
 } from "../utils/worktree-metadata.js";
 import type { WorktreeCreationIntent } from "./resolve-worktree-creation-intent.js";
-import { resolveFirstAgentPromptTitle } from "./agent/create-agent-title.js";
+import { resolveFirstAgentWorkspaceTitle } from "./agent/create-agent-title.js";
 import { buildAgentBranchNameSeed } from "./agent/prompt-attachments.js";
 import type { FirstAgentContext } from "@getpaseo/protocol/messages";
 import { runWithGitCommandPriority } from "../utils/run-git-command.js";
@@ -98,7 +98,7 @@ async function createPaseoWorktreeWithPriority(
       worktreeRoot: createdWorktree.worktree.worktreePath,
       branch: createdWorktree.worktree.branchName || null,
       baseBranch: resolveIntentBaseBranch(createdWorktree.intent),
-      title: input.title?.trim() || resolveFirstAgentPromptTitle(input.firstAgentContext),
+      title: input.title?.trim() || resolveFirstAgentWorkspaceTitle(input.firstAgentContext),
       expectsInitialAgent: Boolean(input.firstAgentContext),
     });
 

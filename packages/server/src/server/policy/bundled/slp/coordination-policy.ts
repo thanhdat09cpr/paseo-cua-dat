@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { LeadHandoffTransition } from "@getpaseo/protocol/lead-handoff";
 import type { PaseoRoleId } from "@getpaseo/protocol/role-binding";
 
-export const SLP_COORDINATION_POLICY_VERSION = "4";
+export const SLP_COORDINATION_POLICY_VERSION = "5";
 
 export const SLP_COORDINATION_TOOL_DESCRIPTIONS = {
   prepareLeadHandoff:
@@ -17,53 +17,123 @@ export const SLP_COORDINATION_TOOL_DESCRIPTIONS = {
     "Record the receiving role's autonomous disposition of a coordination signal. This does not report to or transfer authority to the sender.",
 } as const;
 
-const CLARIFICATION_TOPIC =
-  "(?:evidence|observation|assumption|uncertainty|risk|constraint|inconsistency|interpretation|status)";
-const CLARIFICATION_OBJECT =
-  "(?:evidence|observation|assumption|uncertainty|risk|constraint|inconsistency|interpretation|status|record|plan|conclusion|delay)";
-const CLARIFICATION_QUESTION_GRAMMARS = [
-  new RegExp(
-    `^what evidence (?:supports|contradicts) the (?:current )?${CLARIFICATION_OBJECT}\\?$`,
-    "iu",
-  ),
-  new RegExp(`^what evidence is missing from the (?:current )?${CLARIFICATION_OBJECT}\\?$`, "iu"),
-  new RegExp(
-    `^which ${CLARIFICATION_TOPIC} (?:remains uncertain|remains unsupported by the cited (?:evidence|trace)|explains the observed delay)\\?$`,
-    "iu",
-  ),
-  new RegExp(
-    `^what ${CLARIFICATION_TOPIC} (?:explains the observed delay|is reflected in the current (?:evidence|observation|status))\\?$`,
-    "iu",
-  ),
-  new RegExp(
-    `^why does (?:this|the current) ${CLARIFICATION_TOPIC} (?:conflict with|differ from) the (?:current )?${CLARIFICATION_OBJECT}\\?$`,
-    "iu",
-  ),
-] as const;
-const FACTUAL_OBSERVATION_GRAMMARS = [
-  new RegExp(
-    `^the (?:current )?${CLARIFICATION_OBJECT} (?:supports|contradicts|conflicts with|differs from|omits) the (?:(?:current|reviewed|cited|observed) )?${CLARIFICATION_OBJECT}\\.$`,
-    "iu",
-  ),
-  /^the working stream reversed its (?:stated scope|ownership) premise\.$/iu,
-  /^the prior patch was merged before this evidence arrived\.$/iu,
-  /^the branch is obsolete\.$/iu,
-  /^the candidate is awaiting review\.$/iu,
-] as const;
-const CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE = /[;:\r\n]|[.!?].+\S/iu;
+const MAX_ATTENTION_TEXT_LENGTH = 1000;
+// `;`, `:`, and newlines always separate clauses/sentences.
+const CLAUSE_SEPARATOR = /[;:\r\n]/u;
+// A sentence boundary is `[.!?]` followed (with or without whitespace) by more content.
+// This is checked against the string AFTER dotted version/path tokens are masked out, so
+// a real extra sentence is rejected whether or not it has a leading space, while an
+// internal dot inside a token like `0.7.0-paseo.54` or `packages/app/file.test.ts` is not
+// mistaken for one.
+const SENTENCE_BOUNDARY = /[.!?]\s*\S/u;
+// The mask only recognizes two narrow, structurally distinct token shapes — never an
+// arbitrary "word.word" pair, which would also mask a real no-space second sentence like
+// "differs.proceed":
+//   - a numeric dotted version, e.g. `0.7.0` with an optional bounded prerelease suffix
+//     (`-paseo.54`);
+//   - a slash-containing path, relative or absolute, with ordinary upper/lowercase/digit/
+//     `_`/`-` segments, dot-prefixed segments (`.worktrees`), and a trailing multi-dot
+//     filename (`file.test.ts`) — e.g. `packages/server/src/session.test.ts` or
+//     `/Users/name/repo/.worktrees/tree/packages/app/file.test.ts` (the slash is what makes
+//     it structurally a path, not prose).
+// Both require a digit or a slash to qualify, so a plain lowercase "word.word" run is never
+// masked. Both stop the instant they would need to swallow more than the reproduced token
+// shape (the start of a real second sentence): `0.7.0-paseo.54.Proceed` masks only
+// `0.7.0-paseo.54`; `.../file.test.ts.Continue` masks only `.../file.test.ts` (the
+// compound-suffix alternative is consumed whole, see PATH_COMPOUND_EXTENSION); and
+// `.../file.ts.risk remains uncertain` masks only `.../file.ts` (a path gets at most one
+// extension segment — a real second dotted word is never eligible for a second bite, no
+// matter how short it is, so it stays visible to the sentence-boundary check below).
+// Residual ambiguity: a lone absolute single-segment path (`/etc`, no further slash) is
+// not recognized — only multi-segment paths are, matching every reproduced case; a bare
+// numeric fraction such as `50/50` is indistinguishable from a one-segment numeric path
+// and is masked; and a real filename with 2+ dot-extensions that is not one of the
+// enumerated compound suffixes (e.g. `archive.tar.gz`) only has its first extension
+// masked, leaving `.gz` visible — this matches the "at most one extension" invariant by
+// design, not as an unresolved bypass. None of these are exercised or reported as a
+// concern beyond what is documented here.
+const VERSION_TOKEN = "\\d+(?:\\.\\d+)+(?:-[a-z0-9]+(?:\\.\\d+)*)?";
+// A path component between slashes: real directory/file names are mixed-case
+// (`Users`, `Desktop`) and some start with a literal dot (`.worktrees`), so the
+// component class allows upper/lowercase letters, digits, `_`, `-`, and one optional
+// leading dot. It never includes an internal literal dot, so it always stops at a
+// `.` and never itself spans a sentence boundary.
+const PATH_COMPONENT = "\\.?[A-Za-z0-9_-]+";
+// The small, closed set of two-part suffixes this repository's file naming convention
+// actually produces. Listed longest-conflicting-prefix first within each pair (`test.tsx`
+// before `test.ts`, `spec.tsx` before `spec.ts`) so the alternation cannot stop one
+// literal short of the real suffix (e.g. matching only `.test.ts` out of `.test.tsx` and
+// leaving a stray `x`). This is a closed enumeration, not a length heuristic — it never
+// matches a suffix outside this exact list, however short.
+const PATH_COMPOUND_EXTENSION = "\\.(?:test\\.tsx|test\\.ts|spec\\.tsx|spec\\.ts|d\\.ts)";
+// A single arbitrary extension segment, unbounded length — this is deliberately not
+// length-capped: a short real word (`.risk`, `.gaps`, 4 characters) is structurally
+// indistinguishable from a short real extension (`.ts`, `.d`), so length can never be the
+// signal. What makes this safe is that a path token allows at most one of these (see
+// PATH_TOKEN below, no repetition): a real second sentence starting with a dotted word
+// never gets a second bite at being masked, so it stays visible to SENTENCE_BOUNDARY
+// regardless of its length.
+const PATH_EXTENSION_SINGLE = "\\.[a-z0-9_-]+";
+// Requires at least one `/`, so a bare lowercase `word.word` run (no slash) never
+// qualifies as a path and is never masked. The trailing extension group matches at most
+// once: either one of the enumerated compound suffixes (tried first, so it is consumed as
+// a whole unit) or a single arbitrary extension segment — never both, and never a second
+// arbitrary segment. This is what leaves `.risk`/`.gaps` after a real single-extension
+// path (`file.ts.risk`) visible to the sentence-boundary check instead of being absorbed
+// as a fabricated second extension.
+const PATH_TOKEN = `/?${PATH_COMPONENT}(?:/${PATH_COMPONENT})+(?:${PATH_COMPOUND_EXTENSION}|${PATH_EXTENSION_SINGLE})?`;
+const DOTTED_TOKEN = new RegExp(`${VERSION_TOKEN}|${PATH_TOKEN}`, "gu");
+
+function maskDottedTokens(value: string): string {
+  return value.replace(DOTTED_TOKEN, (match) => "0".repeat(match.length));
+}
+
+function containsClauseSeparatorOrExtraSentence(value: string): boolean {
+  return CLAUSE_SEPARATOR.test(value) || SENTENCE_BOUNDARY.test(maskDottedTokens(value));
+}
 const MODAL_OR_REQUEST_PREFIX =
   /^(?:(?:can|could|would|will|should|may|might|do|does|did|please|kindly)\b|is\s+it\s+possible\b)/iu;
 const MODAL_LANGUAGE = /\b(?:can|could|would|will|should|may|might|must|shall)\b/iu;
-const SECOND_PERSON_REFERENCE = /\b(?:you|your|yours|yourself)\b/iu;
 const SECOND_PERSON_REQUEST_LANGUAGE =
   /\b(?:for\s+you\s+to|you\s+(?:must|shall|should|need\s+to|have\s+to|will|are\s+to)|prevents?\s+you\s+from|requires?\s+you\s+to|asks?\s+you\s+to)\b/iu;
 const AUTHORITY_MODAL_LANGUAGE = /\b(?:must|shall|should|need(?:s)?\s+to|have\s+to|has\s+to)\b/iu;
 const OBSERVATION_IMPERATIVE_PREFIX =
   /^(?:delete|remove|merge|squash|land|ship|apply|run|execute|assign|take|transfer|handoff|hand\s+off|detach|write|edit|commit|push|release|deploy|restart|stop|start|approve|accept|reject|decide|recover|override|escalate|close)\b/iu;
 const BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE =
-  /\b(?:delet(?:e|es|ed|ing|ion)|remov(?:e|es|ed|ing|al)|merg(?:e|es|ed|ing)|squash(?:es|ed|ing)?|land(?:s|ed|ing)?|ship(?:s|ped|ping)?|appl(?:y|ies|ied|ying|ication|ications)|run|runs|ran|running|execut(?:e|es|ed|ing|ion|ions)|assign(?:s|ed|ing|ment|ments)?|tak(?:e|es|ing)\s+(?:over|ownership)|took\s+(?:over|ownership)|ownership\s+transfer|transfer(?:s|red|ring)?|hand(?:off|\s+off|s\s+off|ed\s+off|ing\s+off)|detach(?:es|ed|ing|ment)?|writ(?:e|es|ing|ten)|wrote|edit(?:s|ed|ing)?|commit(?:s|ted|ting)?|push(?:es|ed|ing)?|releas(?:e|es|ed|ing)|deploy(?:s|ed|ing|ment|ments)?|restart(?:s|ed|ing)?|stop(?:s|ped|ping)?|start(?:s|ed|ing)?|approv(?:e|es|ed|ing|al)|accept(?:s|ed|ing|ance)?|reject(?:s|ed|ing|ion)?|decid(?:e|es|ed|ing)|decision(?:s)?|verdict(?:s)?|recover(?:s|ed|ing|y|ies)?|override(?:s|d|ing)?|escalat(?:e|es|ed|ing|ion)|clos(?:e|es|ed|ing)|activat(?:e|es|ed|ing|ion)|reassign(?:s|ed|ing|ment)?|replac(?:e|es|ed|ing|ement)|implement(?:s|ed|ing|ation)?|modif(?:y|ies|ied|ying|ication)|tag(?:s|ged|ging)?)\b/iu;
+  /\b(?:delet(?:e|es|ed|ing|ion)|remov(?:e|es|ed|ing|al)|merg(?:e|es|ed|ing)|squash(?:es|ed|ing)?|land(?:s|ed|ing)?|ship(?:s|ped|ping)?|appl(?:y|ies|ied|ying|ication|ications)|run|runs|ran|running|execut(?:e|es|ed|ing|ion|ions)|assign(?:s|ed|ing|ment|ments)?|tak(?:e|es|ing)\s+(?:over|ownership)|took\s+(?:over|ownership)|ownership\s+transfer|transfer(?:s|red|ring)?|hand(?:off|\s+off|s\s+off|ed\s+off|ing\s+off)|detach(?:es|ed|ing|ment)?|writ(?:e|es|ing|ten)|edit(?:s|ed|ing)?|commit(?:s|ted|ting)?|push(?:es|ed|ing)?|releas(?:e|es|ed|ing)|deploy(?:s|ed|ing|ment|ments)?|restart(?:s|ed|ing)?|stop(?:s|ped|ping)?|start(?:s|ed|ing)?|approv(?:e|es|ed|ing|al)|accept(?:s|ed|ing|ance)?|reject(?:s|ed|ing|ion)?|decid(?:e|es|ed|ing)|decision(?:s)?|verdict(?:s)?|recover(?:s|ed|ing|y|ies)?|override(?:s|d|ing)?|escalat(?:e|es|ed|ing|ion)|clos(?:e|es|ed|ing)|activat(?:e|es|ed|ing|ion)|reassign(?:s|ed|ing|ment)?|replac(?:e|es|ed|ing|ement)|implement(?:s|ed|ing|ation)?|modif(?:y|ies|ied|ying|ication)|tag(?:s|ged|ging)?)\b/iu;
 const OBSERVATION_REQUEST_SHAPE = new RegExp(
   `(?:^(?:please|kindly|do|make|go|proceed|change|freeze)\\b|\\b(?:requests?|proposes?|instructs?|asks?)\\s+(?:you\\s+)?(?:to\\s+)?${BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.source})`,
+  "iu",
+);
+const ROLE_TOKEN = "(?:lead|peer|supervisor|human)";
+const ROUTING_OR_HANDOFF_LANGUAGE = new RegExp(
+  `\\b(?:back\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|go(?:es)?\\s+back\\s+to\\b|return(?:s|ed|ing)?\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|hand(?:ed|ing)?\\s+(?:back\\s+)?to\\s+the\\s+${ROLE_TOKEN}\\b|rout(?:e|es|ed|ing)\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|escalat(?:e|es|ed|ing)\\s+to\\s+the\\s+${ROLE_TOKEN}\\b|về\\s+${ROLE_TOKEN}\\b|đưa\\s+về\\b)`,
+  "iu",
+);
+
+// Unicode-aware word boundaries: `\b` treats Vietnamese diacritic letters as
+// non-word characters, so a plain `\b` can fail to anchor at the edge of a
+// word ending in a combining/precomposed vowel (e.g. "xoá"). These lookarounds
+// anchor on any Unicode letter/number instead.
+const UWB_START = "(?<![\\p{L}\\p{N}_])";
+const UWB_END = "(?![\\p{L}\\p{N}_])";
+const VI_ACTION_OR_EFFECT_TERMS = [
+  "xóa",
+  "xoá",
+  "chuyển quyền sở hữu",
+  "bàn giao",
+  "phê duyệt",
+  "chấp nhận",
+  "khởi động lại",
+  "triển khai",
+];
+const VI_ACTION_OR_EFFECT_LANGUAGE = new RegExp(
+  `${UWB_START}(?:${VI_ACTION_OR_EFFECT_TERMS.join("|")})${UWB_END}`,
+  "iu",
+);
+const VI_MODAL_OR_REQUEST_TERMS = ["hãy", "vui lòng", "có thể", "nên", "phải", "cần"];
+const VI_MODAL_OR_REQUEST_LANGUAGE = new RegExp(
+  `${UWB_START}(?:${VI_MODAL_OR_REQUEST_TERMS.join("|")})${UWB_END}`,
   "iu",
 );
 
@@ -104,14 +174,22 @@ function assertAuthorityNeutralObservation(observation: string): void {
   if (!normalized) {
     throw new Error("attention_question requires a concrete observation");
   }
+  if (normalized.length > MAX_ATTENTION_TEXT_LENGTH) {
+    throw new Error(
+      `attention_question observation must be at most ${MAX_ATTENTION_TEXT_LENGTH} characters`,
+    );
+  }
   if (
-    CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized) ||
-    !FACTUAL_OBSERVATION_GRAMMARS.some((grammar) => grammar.test(normalized)) ||
+    containsClauseSeparatorOrExtraSentence(normalized) ||
     SECOND_PERSON_REQUEST_LANGUAGE.test(normalized) ||
     AUTHORITY_MODAL_LANGUAGE.test(normalized) ||
     MODAL_OR_REQUEST_PREFIX.test(normalized) ||
     OBSERVATION_IMPERATIVE_PREFIX.test(normalized) ||
-    OBSERVATION_REQUEST_SHAPE.test(normalized)
+    OBSERVATION_REQUEST_SHAPE.test(normalized) ||
+    BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.test(normalized) ||
+    ROUTING_OR_HANDOFF_LANGUAGE.test(normalized) ||
+    VI_ACTION_OR_EFFECT_LANGUAGE.test(normalized) ||
+    VI_MODAL_OR_REQUEST_LANGUAGE.test(normalized)
   ) {
     throw new Error("attention_question observation must be authority-neutral factual prose");
   }
@@ -125,20 +203,20 @@ function assertAuthorityNeutralClarificationQuestion(question: string): void {
   if (!normalized.endsWith("?") || (normalized.match(/\?/gu)?.length ?? 0) !== 1) {
     throw new Error("attention_question requires one open question ending in '?'");
   }
-  if (
-    CLAUSE_SEPARATOR_OR_EXTRA_SENTENCE.test(normalized) ||
-    !CLARIFICATION_QUESTION_GRAMMARS.some((grammar) => grammar.test(normalized))
-  ) {
-    throw new Error(
-      "attention_question must be a bounded clarification about evidence, observation, assumption, uncertainty, risk, constraint, inconsistency, interpretation, or status",
-    );
+  if (normalized.length > MAX_ATTENTION_TEXT_LENGTH) {
+    throw new Error(`attention_question must be at most ${MAX_ATTENTION_TEXT_LENGTH} characters`);
+  }
+  if (containsClauseSeparatorOrExtraSentence(normalized)) {
+    throw new Error("attention_question must be a single bounded clarification clause");
   }
   if (
     MODAL_OR_REQUEST_PREFIX.test(normalized) ||
     MODAL_LANGUAGE.test(normalized) ||
-    SECOND_PERSON_REFERENCE.test(normalized) ||
     SECOND_PERSON_REQUEST_LANGUAGE.test(normalized) ||
-    BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.test(normalized)
+    BOUNDED_AUTHORITY_OR_EFFECT_LANGUAGE.test(normalized) ||
+    ROUTING_OR_HANDOFF_LANGUAGE.test(normalized) ||
+    VI_ACTION_OR_EFFECT_LANGUAGE.test(normalized) ||
+    VI_MODAL_OR_REQUEST_LANGUAGE.test(normalized)
   ) {
     throw new Error(
       "attention_question cannot request action, authority, verdict, or external effect",

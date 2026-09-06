@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.0-paseo.57 - 2026-09-06
+
+### Added
+
+- Role Profiles trên WebUI hiển thị Foundation instructions ở chế độ read-only, cho Human lưu một
+  custom overlay riêng, preview effective role base và reset overlay. Thay đổi chỉ áp dụng cho agent mới;
+  immutable SLP vẫn định nghĩa normative tool, skill, topology và effect authority; unattended native
+  host tools có giới hạn kỹ thuật được nêu riêng bên dưới.
+- Nhận upstream coordination signal UI/evidence/disposition, historical timeline fallback, optional
+  Foundation audit provider, Attention policy v5 với bounded Human fallback, generic event runtime và
+  Peer ceiling/relay regressions qua downstream `.56`.
+
+### Changed
+
+- Mọi role-bound Lead, Peer và Supervisor đều chạy unattended: Claude dùng `bypassPermissions`, Codex
+  dùng `full-access`. Claude no-write vẫn có strict native-tool deny; Codex `full-access` và các
+  bounded-write session chấp nhận native host access không bị giới hạn theo assignment path.
+- Giữ portable macOS ARM64 WebUI/CLI distribution của fork; không đưa Desktop package hoặc Desktop
+  release pipeline của upstream trở lại.
+
+### Compatibility
+
+- Human role instruction overlay là optional daemon config; client cũ bỏ qua feature flag và daemon cũ
+  tiếp tục dùng Foundation baseline. Nix dependency hash cần được qualify lại sau clean lock install.
+
 ## 0.7.0-paseo.52 - 2026-09-05
 
 ### Fixed

@@ -17,6 +17,9 @@ function node(id: string): TopologyNode {
     status: "idle",
     provider: "codex",
     model: "test-model",
+    modeId: "unattended",
+    assignmentDisposition: null,
+    launchProfile: null,
     workspaceId: "workspace-1",
     requiresAttention: false,
     issueIds: [],
@@ -24,7 +27,7 @@ function node(id: string): TopologyNode {
 }
 
 describe("layoutProjectTopologyXFirst", () => {
-  it("places a Lead and every direct Peer on one horizontal lane", () => {
+  it("places direct Peer siblings at one depth in separate lanes", () => {
     const nodes = [node("lead"), node("peer-1"), node("peer-2"), node("peer-3")];
     const positions = layoutProjectTopologyXFirst(nodes, [
       { source: "lead", target: "peer-1" },
@@ -32,8 +35,11 @@ describe("layoutProjectTopologyXFirst", () => {
       { source: "lead", target: "peer-3" },
     ]);
 
-    expect(nodes.map((entry) => positions.get(entry.id)?.y)).toEqual([0, 0, 0, 0]);
-    expect(nodes.map((entry) => positions.get(entry.id)?.x)).toEqual([0, 360, 720, 1080]);
+    expect(positions.get("lead")).toEqual({ x: 0, y: 235 });
+    expect(["peer-1", "peer-2", "peer-3"].map((id) => positions.get(id)?.x)).toEqual([
+      360, 360, 360,
+    ]);
+    expect(["peer-1", "peer-2", "peer-3"].map((id) => positions.get(id)?.y)).toEqual([0, 235, 470]);
   });
 
   it("keeps Supervisor, Lead and Peer ordered from left to right", () => {
@@ -49,7 +55,7 @@ describe("layoutProjectTopologyXFirst", () => {
     expect(positions.get("lead")?.x).toBeLessThan(positions.get("peer-1")?.x ?? 0);
   });
 
-  it("uses Y only to separate disconnected relationship trees", () => {
+  it("keeps disconnected relationship trees in separate lane ranges", () => {
     const positions = layoutProjectTopologyXFirst(
       [node("lead-a"), node("peer-a"), node("lead-b"), node("peer-b")],
       [
@@ -60,6 +66,22 @@ describe("layoutProjectTopologyXFirst", () => {
 
     expect(positions.get("lead-a")?.y).toBe(positions.get("peer-a")?.y);
     expect(positions.get("lead-b")?.y).toBe(positions.get("peer-b")?.y);
-    expect(positions.get("lead-a")?.y).not.toBe(positions.get("lead-b")?.y);
+    expect(positions.get("lead-b")?.y ?? 0).toBeGreaterThan(positions.get("peer-a")?.y ?? 0);
+  });
+
+  it("keeps nested siblings aligned beneath their exact parent", () => {
+    const positions = layoutProjectTopologyXFirst(
+      [node("supervisor"), node("lead"), node("peer-1"), node("peer-2")],
+      [
+        { source: "supervisor", target: "lead" },
+        { source: "lead", target: "peer-1" },
+        { source: "lead", target: "peer-2" },
+      ],
+    );
+
+    expect(positions.get("supervisor")).toEqual({ x: 0, y: 117.5 });
+    expect(positions.get("lead")).toEqual({ x: 360, y: 117.5 });
+    expect(positions.get("peer-1")).toEqual({ x: 720, y: 0 });
+    expect(positions.get("peer-2")).toEqual({ x: 720, y: 235 });
   });
 });
