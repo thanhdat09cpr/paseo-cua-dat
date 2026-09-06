@@ -145,6 +145,43 @@ describe("DistributionUpdateService", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("does not advertise a cached release after the runtime installs that version", async () => {
+    const paseoHome = await createHome();
+    const now = Date.parse("2026-08-25T01:00:00Z");
+    let calls = 0;
+    const runtime = createRuntime({
+      paseoHome,
+      now: () => now,
+      fetch: async () => {
+        calls += 1;
+        return new Response(JSON.stringify([releaseFixture()]));
+      },
+    });
+    const previousRuntime = new DistributionUpdateService({
+      paseoHome,
+      currentVersion: "0.5.0-paseo.38",
+      logger: createTestLogger(),
+      runtime,
+    });
+
+    expect((await previousRuntime.check()).update?.version).toBe("0.5.0-paseo.39");
+
+    const upgradedRuntime = new DistributionUpdateService({
+      paseoHome,
+      currentVersion: "0.5.0-paseo.39",
+      logger: createTestLogger(),
+      runtime,
+    });
+    const cached = await upgradedRuntime.check();
+
+    expect(cached).toMatchObject({
+      source: "cache",
+      currentVersion: "0.5.0-paseo.39",
+      update: null,
+    });
+    expect(calls).toBe(1);
+  });
+
   test("manual checks cannot bypass the five minute cooldown", async () => {
     const paseoHome = await createHome();
     let now = Date.parse("2026-08-25T01:00:00Z");

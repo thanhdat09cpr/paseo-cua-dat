@@ -838,9 +838,13 @@ export class DistributionUpdateService {
     source: "cache" | "network",
     error: string | null | undefined = undefined,
   ): DistributionUpdateCheckResult {
+    const candidateIsNewer =
+      document.candidate !== null &&
+      (this.currentVersion === null ||
+        comparePaseoVersions(document.candidate.version, this.currentVersion) > 0);
     return {
       currentVersion: this.currentVersion,
-      update: toPublicRelease(document.candidate),
+      update: toPublicRelease(candidateIsNewer ? document.candidate : null),
       checkedAt: document.checkedAt,
       source,
       error: error === undefined ? (document.error ?? null) : error,
