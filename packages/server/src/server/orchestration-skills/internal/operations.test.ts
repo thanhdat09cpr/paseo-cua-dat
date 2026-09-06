@@ -104,6 +104,32 @@ describe("getSkillsStatus", () => {
     await fs.rm(sandbox.root, { recursive: true, force: true });
   });
 
+  it.each([true, false])(
+    "excludes independent workflows from global installation with manifest present=%s",
+    async (manifestPresent) => {
+      const names = ["slp-blind-design", "slp-dual-review"];
+      await writeCurrentBundle(sandbox.targets.sourceDir);
+      for (const name of names) {
+        await writeBundleSkill(sandbox.targets.sourceDir, name, { "SKILL.md": name });
+      }
+      if (manifestPresent) {
+        await fs.writeFile(
+          path.join(sandbox.targets.sourceDir, "role-admission.json"),
+          JSON.stringify({
+            schemaVersion: 1,
+            packages: Object.fromEntries(names.map((name) => [name, {}])),
+          }),
+        );
+      }
+      const status = await installSkills(sandbox.targets, ALL_SKILLS);
+      expect(status.available).toEqual(["paseo", "paseo-mapper"]);
+      for (const name of names) {
+        expect(await installedIn(sandbox.targets, name)).toEqual([false, false, false]);
+      }
+      expect(await installedIn(sandbox.targets, "paseo")).toEqual([true, true, true]);
+    },
+  );
+
   it("returns not-installed with add ops for every bundled skill when nothing is on disk", async () => {
     await writeCurrentBundle(sandbox.targets.sourceDir);
 

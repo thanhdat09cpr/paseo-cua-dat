@@ -4363,6 +4363,8 @@ export class CodexAppServerAgentSession implements AgentSession {
             text: [
               `Paseo role-admitted skill invocation: ${invocation}`,
               "Follow the complete exact skill package below. It is projected by the daemon for this role-bound session; do not search global or workspace skill directories.",
+              `Skill package directory: ${path.dirname(projectedProductSkillPath)}`,
+              "Resolve package-relative references from that directory and read them when the skill requires them.",
               `In the package, $ARGUMENTS means exactly: ${trimmedArgs || "(empty)"}`,
               `<paseo-role-skill name="${skill.name}">`,
               exactSkill,

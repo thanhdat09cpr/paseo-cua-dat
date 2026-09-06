@@ -46,8 +46,13 @@ export const LEGACY_SKILL_NAMES = [
 
 // Role-scoped product skills are bundled for daemon session projection, not for
 // installation into shared agent homes. Keep the known set as a fail-closed
-// fallback so a missing manifest cannot accidentally make Council global.
-const KNOWN_ROLE_SCOPED_SKILL_NAMES = ["council", "beads-issue-tracker"] as const;
+// fallback so a missing manifest cannot make orchestration skills global.
+const KNOWN_ROLE_SCOPED_SKILL_NAMES = [
+  "council",
+  "beads-issue-tracker",
+  "slp-blind-design",
+  "slp-dual-review",
+] as const;
 
 type SkillFiles = Map<string, string>;
 type TargetSkills = Map<string, SkillFiles>;

@@ -836,6 +836,8 @@ describe("Codex app-server provider", () => {
           .filter(
             (entry) =>
               !/[\\/]council[\\/]SKILL\.md$/u.test(entry.path) &&
+              !/[\\/]slp-blind-design[\\/]SKILL\.md$/u.test(entry.path) &&
+              !/[\\/]slp-dual-review[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]beads-issue-tracker[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]repo-refresh[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]triple-review[\\/]SKILL\.md$/u.test(entry.path),
@@ -859,6 +861,41 @@ describe("Codex app-server provider", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  test.each(["slp-blind-design", "slp-dual-review"])(
+    "injects exact %s bytes with a resolvable package directory",
+    async (name) => {
+      let input: unknown;
+      const appServer = createFakeCodexAppServer({
+        "turn/start": (params) => {
+          input = (params as { input: unknown }).input;
+          return {};
+        },
+      });
+      const client = createProviderWithFakeAppServer(appServer);
+      const session = await client.createSession(createConfig(), {
+        roleBinding: { roleId: "lead", instructions: "PASEO ROLE LEAD" },
+      });
+      try {
+        await session.startTurn(`/${name} inspect the supplied case`);
+        const root = path.resolve(import.meta.dirname, "../../../../../../skills", name);
+        const exactSkill = readFileSync(path.join(root, "SKILL.md"), "utf8");
+        expect(input).toEqual([
+          expect.objectContaining({ type: "text", text: expect.stringContaining(exactSkill) }),
+        ]);
+        expect(input).toEqual([
+          expect.objectContaining({
+            text: expect.stringContaining(`Skill package directory: ${root}`),
+          }),
+        ]);
+        const reference = name === "slp-blind-design" ? "peer-brief.md" : "reviewer-brief.md";
+        expect(existsSync(path.join(root, "references", reference))).toBe(true);
+        appServer.assertNoErrors();
+      } finally {
+        await session.close();
+      }
+    },
+  );
 
   test("materializes built-in Codex only from ChatGPT subscription auth", async () => {
     const subscriptionServer = createFakeCodexAppServer({

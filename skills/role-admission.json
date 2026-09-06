@@ -3,23 +3,29 @@
   "packages": {
     "council": {
       "provenance": "PASEO_DERIVATIVE"
+    },
+    "slp-blind-design": {
+      "provenance": "PASEO_DERIVATIVE"
+    },
+    "slp-dual-review": {
+      "provenance": "PASEO_DERIVATIVE"
     }
   },
   "roles": {
     "lead": {
-      "active": ["council"],
+      "active": ["council", "slp-blind-design", "slp-dual-review"],
       "explicitOnly": [],
       "packagedDisabled": []
     },
     "peer": {
       "active": [],
       "explicitOnly": [],
-      "packagedDisabled": ["council"]
+      "packagedDisabled": ["council", "slp-blind-design", "slp-dual-review"]
     },
     "supervisor": {
       "active": [],
       "explicitOnly": [],
-      "packagedDisabled": ["council"]
+      "packagedDisabled": ["council", "slp-blind-design", "slp-dual-review"]
     }
   }
 }

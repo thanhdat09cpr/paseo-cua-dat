@@ -44,6 +44,80 @@ afterEach(() => {
 });
 
 describe("product role skill policy", () => {
+  test.each(["lead", "peer", "supervisor"] as const)(
+    "projects bundled independent workflows for %s without enabling caller copies",
+    (role) => {
+      const root = path.resolve(import.meta.dirname, "../../../../../skills");
+      const policy = loadProductSkillPolicy(role, root);
+      const names = ["slp-blind-design", "slp-dual-review"];
+      const enabled = role === "lead";
+      expect(policy.status).toBe("bound");
+      const inventory = names.flatMap((name) => [{ name }, { name: `${name}:${name}` }]);
+      expect(filterProductSkills(inventory, policy)).toEqual(enabled ? inventory : []);
+
+      const codex = mergeCodexProductSkillConfig(
+        names.map((name) => ({ path: `/custom/${name}/SKILL.md`, enabled: true })),
+        policy,
+        "/home/test/.codex",
+      );
+      const claude = mergeClaudeProductPlugins(
+        names.map((name) => ({ type: "local" as const, path: `/custom/${name}` })),
+        policy,
+      );
+      for (const name of names) {
+        expect(codex).toContainEqual({ path: `/custom/${name}/SKILL.md`, enabled: false });
+        expect(codex).toContainEqual({
+          path: path.join(root, name, "SKILL.md"),
+          enabled,
+        });
+        expect(claude).not.toContainEqual({ type: "local", path: `/custom/${name}` });
+        if (enabled) {
+          expect(claude).toContainEqual({
+            type: "local",
+            path: path.join(root, name),
+            skipMcpDiscovery: true,
+          });
+          expect(claudeProductSkillDenyRules(policy)).not.toContain(`Skill(${name})`);
+        } else {
+          expect(claude).not.toContainEqual(
+            expect.objectContaining({ path: path.join(root, name) }),
+          );
+          expect(claudeProductSkillDenyRules(policy)).toEqual(
+            expect.arrayContaining([`Skill(${name})`, `Skill(${name}:${name})`]),
+          );
+        }
+      }
+    },
+  );
+
+  test.each(["missing", "invalid", "missing-package"])(
+    "keeps known independent workflows disabled when admission is %s",
+    (failure) => {
+      const root = bundleRoot();
+      const manifestPath = path.join(root, "role-admission.json");
+      if (failure === "missing") rmSync(manifestPath);
+      if (failure === "invalid") writeFileSync(manifestPath, "{");
+      if (failure === "missing-package") rmSync(path.join(root, "council", "SKILL.md"));
+      for (const role of ["lead", "peer", "supervisor"] as const) {
+        const policy = loadProductSkillPolicy(role, root);
+        expect(policy.status).toBe("missing-or-invalid");
+        for (const name of ["slp-blind-design", "slp-dual-review"]) {
+          expect(filterProductSkills([{ name }, { name: `${name}:${name}` }], policy)).toEqual([]);
+          const config = mergeCodexProductSkillConfig(
+            [{ path: `/custom/${name}/SKILL.md`, enabled: true }],
+            policy,
+            "/home/test/.codex",
+          );
+          expect(config).not.toContainEqual(expect.objectContaining({ enabled: true }));
+          expect(
+            mergeClaudeProductPlugins([{ type: "local", path: `/custom/${name}` }], policy),
+          ).toEqual([]);
+          expect(claudeProductSkillDenyRules(policy)).toContain(`Skill(${name})`);
+        }
+      }
+    },
+  );
+
   test("pins Council to native specialist Peers with separate durable issues", () => {
     const councilSkill = readFileSync(
       path.resolve(import.meta.dirname, "../../../../../skills/council/SKILL.md"),
