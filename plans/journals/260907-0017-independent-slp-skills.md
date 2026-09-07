@@ -34,8 +34,14 @@ These are package, source-test and build results. Provider transport fixtures do
 
 ## Runtime and remaining work
 
-Runtime remains `.58`; `.59` has not been installed. No daemon restart, live role canary or method canary occurred. Attention delivery remains unproven by this work. Git publication is not deployment or a GitHub Release.
+After the Git handoff, a clean-main artifact was rebuilt from merge commit `d44d299373119d1ee78d4931c4119719ec333921`. SHA-256: `a1f3eec8e24c0080422c88286f9d77b859dfecdc16776c57b52b1de19b4d1d1a`. Its provenance records `sourceDirty=false`. A fresh idle gate found zero active agents and zero active scripts across 18 workspaces, then the Human-authorized versioned installer activated `.59` and restarted the local launchd daemon.
 
-Next: qualify installation with fresh idle checks and required lifecycle authority, then verify new-session Lead eligibility, Peer/Supervisor exclusions, actual independent reports and Lead dispositions. Retain `.58` for rollback.
+Live readback confirms CLI and daemon `.59`, the release pointer, exact source commit/fingerprint, updater state and rendered local WebApp. Foundation distribution/runtime gates pass. Orchestration, formal role-boundary receipt and project readiness remain `UNKNOWN` because an audit route, full identity-bound receipt and target-project qualification are absent.
+
+Bounded fresh canaries proved exact-byte invocation of both new skills for Lead and negative admission for Peer/Supervisor. They did not launch Peers or prove real independent design/review behavior. Attention delivery remains unproven.
+
+The canaries also exposed an existing enforcement gap: role-bound Codex sessions are pinned to provider `full-access` even for a read-only Assignment. Runtime rejects switching them to provider `read-only`; source maps the role transport to Codex `dangerFullAccess`. Assignment metadata still says `no-write` and external effects denied, but this is not provider-level sandbox proof. It requires a separate correction and qualification before technical no-write can be called PASS.
+
+Next: repair or explicitly redesign the unattended-mode versus assignment-boundary contract, configure and qualify an audit route if the formal Foundation role receipt is wanted, then run one real Beads-bound blind-design/dual-review method canary. Retain `.58` for rollback.
 
 Journal is chronological work history, not a replacement for current product documentation. No AgentWiki publication was performed; this handoff targets the Git fork only.
