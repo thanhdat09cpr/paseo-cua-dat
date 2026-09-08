@@ -6,6 +6,7 @@ import {
   assertRoleAssignmentPermissionResponseAllowed,
   enforceRoleAssignmentCapability,
   requiredNoWriteMode,
+  requiredNoWriteModeForInjectionMethod,
 } from "./assignment-capability-boundary.js";
 import type { PersistedRoleBinding } from "./role-binding.js";
 
@@ -71,6 +72,24 @@ test("no-write Cursor assignment disables ACP auto-accept and pins plan mode", (
       roleBinding({ injectionMethod: "cursor-project-rule-capsule" }),
     ),
   ).toMatchObject({ modeId: "plan", featureValues: { auto_accept: false, fast: true } });
+});
+
+test.each([
+  ["codex-developer-instructions", "full-access"],
+  ["claude-system-prompt", "bypassPermissions"],
+  ["cursor-project-rule-capsule", "plan"],
+  ["antigravity-custom-agent", "plan"],
+] as const)(
+  "requiredNoWriteModeForInjectionMethod(%s) resolves to the authoritative no-write mode",
+  (injectionMethod, expectedMode) => {
+    // Shared resolver used by both role-binding materialization and the create_agent
+    // preflight: Codex/Claude keep unattended full-access; other transports fall back.
+    expect(requiredNoWriteModeForInjectionMethod(injectionMethod)).toBe(expectedMode);
+  },
+);
+
+test("requiredNoWriteModeForInjectionMethod returns null for an injection method with no qualified mode", () => {
+  expect(requiredNoWriteModeForInjectionMethod("omp-append-system-prompt")).toBeNull();
 });
 
 test("no-write assignment fails closed for a provider without a qualified mode", () => {

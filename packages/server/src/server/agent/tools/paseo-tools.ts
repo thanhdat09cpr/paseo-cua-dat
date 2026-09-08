@@ -47,6 +47,7 @@ import {
 import type { AgentListItemPayload } from "../../messages.js";
 import {
   buildStoredAgentPayload,
+  resolveEffectiveThinkingOptionId,
   toAgentListItemPayload,
   toAgentPayload,
 } from "../agent-projections.js";
@@ -155,7 +156,7 @@ import {
   type RoleBindingInjectionMethod,
   type PaseoRoleId,
 } from "@getpaseo/protocol/role-binding";
-import { noWriteModeForInjectionMethod } from "../assignment-capability-boundary.js";
+import { requiredNoWriteModeForInjectionMethod } from "../assignment-capability-boundary.js";
 import {
   ManualCoordinationSignalKindSchema,
   CoordinationSignalResolutionSchema,
@@ -620,6 +621,14 @@ function selectPeerLaunchProfile(input: {
   return available[0];
 }
 
+// Under Peer profile routing the profile owns provider/mode/features; only the
+// per-launch effort (settings.thinkingOptionId) may be overridden by the caller.
+function hasDisallowedProfileSettings(
+  settings: { modeId?: string; features?: Record<string, unknown> } | undefined,
+): boolean {
+  return settings?.modeId !== undefined || settings?.features !== undefined;
+}
+
 function projectLaunchProfileReceipt(profile: LaunchableAgentProfile | undefined): {
   launchProfile?: AgentProfileLaunchReceipt;
 } {
@@ -825,6 +834,34 @@ function hasSupervisorDelegationLease(caller: StoredAgentRecord): boolean {
   return (
     caller.roleBinding?.roleId === "supervisor" &&
     caller.roleBinding.assignmentContract?.envelope.effectClass === "delegation"
+  );
+}
+
+/**
+ * A Human-issued Supervisor delegation carrying an exact lead-workspace grant may
+ * staff its Lead into that existing workspace even though the workspace sits outside
+ * the Supervisor's own control cwd. This is the only sanctioned way the separate-
+ * Supervisor topology reaches the product workspace; every other role-bound child
+ * stays confined to the caller root. The grant is authority, not a filesystem write
+ * grant. The canonical assignment receipt is the source of truth; the envelope
+ * carries the same grant and must not contradict it, so a disagreement fails closed.
+ */
+function isGrantedSupervisorLeadWorkspace(input: {
+  roleBinding: ManagedAgent["roleBinding"];
+  requestedRole: PaseoRoleId | undefined;
+  targetWorkspaceId: string;
+}): boolean {
+  if (input.requestedRole !== "lead") return false;
+  const binding = input.roleBinding;
+  if (binding?.roleId !== "supervisor") return false;
+  const contract = binding.assignmentContract;
+  if (!contract || contract.envelope.effectClass !== "delegation") return false;
+  if (contract.receipt.assigner.kind !== "human-session") return false;
+  const receiptGrant = contract.receipt.resourceGrants?.leadWorkspaceIds ?? [];
+  const envelopeGrant = contract.envelope.resourceGrants?.leadWorkspaceIds ?? [];
+  return (
+    receiptGrant.includes(input.targetWorkspaceId) &&
+    envelopeGrant.includes(input.targetWorkspaceId)
   );
 }
 
@@ -1482,7 +1519,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     requestedProfileId?: string;
     requestedSubrole?: PeerSubrole;
     requestedProvider?: string;
-    hasRequestedSettings: boolean;
+    hasDisallowedSettings: boolean;
   }): LaunchableAgentProfile | undefined => {
     const callerAgent = resolveCallerAgent();
     const isLeadToPeer =
@@ -1521,9 +1558,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         `Peer Agent Profile '${profile.name}' (${profile.id}) has no model and cannot launch a role-bound Peer`,
       );
     }
-    if (input.requestedProvider?.trim() || input.hasRequestedSettings) {
+    if (input.requestedProvider?.trim() || input.hasDisallowedSettings) {
       throw new Error(
-        "When Peer Agent Profile routing is configured, omit provider and settings; launchProfileId supplies the exact runtime preset",
+        "When Peer Agent Profile routing is configured, omit provider, settings.modeId, and settings.features; launchProfileId supplies the runtime preset. Only settings.thinkingOptionId may override the profile effort.",
       );
     }
     return { ...profile, model: profile.model.trim() };
@@ -1549,6 +1586,45 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     if (models.length === 0 || models.some((model) => model.id === input.model)) return;
     throw new Error(
       `Model '${input.model}' is not available for provider '${input.provider}'; call list_models and retry with an exact returned route, or omit provider to inherit the caller route`,
+    );
+  };
+
+  // A Lead may override the profile effort per launch with settings.thinkingOptionId.
+  // An explicit value must be nonempty and a valid option for the actual chosen model,
+  // verified before launch. This fails closed: if the model catalog is unavailable, the
+  // model is absent, or it exposes no effort options, the override is rejected with an
+  // actionable error rather than launched unverified. Omitted effort never reaches here.
+  const assertExplicitPeerEffortValid = async (input: {
+    provider: AgentProvider;
+    model: string | undefined;
+    thinkingOptionId: string;
+  }): Promise<void> => {
+    if (input.thinkingOptionId.trim().length === 0) {
+      throw new Error(
+        "settings.thinkingOptionId cannot be empty; omit it to keep the profile default effort",
+      );
+    }
+    const models = await providerSnapshotManager.listModels({
+      provider: input.provider,
+      wait: true,
+    });
+    const model = models.find((entry) => entry.id === input.model);
+    if (models.length === 0 || !model) {
+      throw new Error(
+        `Cannot validate effort '${input.thinkingOptionId}': provider '${input.provider}' model '${input.model}' is unavailable. Call list_models and retry with an available route, or omit settings.thinkingOptionId to keep the profile default effort.`,
+      );
+    }
+    const thinkingChoices = model.thinkingOptions ?? [];
+    if (thinkingChoices.length === 0) {
+      throw new Error(
+        `Provider '${input.provider}' model '${input.model}' does not support selectable effort options; omit settings.thinkingOptionId to keep the profile default effort.`,
+      );
+    }
+    if (thinkingChoices.some((choice) => choice.id === input.thinkingOptionId)) return;
+    throw new Error(
+      `Effort '${input.thinkingOptionId}' is not a valid thinking option for '${input.provider}/${input.model}'. Valid options: ${thinkingChoices
+        .map((choice) => choice.id)
+        .join(", ")}. Discover options with list_models.`,
     );
   };
 
@@ -1578,7 +1654,16 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         providerEntry.roleBinding?.status === "supported"
           ? providerEntry.roleBinding.injectionMethod
           : fallbackInjectionMethods[input.provider];
-      const enforcedMode = injectionMethod ? noWriteModeForInjectionMethod(injectionMethod) : null;
+      // Reuse the authoritative capability-boundary resolver so the preflight agrees
+      // with the mode the manager will pin (enforceRoleAssignmentCapability): a
+      // Human-configured unattended override keeps supported Claude/Codex routes on
+      // full-access/bypassPermissions (no-write stays behavioral, never a forced
+      // provider read-only), while other transports keep their qualified no-write
+      // fallback. The exposure check preserves the fail-closed guard for routes whose
+      // provider does not surface the required mode.
+      const enforcedMode = injectionMethod
+        ? requiredNoWriteModeForInjectionMethod(injectionMethod)
+        : null;
       if (!enforcedMode) {
         throw new Error(
           `assignment_capability_boundary_required: provider '${input.provider}' has no qualified no-write mode`,
@@ -1589,7 +1674,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           `assignment_capability_boundary_required: provider '${input.provider}' does not expose required no-write mode '${enforcedMode}'`,
         );
       }
-      return { enforcedMode, unattended: false };
+      return { enforcedMode, unattended: runMode === "unattended" };
     }
     if (!runMode) return {};
     const enforcedMode = resolvePeerPolicyMode({
@@ -1618,6 +1703,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     requestedCwd?: string;
     assignmentNoWrite?: boolean;
     launchProfile?: LaunchableAgentProfile;
+    explicitThinkingOptionId?: string;
   }): Promise<{
     providerRoute: string;
     provider: AgentProvider;
@@ -1653,6 +1739,15 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       model: resolved.model,
       requestedRole: input.requestedRole,
     });
+    // Validate a Lead's per-launch effort override against the resolved Peer profile
+    // model. The profile's own default effort is trusted and left unchecked.
+    if (input.launchProfile && input.explicitThinkingOptionId !== undefined) {
+      await assertExplicitPeerEffortValid({
+        provider: resolved.provider,
+        model: resolved.model,
+        thinkingOptionId: input.explicitThinkingOptionId,
+      });
+    }
     const modeEnforcement = await resolvePeerModeEnforcement({
       provider: resolved.provider,
       requestedRole: input.requestedRole,
@@ -1869,7 +1964,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   const CreateAgentSettingsInputSchema = z
     .object({
       modeId: z.string().optional().describe("Session mode to configure before the first run."),
-      thinkingOptionId: z.string().optional().describe("Thinking option ID."),
+      thinkingOptionId: z
+        .string()
+        .optional()
+        .describe(
+          "Thinking effort option ID. Under Peer profile routing this is the only setting that may override the profile; omit it to keep the profile default. Call list_models for the chosen model's valid options.",
+        ),
       features: z
         .record(z.string(), z.unknown())
         .optional()
@@ -2015,7 +2115,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     ),
     labels: z.record(z.string(), z.string()).optional().describe("Labels to set on the agent"),
     settings: CreateAgentSettingsInputSchema.optional().describe(
-      "Initial runtime settings for the new agent.",
+      "Initial runtime settings for the new agent. Under Peer profile routing only settings.thinkingOptionId is honored (the profile supplies mode and features).",
     ),
     initialPrompt: z
       .string()
@@ -2039,7 +2139,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       .min(1)
       .optional()
       .describe(
-        "Existing workspace id. Agent-scoped calls default to the caller workspace; top-level calls create a new local workspace when omitted.",
+        "Existing workspace id. Agent-scoped calls default to the caller workspace; top-level calls create a new local workspace when omitted. A role-bound child must resolve inside the caller root, except a Human-issued Supervisor delegation may pass an exact granted workspace id (resourceGrants.leadWorkspaceIds) to staff its Lead into that existing workspace even when it is outside the Supervisor root.",
       ),
   };
   const agentToAgentInputSchema = {
@@ -2063,7 +2163,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       .min(1)
       .optional()
       .describe(
-        "Directory for the child workspace. It must be the caller cwd or a descendant; omit it to use the caller workspace.",
+        "Directory for the child. A relative path resolves against the caller cwd; an absolute path is used as given. A role-bound caller's child is confined to its role root. Omit it to use the caller workspace.",
       ),
     notifyOnFinish: z
       .boolean()
@@ -2770,7 +2870,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     {
       title: "Create agent",
       description:
-        "Create an agent. A role-bound Lead creating a Peer can pass an exact Human-approved launchProfileId, or omit it to use the Human-configured default Peer subrole and provider priority. Omit provider/settings when profile routing is configured because the resolved profile supplies them. Other agent-scoped creation can inherit the caller route. Top-level creation requires provider/model. An initial prompt is always required.",
+        "Create an agent. A role-bound Lead creating a Peer can pass an exact Human-approved launchProfileId, or omit it to use the Human-configured default Peer subrole and provider priority. When profile routing is configured, omit provider, settings.modeId, and settings.features because the resolved profile supplies them; you may still pass settings.thinkingOptionId to override the effort for this launch (call list_models for the chosen model's valid options). Other agent-scoped creation can inherit the caller route. A Human-issued Supervisor delegation may create its Lead in an exact granted existing workspace (resourceGrants.leadWorkspaceIds) outside the Supervisor root by passing that workspaceId; every other role-bound child stays inside the caller root. Top-level creation requires provider/model. An initial prompt is always required.",
       inputSchema: createAgentInputSchema,
       outputSchema: {
         agentId: z.string(),
@@ -2779,6 +2879,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         cwd: z.string(),
         workspaceId: z.string().optional(),
         currentModeId: z.string().nullable(),
+        effectiveThinkingOptionId: z.string().nullable().optional(),
         availableModes: z.array(ProviderModeSchema),
         roleBinding: RoleBindingReceiptSchema.optional(),
         launchContract: LaunchContractReceiptSchema.optional(),
@@ -2830,6 +2931,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           requestedMode: launchSettings.requestedMode,
           requestedCwd: resolvedArgs.cwd,
           launchProfile,
+          ...(launchSettings.callerThinkingOptionId !== undefined
+            ? { explicitThinkingOptionId: launchSettings.callerThinkingOptionId }
+            : {}),
           assignmentNoWrite: isNoWritePeerAssignment(parsedArgs),
         });
         const inheritedConfig = resolveInheritedProviderConfig(selectedProvider);
@@ -2900,6 +3004,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
               cwd: liveSnapshot.cwd,
               ...(liveSnapshot.workspaceId ? { workspaceId: liveSnapshot.workspaceId } : {}),
               currentModeId: liveSnapshot.currentModeId,
+              effectiveThinkingOptionId: resolveCreatedEffectiveEffort(snapshot.id),
               availableModes: liveSnapshot.availableModes,
               ...projectFoundationLaunchReceipts(liveSnapshot, {
                 includeExecutionProfile: canCreateExecutionProfile,
@@ -2936,6 +3041,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
             cwd: currentSnapshot.cwd,
             ...(currentSnapshot.workspaceId ? { workspaceId: currentSnapshot.workspaceId } : {}),
             currentModeId: currentSnapshot.currentModeId,
+            effectiveThinkingOptionId: resolveCreatedEffectiveEffort(snapshot.id),
             availableModes: currentSnapshot.availableModes,
             ...projectFoundationLaunchReceipts(currentSnapshot, {
               includeExecutionProfile: canCreateExecutionProfile,
@@ -3029,6 +3135,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     requestedProvider?: string;
     requestedMode?: string;
     thinkingOptionId?: string;
+    callerThinkingOptionId?: string;
     featureValues?: Record<string, unknown>;
   } {
     const { parsedArgs } = resolvedArgs;
@@ -3047,18 +3154,36 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
                   })
                 : undefined,
             requestedProvider: parsedArgs.provider,
-            hasRequestedSettings: parsedArgs.settings !== undefined,
+            hasDisallowedSettings: hasDisallowedProfileSettings(parsedArgs.settings),
           })
         : undefined;
+    const callerThinkingOptionId = parsedArgs.settings?.thinkingOptionId;
     return {
       ...(launchProfile ? { launchProfile } : {}),
       requestedProvider: launchProfile
         ? `${launchProfile.provider}/${launchProfile.model}`
         : parsedArgs.provider,
       requestedMode: launchProfile?.modeId ?? parsedArgs.settings?.modeId,
-      thinkingOptionId: launchProfile?.thinkingOptionId ?? parsedArgs.settings?.thinkingOptionId,
+      // A caller-supplied effort overrides the profile default; when omitted the
+      // profile default effort is retained.
+      thinkingOptionId: callerThinkingOptionId ?? launchProfile?.thinkingOptionId,
+      ...(callerThinkingOptionId !== undefined ? { callerThinkingOptionId } : {}),
       featureValues: launchProfile?.featureValues ?? parsedArgs.settings?.features,
     };
+  }
+
+  // Effective effort for the create receipt, read from the live agent record only.
+  // Mirrors the snapshot projection: report the runtime-observed effort when the
+  // provider has reported one, otherwise the configured effort. It never reports a
+  // requested-but-unapplied value as if the runtime had observed it; if the record
+  // is not resolvable, the honest answer is null (nothing observed or configured).
+  function resolveCreatedEffectiveEffort(agentId: string): string | null {
+    const managed = agentManager.getAgent(agentId);
+    if (!managed) return null;
+    return resolveEffectiveThinkingOptionId({
+      runtimeInfo: managed.runtimeInfo,
+      configuredThinkingOptionId: managed.config?.thinkingOptionId ?? null,
+    });
   }
 
   async function resolveCreateAgentToolArgs(args: unknown): Promise<ResolvedCreateAgentToolArgs> {
@@ -3077,6 +3202,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
             title: parsed.title,
             prompt: parsed.initialPrompt,
           });
+        // The legacy placement shim is not a sanctioned route to an outside workspace:
+        // a role-bound child stays confined to the caller root here, with no lead-
+        // workspace grant exception. The canonical workspaceId form is the only path
+        // that honors a Human-issued Supervisor cross-workspace grant.
+        assertRoleBoundChildCwdWithinCallerRoot(cwd);
         return {
           kind: "agent-scoped",
           parsedArgs: parsed,
@@ -3098,6 +3228,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           parsed.workspaceId,
           { title: parsed.title, prompt: parsed.initialPrompt },
           parsed.cwd,
+          parsed.role,
         );
       return {
         kind: "agent-scoped",
@@ -3173,6 +3304,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     workspaceId?: string,
     firstAgentContext?: FirstAgentContext,
     requestedCwd?: string,
+    requestedRole?: PaseoRoleId,
   ): Promise<{
     cwd: string | undefined;
     workspaceId: string;
@@ -3186,7 +3318,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         { kind: "existing", workspaceId },
         undefined,
       );
-      assertRoleBoundChildCwdWithinCallerRoot(resolved.cwd);
+      // A canonical explicit existing workspaceId may resolve outside the caller root
+      // only under a Human-issued Supervisor lead-workspace grant naming this exact id.
+      assertRoleBoundChildCwdWithinCallerRoot(resolved.cwd, {
+        requestedRole,
+        targetWorkspaceId: workspaceId,
+      });
       return { cwd: resolved.cwd, workspaceId, createdDirectoryWorkspaceId: undefined };
     }
     if (requestedCwd) {
@@ -3231,15 +3368,30 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     };
   }
 
-  function assertRoleBoundChildCwdWithinCallerRoot(cwd: string | undefined): void {
+  function assertRoleBoundChildCwdWithinCallerRoot(
+    cwd: string | undefined,
+    leadWorkspaceException?: { requestedRole: PaseoRoleId | undefined; targetWorkspaceId: string },
+  ): void {
     if (!callerAgentId || !cwd) return;
     const caller = resolveCallerAgent();
     if (!caller?.roleBinding) return;
-    if (!isSameOrDescendantPath(caller.cwd, cwd)) {
-      throw new Error(
-        `Child workspace '${cwd}' is outside the role-bound caller cwd '${caller.cwd}'`,
-      );
+    if (isSameOrDescendantPath(caller.cwd, cwd)) return;
+    // Outside the caller root: allowed only under an exact Human-issued Supervisor
+    // lead-workspace delegation grant that names this existing workspace. The grant
+    // never applies to a raw requestedCwd — only to a canonical registered workspaceId.
+    if (
+      leadWorkspaceException &&
+      isGrantedSupervisorLeadWorkspace({
+        roleBinding: caller.roleBinding,
+        requestedRole: leadWorkspaceException.requestedRole,
+        targetWorkspaceId: leadWorkspaceException.targetWorkspaceId,
+      })
+    ) {
+      return;
     }
+    throw new Error(
+      `Child workspace '${cwd}' is outside the role-bound caller cwd '${caller.cwd}'`,
+    );
   }
 
   function normalizeTopLevelCreateAgentArgs(

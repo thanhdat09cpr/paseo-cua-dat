@@ -33,6 +33,9 @@ const OUTPUT_DIR = path.join(ARTIFACTS_ROOT, BUNDLE_NAME);
 const OUTPUT_ARCHIVE = path.join(ARTIFACTS_ROOT, `${BUNDLE_NAME}${ARCHIVE_EXTENSION}`);
 const OUTPUT_CHECKSUM = `${OUTPUT_ARCHIVE}.sha256`;
 const BEADS_CENTRAL_VERSION = "1.2.0";
+const BEADS_CENTRAL_LOCK = JSON.parse(
+  readFileSync(path.join(REPO_ROOT, "components", "beads-central.lock.json"), "utf8"),
+);
 const CAPTURE_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const INTERNAL_PACKAGES = [
   "@getpaseo/highlight",
@@ -219,6 +222,55 @@ function copyNodeRuntime(nodeRoot) {
 
 function buildBeadsCentralComponent() {
   const output = path.join(STAGING_ROOT, "components", "beads-central");
+  const reusableRoot = Reflect.get(process, "env")["PASEO_BEADS_CENTRAL_COMPONENT_ROOT"]?.trim();
+  if (reusableRoot) {
+    const source = realpathSync(reusableRoot);
+    const manifestPath = path.join(source, "component-manifest.json");
+    if (!existsSync(manifestPath))
+      fail(`Reusable Beads Central manifest is missing: ${manifestPath}`);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const expected = {
+      schemaVersion: 1,
+      component: "beads-central",
+      version: BEADS_CENTRAL_VERSION,
+      sourceCommit: BEADS_CENTRAL_LOCK.sourceCommit,
+      centralSourceSha256: BEADS_CENTRAL_LOCK.centralSourceSha256,
+      platform: PLATFORM,
+      arch: ARCH,
+      pyinstallerVersion: BEADS_CENTRAL_LOCK.pyinstallerVersion,
+      beadsVersion: BEADS_CENTRAL_LOCK.beadsVersion,
+      beadsSourceSha256: BEADS_CENTRAL_LOCK.beadsSourceSha256,
+    };
+    for (const [key, value] of Object.entries(expected)) {
+      if (manifest[key] !== value) {
+        fail(
+          `Reusable Beads Central ${key} mismatch: expected ${value}, received ${manifest[key]}`,
+        );
+      }
+    }
+    const sidecar = path.join(source, PLATFORM === "win32" ? "beads-central.exe" : "beads-central");
+    const beads = path.join(source, "bin", PLATFORM === "win32" ? "bd.exe" : "bd");
+    if (!existsSync(sidecar) || !existsSync(beads)) {
+      fail("Reusable Beads Central component is missing its executables");
+    }
+    if (
+      sha256(sidecar) !== manifest.sidecarBinarySha256 ||
+      sha256(beads) !== manifest.beadsBinarySha256
+    ) {
+      fail("Reusable Beads Central executable checksum mismatch");
+    }
+    const beadsRuntime = run(beads, ["version"], { capture: true });
+    if (beadsRuntime !== manifest.beadsRuntime) {
+      fail(
+        `Reusable Beads runtime mismatch: expected ${manifest.beadsRuntime}, received ${beadsRuntime}`,
+      );
+    }
+    cpSync(source, output, { recursive: true, verbatimSymlinks: true });
+    process.stdout.write(
+      `Reused verified Beads Central ${manifest.version} component from ${source}\n`,
+    );
+    return;
+  }
   run(process.execPath, [
     path.join(REPO_ROOT, "scripts", "build-beads-central-sidecar.mjs"),
     "--output",

@@ -37,6 +37,43 @@ describe("CLI assignment issue grants", () => {
   });
 });
 
+describe("CLI supervisor notebook and lead-workspace construction", () => {
+  it("resolves a Supervisor delegation write scope to the exact notebook file", () => {
+    expect(
+      buildCliAssignment({
+        roleId: "supervisor",
+        effectClass: "delegation",
+        objective: "Coordinate Leads and keep the notebook",
+        cwd: "/repo",
+        writeScope: "SUPERVISOR_NOTEBOOK.md",
+      }).mutationBoundary,
+    ).toEqual({ mode: "bounded-write", scope: "/repo/SUPERVISOR_NOTEBOOK.md" });
+  });
+
+  it("keeps a Supervisor delegation no-write without an explicit write scope", () => {
+    expect(
+      buildCliAssignment({
+        roleId: "supervisor",
+        effectClass: "delegation",
+        objective: "Coordinate Leads only",
+        cwd: "/repo",
+      }).mutationBoundary,
+    ).toEqual({ mode: "no-write" });
+  });
+
+  it("carries exact lead-workspace grants on a Supervisor delegation", () => {
+    expect(
+      buildCliAssignment({
+        roleId: "supervisor",
+        effectClass: "delegation",
+        objective: "Staff a product Lead into the product workspace",
+        cwd: "/repo",
+        leadWorkspaceIds: [" wks_4d70c7554d658f5d ", "wks_4d70c7554d658f5d"],
+      }).resourceGrants,
+    ).toEqual({ leadWorkspaceIds: ["wks_4d70c7554d658f5d"] });
+  });
+});
+
 describe("existing run workspace resolution", () => {
   it("queries the daemon for an exact workspace id and uses its directory", async () => {
     const fetchWorkspaces = vi.fn().mockResolvedValue({
@@ -160,6 +197,35 @@ describe("runRunCommand option validation", () => {
     await expectInvalidOptions(
       { role: "lead", assignmentEffect: "read-only", beadsIssue: ["ps123-abc"] },
       /--beads-issue is only valid with --role peer/,
+    );
+  });
+
+  it("rejects a delegation write scope for a non-Supervisor role", async () => {
+    await expectInvalidOptions(
+      { role: "lead", assignmentEffect: "delegation", writeScope: "SUPERVISOR_NOTEBOOK.md" },
+      /--write-scope is not allowed for delegation/,
+    );
+  });
+
+  it("allows a Supervisor delegation notebook write scope through validation", async () => {
+    await expect(
+      runRunCommand(
+        "coordinate leads",
+        {
+          role: "supervisor",
+          assignmentEffect: "delegation",
+          writeScope: "SUPERVISOR_NOTEBOOK.md",
+          provider: undefined,
+        },
+        {} as never,
+      ),
+    ).rejects.not.toMatchObject({ code: "INVALID_OPTIONS" });
+  });
+
+  it("rejects lead-workspace grants outside a Supervisor delegation", async () => {
+    await expectInvalidOptions(
+      { role: "lead", assignmentEffect: "mutating", leadWorkspace: ["wks_x"] },
+      /--lead-workspace is only valid with --role supervisor --assignment-effect delegation/,
     );
   });
 });

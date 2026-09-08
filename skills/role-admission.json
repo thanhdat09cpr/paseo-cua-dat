@@ -9,21 +9,29 @@
     },
     "slp-dual-review": {
       "provenance": "PASEO_DERIVATIVE"
+    },
+    "slp-workspace-protocol": {
+      "provenance": "PASEO_DERIVATIVE"
     }
   },
   "roles": {
     "lead": {
       "active": ["council", "slp-blind-design", "slp-dual-review"],
       "explicitOnly": [],
-      "packagedDisabled": []
+      "packagedDisabled": ["slp-workspace-protocol"]
     },
     "peer": {
       "active": [],
       "explicitOnly": [],
-      "packagedDisabled": ["council", "slp-blind-design", "slp-dual-review"]
+      "packagedDisabled": [
+        "council",
+        "slp-blind-design",
+        "slp-dual-review",
+        "slp-workspace-protocol"
+      ]
     },
     "supervisor": {
-      "active": [],
+      "active": ["slp-workspace-protocol"],
       "explicitOnly": [],
       "packagedDisabled": ["council", "slp-blind-design", "slp-dual-review"]
     }

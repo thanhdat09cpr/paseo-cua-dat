@@ -8,15 +8,16 @@ không phải role, provider, tool permission hoặc authority lease.
 
 Các package dưới [`skills/`](../skills/) phục vụ client hoặc coding agent đang điều khiển Paseo:
 
-| Skill              | Dùng khi                                                                  |
-| ------------------ | ------------------------------------------------------------------------- |
-| `paseo`            | Quản lý workspace, agent, script, provider, schedule và heartbeat         |
-| `paseo-advisor`    | Lấy một second opinion mà không giao ownership của task                   |
-| `paseo-committee`  | Dùng hai advisor cho hard planning/root-cause question                    |
-| `council`          | Lead chạy sealed evidence review và tự ra binding verdict, không vote     |
-| `slp-blind-design` | Lead điều phối hai hoặc ba thiết kế độc lập rồi hội tụ bằng evidence      |
-| `slp-dual-review`  | Lead điều phối hai review độc lập cùng candidate và phân xử từng finding  |
-| `paseo-handoff`    | Chuẩn bị briefing và launch receiving agent; không transfer SLP authority |
+| Skill                    | Dùng khi                                                                  |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `paseo`                  | Quản lý workspace, agent, script, provider, schedule và heartbeat         |
+| `paseo-advisor`          | Lấy một second opinion mà không giao ownership của task                   |
+| `paseo-committee`        | Dùng hai advisor cho hard planning/root-cause question                    |
+| `council`                | Lead chạy sealed evidence review và tự ra binding verdict, không vote     |
+| `slp-blind-design`       | Lead điều phối hai hoặc ba thiết kế độc lập rồi hội tụ bằng evidence      |
+| `slp-dual-review`        | Lead điều phối hai review độc lập cùng candidate và phân xử từng finding  |
+| `slp-workspace-protocol` | Supervisor phỏng vấn Human rồi soạn/review Workspace Protocol của project |
+| `paseo-handoff`          | Chuẩn bị briefing và launch receiving agent; không transfer SLP authority |
 
 Đây là product capabilities. Việc một package được install hoặc visible không cho agent quyền tạo
 workspace, launch agent, mutate repository hoặc accept engineering. Current role, exact lease và exposed
@@ -25,7 +26,9 @@ tool catalog vẫn quyết định action hợp lệ.
 Product package không đồng nghĩa với global package. Canonical admission cho product skill nhạy role nằm
 tại [`skills/role-admission.json`](../skills/role-admission.json). `council`, `slp-blind-design` và
 `slp-dual-review` được admit `active` cho Lead và
-`packaged-disabled` cho Peer/Supervisor. Daemon-owned host controller loại các package trong manifest này khỏi
+`packaged-disabled` cho Peer/Supervisor. `slp-workspace-protocol` ngược lại: `active` cho Supervisor và
+`packaged-disabled` cho Lead/Peer, vì đây là method soạn Workspace Protocol thuộc attention của Supervisor.
+Daemon-owned host controller loại các package trong manifest này khỏi
 catalog selectable, nhưng vẫn quản lý tên của chúng để phát hiện và gỡ bản global cũ. Daemon bundle exact
 bytes rồi project vào từng role-bound session, nên một Lead có thể gọi Council trong bất kỳ workspace nào
 mà không phụ thuộc `~/.agents/skills`, `~/.claude/skills` hay `~/.codex/skills`.

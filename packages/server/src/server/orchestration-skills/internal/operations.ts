@@ -52,6 +52,7 @@ const KNOWN_ROLE_SCOPED_SKILL_NAMES = [
   "beads-issue-tracker",
   "slp-blind-design",
   "slp-dual-review",
+  "slp-workspace-protocol",
 ] as const;
 
 type SkillFiles = Map<string, string>;

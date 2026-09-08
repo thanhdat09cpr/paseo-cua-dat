@@ -1,3 +1,4 @@
+import { SemanticAttentionProjectStore } from "./policy/bundled/slp/semantic-attention-project-store.js";
 import express from "express";
 import { createServer as createHTTPServer } from "http";
 import { constants, existsSync, unlinkSync } from "fs";
@@ -158,6 +159,8 @@ import {
   type CoordinationSignalDependencies,
 } from "./agent/coordination-signals.js";
 import { startEventPolicyRuntime } from "./agent/event-policy-runtime.js";
+import { SemanticAttentionClassifierConfigSchema } from "./policy/bundled/slp/semantic-attention-contract.js";
+import { SemanticAttentionAgyRunner } from "./policy/bundled/slp/semantic-attention-agy-runner.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -433,6 +436,7 @@ export interface PaseoDaemonConfig {
   mcpEnabled?: boolean;
   mcpInjectIntoAgents?: boolean;
   browserToolsEnabled?: boolean;
+  slpAttentionClassifier?: import("./policy/bundled/slp/semantic-attention-contract.js").SemanticAttentionClassifierConfig;
   beadsCentral?: {
     endpoint: string;
     credentialRef: string;
@@ -1569,17 +1573,31 @@ export async function createPaseoDaemon(
     sendAtSafeBoundary: sendCoordinationMessageAtSafeBoundary,
     logger,
   };
+  const semanticAttentionClassifier = new SemanticAttentionAgyRunner(
+    SemanticAttentionClassifierConfigSchema.parse(config.slpAttentionClassifier ?? {}),
+    logger.child({ module: "slp-semantic-attention" }),
+  );
   const eventPolicyRuntime = startEventPolicyRuntime({
     dependencies: {
       ...coordinationSignalDependencies,
       agentManager,
       agentStorage,
+      semanticAttentionClassifier,
+      semanticAttentionProjectStore: new SemanticAttentionProjectStore(
+        path.join(config.paseoHome, "attention", "projects.json"),
+      ),
+      resolveProjectIdForWorkspace: async (workspaceId) =>
+        (await workspaceRegistry.get(workspaceId))?.projectId ?? null,
     },
     advertisedPolicies: agentManager.listActiveBundledEventPolicies(),
     resolvePolicies: (agentId) => agentManager.resolveBundledEventPoliciesForAgent(agentId),
   });
   logger.info(
-    { enabledPolicies: eventPolicyRuntime.enabledPolicies, maturity: "candidate" },
+    {
+      enabledPolicies: eventPolicyRuntime.enabledPolicies,
+      semanticClassifierMode: semanticAttentionClassifier.mode,
+      maturity: "candidate",
+    },
     "Bundled agent event policy boundary resolved",
   );
   const stopPendingCoordinationSignalDeliveries = await resumePendingCoordinationSignalDeliveries({

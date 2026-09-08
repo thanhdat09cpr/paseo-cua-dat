@@ -12,15 +12,22 @@ import {
 import type {
   AgentEventPolicy,
   AgentEventPolicyProcessor,
+  EventPolicySemanticAttentionClassifier,
   EventPolicyRuntimeDependencies,
 } from "../../../agent/event-policy-runtime.js";
+import {
+  opaqueAttentionRef,
+  SemanticAttentionPacketSchema,
+  type SemanticAttentionDecision,
+  type SemanticAttentionPacket,
+} from "./semantic-attention-contract.js";
 
 export const SLP_ATTENTION_POLICY_ID = "slp.attention";
-export const SLP_ATTENTION_POLICY_VERSION = "5";
-export const SLP_ATTENTION_STATE_VERSION = 5;
+export const SLP_ATTENTION_POLICY_VERSION = "6";
+export const SLP_ATTENTION_STATE_VERSION = 6;
 export const SLP_ATTENTION_DISABLE_FLAG = "PASEO_DISABLE_SLP_ATTENTION_POLICY";
 
-const CONTEXT_PRESSURE_RATIO = 0.85;
+const CONTEXT_PRESSURE_RATIO = 0.6;
 const FAILURE_ATTENTION_THRESHOLD = 3;
 const MAX_SEMANTIC_BUFFER_CHARACTERS = 2_000;
 
@@ -101,6 +108,47 @@ function findLeadForPeer(
   return findUniqueRoleAgent(dependencies, peer.workspaceId, "lead");
 }
 
+function findDirectParentRoleAgent(
+  dependencies: EventPolicyRuntimeDependencies,
+  child: ManagedAgent,
+  roleId: "lead" | "supervisor",
+): ManagedAgent | null {
+  const parentId = getParentAgentIdFromLabels(child.labels);
+  if (!parentId) return null;
+  const parent = dependencies.agentManager.getAgent(parentId);
+  if (!parent || parent.lifecycle === "closed" || parent.roleBinding?.roleId !== roleId) {
+    return null;
+  }
+  return parent;
+}
+
+/**
+ * Resolve Supervisor from the delegated SLP topology. The Supervisor may live in
+ * a separate Control Workspace, so workspace equality is intentionally not an
+ * authority signal. Parent labels are minted by the daemon at delegation time.
+ */
+function findSupervisorForAgent(
+  dependencies: EventPolicyRuntimeDependencies,
+  agent: ManagedAgent,
+): ManagedAgent | null {
+  if (agent.roleBinding?.roleId === "lead") {
+    return (
+      findDirectParentRoleAgent(dependencies, agent, "supervisor") ??
+      findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor")
+    );
+  }
+  if (agent.roleBinding?.roleId === "peer") {
+    const lead = findDirectParentRoleAgent(dependencies, agent, "lead");
+    if (lead) {
+      return (
+        findDirectParentRoleAgent(dependencies, lead, "supervisor") ??
+        findUniqueRoleAgent(dependencies, lead.workspaceId, "supervisor")
+      );
+    }
+  }
+  return findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor");
+}
+
 interface FailureRoute {
   target: ManagedAgent | null;
   recipientRole: "lead" | "supervisor";
@@ -125,7 +173,7 @@ function resolveFailureRoute(
   }
   if (agent.roleBinding?.roleId === "lead") {
     return {
-      target: findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor"),
+      target: findSupervisorForAgent(dependencies, agent),
       recipientRole: "supervisor",
       severity: "critical",
       ruleId: "lead_repeated_failure",
@@ -394,59 +442,446 @@ function appendVisibleAssistantText(previous: string, next: string): string {
   return combined.slice(-MAX_SEMANTIC_BUFFER_CHARACTERS);
 }
 
+interface SemanticAttentionDispatch {
+  agent: ManagedAgent;
+  sourceRole: "lead" | "peer";
+  sourceWorkspaceId: string | undefined;
+  sourceBindingDigest: string;
+  sourcePolicyOwner: string | null;
+  supervisorId: string;
+  supervisorWorkspaceId: string | undefined;
+  supervisorBindingDigest: string;
+  topologyFingerprint: string;
+  turnEpoch: number;
+  friction: SemanticFrictionMatch;
+  turnId: string;
+  evidenceRef: string;
+  projectRef: string;
+  coalescingKey: string;
+  owner: EventPolicyStateOwner;
+  packet: SemanticAttentionPacket;
+}
+
+function policyOwnerIdentity(agent: ManagedAgent): string | null {
+  const owner = agent.roleBinding?.policyOwner;
+  if (!owner) return null;
+  return owner.kind === "plugin"
+    ? `${owner.pluginId}@${owner.generationDigest}:${owner.policyVersion}`
+    : owner.kind;
+}
+
+function semanticTopologyFingerprint(
+  dependencies: EventPolicyRuntimeDependencies,
+  agent: ManagedAgent,
+  supervisor: ManagedAgent,
+): string {
+  const sourceParentId = getParentAgentIdFromLabels(agent.labels);
+  const leadParentId =
+    agent.roleBinding?.roleId === "peer" && sourceParentId
+      ? getParentAgentIdFromLabels(dependencies.agentManager.getAgent(sourceParentId)?.labels)
+      : null;
+  return opaqueAttentionRef(
+    `${agent.id}\u0000${sourceParentId ?? ""}\u0000${leadParentId ?? ""}\u0000${supervisor.id}`,
+  );
+}
+
+async function semanticProjectScope(
+  dependencies: EventPolicyRuntimeDependencies,
+  agent: ManagedAgent,
+): Promise<{ projectRef: string; scopeId: string }> {
+  const projectId = agent.workspaceId
+    ? await dependencies.resolveProjectIdForWorkspace?.(agent.workspaceId)
+    : null;
+  const scopeId = projectId ?? agent.workspaceId ?? `agent:${agent.id}`;
+  return { projectRef: opaqueAttentionRef(scopeId), scopeId };
+}
+
+function visibleSemanticAssistantMessage(
+  agent: ManagedAgent,
+  event: Extract<AgentManagerEvent, { type: "agent_stream" }>,
+): { sourceRole: "lead" | "peer"; text: string; turnId: string } | null {
+  const sourceRole = agent.roleBinding?.roleId;
+  if (
+    (sourceRole !== "lead" && sourceRole !== "peer") ||
+    event.event.type !== "timeline" ||
+    event.event.item.type !== "assistant_message"
+  ) {
+    return null;
+  }
+  return {
+    sourceRole,
+    text: event.event.item.text,
+    turnId: event.event.turnId ?? agent.activeTurnId ?? "unknown-turn",
+  };
+}
+
+async function buildSemanticAttentionDispatch(
+  dependencies: EventPolicyRuntimeDependencies,
+  agent: ManagedAgent,
+  supervisor: ManagedAgent,
+  sourceRole: "lead" | "peer",
+  friction: SemanticFrictionMatch,
+  turnId: string,
+  turnEpoch: number,
+  owner: EventPolicyStateOwner,
+): Promise<SemanticAttentionDispatch> {
+  const sourceWorkspaceId = agent.workspaceId;
+  const sourceBindingDigest = agent.roleBinding?.bindingDigest ?? "";
+  const sourcePolicyOwner = policyOwnerIdentity(agent);
+  const supervisorWorkspaceId = supervisor.workspaceId;
+  const supervisorBindingDigest = supervisor.roleBinding?.bindingDigest ?? "";
+  const topologyFingerprint = semanticTopologyFingerprint(dependencies, agent, supervisor);
+  const { projectRef, scopeId } = await semanticProjectScope(dependencies, agent);
+  const evidenceRef = opaqueAttentionRef(
+    `${scopeId}\u0000${agent.id}\u0000${turnId}\u0000${friction.fingerprint}`,
+  );
+  const packet = SemanticAttentionPacketSchema.parse({
+    version: 1,
+    projectRef,
+    sourceRole,
+    eventKind: "semantic_friction",
+    deterministicRule: friction.ruleId,
+    excerpt: friction.excerpt,
+    priorAggregateCount:
+      dependencies.semanticAttentionProjectStore?.getCount(
+        owner.stateNamespace,
+        projectRef,
+        friction.ruleId,
+      ) ?? 0,
+    evidenceRefs: [evidenceRef],
+  });
+  return {
+    agent,
+    sourceRole,
+    sourceWorkspaceId,
+    sourceBindingDigest,
+    sourcePolicyOwner,
+    supervisorId: supervisor.id,
+    supervisorWorkspaceId,
+    supervisorBindingDigest,
+    topologyFingerprint,
+    turnEpoch,
+    friction,
+    turnId,
+    evidenceRef,
+    projectRef,
+    coalescingKey: `semantic_friction:${packet.projectRef}:${turnId}:${friction.fingerprint}`,
+    owner,
+    packet,
+  };
+}
+
+async function resolveCurrentSemanticDispatch(
+  dependencies: EventPolicyRuntimeDependencies,
+  dispatch: SemanticAttentionDispatch,
+  isCurrentTurn: () => boolean,
+): Promise<ManagedAgent | null> {
+  const resolveCurrentRoute = (): { agent: ManagedAgent; supervisor: ManagedAgent } | null => {
+    if (!isCurrentTurn()) return null;
+    const agent = dependencies.agentManager.getAgent(dispatch.agent.id);
+    if (
+      !agent ||
+      agent.lifecycle === "closed" ||
+      agent.workspaceId !== dispatch.sourceWorkspaceId ||
+      agent.roleBinding?.roleId !== dispatch.sourceRole ||
+      agent.roleBinding.bindingDigest !== dispatch.sourceBindingDigest ||
+      policyOwnerIdentity(agent) !== dispatch.sourcePolicyOwner ||
+      (agent.activeTurnId !== null && agent.activeTurnId !== dispatch.turnId)
+    ) {
+      return null;
+    }
+    const supervisor = findSupervisorForAgent(dependencies, agent);
+    if (
+      !supervisor ||
+      supervisor.id !== dispatch.supervisorId ||
+      supervisor.workspaceId !== dispatch.supervisorWorkspaceId ||
+      supervisor.roleBinding?.bindingDigest !== dispatch.supervisorBindingDigest ||
+      semanticTopologyFingerprint(dependencies, agent, supervisor) !== dispatch.topologyFingerprint
+    ) {
+      return null;
+    }
+    return { agent, supervisor };
+  };
+
+  const beforeProjectLookup = resolveCurrentRoute();
+  if (!beforeProjectLookup) return null;
+  let currentProjectRef: string;
+  try {
+    currentProjectRef = (await semanticProjectScope(dependencies, beforeProjectLookup.agent))
+      .projectRef;
+  } catch {
+    return null;
+  }
+  if (currentProjectRef !== dispatch.projectRef) return null;
+  return resolveCurrentRoute()?.supervisor ?? null;
+}
+
+async function sendSemanticAttentionSignal(
+  dependencies: EventPolicyRuntimeDependencies,
+  dispatch: SemanticAttentionDispatch,
+  supervisor: ManagedAgent,
+  semanticDecision?: SemanticAttentionDecision,
+  classifierFallback?: string,
+): Promise<void> {
+  await requestCoordinationSignal(dependencies, {
+    targetAgentId: supervisor.id,
+    requestedByAgentId: null,
+    kind: "continuity_attention",
+    customEvent: "slp.semantic_friction",
+    severity: semanticDecision?.risk === "high" ? "critical" : "warning",
+    recipientRole: "supervisor",
+    source: {
+      kind: "paseo",
+      ruleId: `semantic_friction:${dispatch.friction.ruleId}`,
+      version: SLP_ATTENTION_STATE_VERSION,
+    },
+    coalescingKey: dispatch.coalescingKey,
+    reason: semanticDecision
+      ? "A bounded semantic classifier confirmed a Supervisor review candidate."
+      : "Model-visible working-stream output matched a bundled SLP friction rule.",
+    relatedAgentId: dispatch.agent.id,
+    evidence: {
+      sourceAgentRole: dispatch.sourceRole,
+      classifierRule: dispatch.friction.ruleId,
+      semanticFingerprint: dispatch.friction.fingerprint,
+      excerpt: dispatch.friction.excerpt,
+      turnId: dispatch.turnId,
+      projectRef: dispatch.projectRef,
+      evidenceRef: dispatch.evidenceRef,
+      ...(semanticDecision
+        ? {
+            semanticDecision: semanticDecision.decision,
+            semanticRisk: semanticDecision.risk,
+            semanticConfidence: semanticDecision.confidence,
+            semanticReason: semanticDecision.reason,
+          }
+        : {}),
+      ...(classifierFallback ? { classifierFallback } : {}),
+    },
+  });
+}
+
+function updateSemanticAttentionAggregate(
+  dependencies: EventPolicyRuntimeDependencies,
+  dispatch: SemanticAttentionDispatch,
+  decision: SemanticAttentionDecision,
+): void {
+  dependencies.semanticAttentionProjectStore?.update(
+    dispatch.owner.stateNamespace,
+    dispatch.projectRef,
+    dispatch.friction.ruleId,
+    dispatch.evidenceRef,
+    dispatch.friction.fingerprint,
+    decision,
+  );
+}
+
+function semanticAttentionIsCoolingDown(
+  dependencies: EventPolicyRuntimeDependencies,
+  dispatch: SemanticAttentionDispatch,
+): boolean {
+  const coolingDown =
+    dependencies.semanticAttentionProjectStore?.isCoolingDown(
+      dispatch.owner.stateNamespace,
+      dispatch.projectRef,
+      dispatch.friction.ruleId,
+      dispatch.friction.fingerprint,
+    ) ?? false;
+  if (coolingDown) {
+    dependencies.logger.info(
+      { projectRef: dispatch.projectRef, evidenceRef: dispatch.evidenceRef },
+      "Semantic attention duplicate suppressed during cooldown",
+    );
+  }
+  return coolingDown;
+}
+
+function semanticClassifierStoreAvailable(
+  dependencies: EventPolicyRuntimeDependencies,
+  classifier: EventPolicySemanticAttentionClassifier | undefined,
+  agent: ManagedAgent,
+): boolean {
+  if (classifier?.mode !== "active" || dependencies.semanticAttentionProjectStore) return true;
+  dependencies.logger.warn(
+    { agentId: agent.id, workspaceId: agent.workspaceId },
+    "Semantic attention project store unavailable",
+  );
+  return false;
+}
+
+async function classifyAndRouteSemanticAttention(
+  dependencies: EventPolicyRuntimeDependencies,
+  classifier: EventPolicySemanticAttentionClassifier,
+  dispatch: SemanticAttentionDispatch,
+  isCurrentTurn: () => boolean,
+): Promise<void> {
+  let classifierResolved = false;
+  try {
+    const result = await classifier.classify(dispatch.packet);
+    classifierResolved = true;
+    let currentSupervisor = await resolveCurrentSemanticDispatch(
+      dependencies,
+      dispatch,
+      isCurrentTurn,
+    );
+    if (!currentSupervisor) return;
+    if (classifier.mode === "shadow") {
+      dependencies.logger.info(
+        {
+          projectRef: dispatch.projectRef,
+          evidenceRef: dispatch.evidenceRef,
+          resultStatus: result.status,
+          ...(result.status === "classified"
+            ? {
+                decision: result.decision.decision,
+                risk: result.decision.risk,
+                confidence: result.decision.confidence,
+              }
+            : { unavailableReason: result.reason }),
+        },
+        "Semantic attention shadow result",
+      );
+      return;
+    }
+    if (result.status === "unavailable") {
+      await sendSemanticAttentionSignal(
+        dependencies,
+        dispatch,
+        currentSupervisor,
+        undefined,
+        result.reason,
+      );
+      return;
+    }
+    updateSemanticAttentionAggregate(dependencies, dispatch, result.decision);
+    if (
+      result.decision.decision === "wake_candidate" &&
+      result.decision.risk === "high" &&
+      result.decision.confidence >= 0.8
+    ) {
+      currentSupervisor = await resolveCurrentSemanticDispatch(
+        dependencies,
+        dispatch,
+        isCurrentTurn,
+      );
+      if (!currentSupervisor) return;
+      await sendSemanticAttentionSignal(dependencies, dispatch, currentSupervisor, result.decision);
+    }
+  } catch (error) {
+    dependencies.logger.warn({ err: error }, "Semantic attention classifier rejected");
+    if (classifierResolved || classifier.mode !== "active") return;
+    const currentSupervisor = await resolveCurrentSemanticDispatch(
+      dependencies,
+      dispatch,
+      isCurrentTurn,
+    );
+    if (!currentSupervisor) return;
+    try {
+      await sendSemanticAttentionSignal(
+        dependencies,
+        dispatch,
+        currentSupervisor,
+        undefined,
+        "classifier_rejected",
+      );
+    } catch (fallbackError) {
+      dependencies.logger.warn(
+        { err: fallbackError },
+        "Semantic attention classifier fallback failed",
+      );
+    }
+  }
+}
+
 function createSlpAttentionProcessor(
   dependencies: EventPolicyRuntimeDependencies,
 ): AgentEventPolicyProcessor {
   const visibleAssistantBuffers = new Map<string, string>();
+  const semanticFingerprintsByAgent = new Map<string, Set<string>>();
+  const semanticTurnEpochs = new Map<string, number>();
+  const semanticTurnIds = new Map<string, string>();
+  let disposed = false;
+
+  function invalidateSemanticTurn(agentId: string): void {
+    semanticTurnEpochs.set(agentId, (semanticTurnEpochs.get(agentId) ?? 0) + 1);
+    semanticTurnIds.delete(agentId);
+    semanticFingerprintsByAgent.delete(agentId);
+    visibleAssistantBuffers.delete(agentId);
+  }
+
+  function observeSemanticTurn(agentId: string, turnId: string): number {
+    if (semanticTurnIds.get(agentId) !== turnId) {
+      invalidateSemanticTurn(agentId);
+      semanticTurnIds.set(agentId, turnId);
+    }
+    return semanticTurnEpochs.get(agentId) ?? 0;
+  }
 
   async function handleSemanticFriction(
     agent: ManagedAgent,
     event: Extract<AgentManagerEvent, { type: "agent_stream" }>,
+    owner: EventPolicyStateOwner,
   ): Promise<void> {
-    if (
-      (agent.roleBinding?.roleId !== "lead" && agent.roleBinding?.roleId !== "peer") ||
-      event.event.type !== "timeline" ||
-      event.event.item.type !== "assistant_message"
-    ) {
-      return;
-    }
-    const supervisor = findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor");
+    const visibleMessage = visibleSemanticAssistantMessage(agent, event);
+    if (!visibleMessage) return;
+    const supervisor = findSupervisorForAgent(dependencies, agent);
     if (!supervisor) {
       visibleAssistantBuffers.delete(agent.id);
       return;
     }
+    const turnEpoch = observeSemanticTurn(agent.id, visibleMessage.turnId);
     const text = appendVisibleAssistantText(
       visibleAssistantBuffers.get(agent.id) ?? "",
-      event.event.item.text,
+      visibleMessage.text,
     );
     visibleAssistantBuffers.set(agent.id, text);
     const friction = classifySemanticFriction(text);
     if (!friction) return;
-    const turnId = event.event.turnId ?? agent.activeTurnId ?? "unknown-turn";
-    const coalescingKey = `semantic_friction:${agent.id}:${turnId}:${friction.fingerprint}`;
-    await requestCoordinationSignal(dependencies, {
-      targetAgentId: supervisor.id,
-      requestedByAgentId: null,
-      kind: "continuity_attention",
-      customEvent: "slp.semantic_friction",
-      severity: "warning",
-      recipientRole: "supervisor",
-      source: {
-        kind: "paseo",
-        ruleId: `semantic_friction:${friction.ruleId}`,
-        version: SLP_ATTENTION_STATE_VERSION,
-      },
-      coalescingKey,
-      reason: "Model-visible working-stream output matched a bundled SLP friction rule.",
-      relatedAgentId: agent.id,
-      evidence: {
-        sourceAgentRole: agent.roleBinding.roleId,
-        classifierRule: friction.ruleId,
-        semanticFingerprint: friction.fingerprint,
-        excerpt: friction.excerpt,
-        turnId,
-      },
-    });
+    const classifier = dependencies.semanticAttentionClassifier;
+    if (!semanticClassifierStoreAvailable(dependencies, classifier, agent)) return;
+    const fingerprintKey = `${owner.stateNamespace}\u0000${visibleMessage.turnId}\u0000${friction.fingerprint}`;
+    const observedFingerprints = semanticFingerprintsByAgent.get(agent.id) ?? new Set<string>();
+    let shouldClassify = true;
+    if (classifier && classifier.mode !== "off") {
+      if (observedFingerprints.has(fingerprintKey)) {
+        if (classifier.mode === "active") return;
+        shouldClassify = false;
+      } else {
+        observedFingerprints.add(fingerprintKey);
+        semanticFingerprintsByAgent.set(agent.id, observedFingerprints);
+      }
+    }
+    const dispatch = await buildSemanticAttentionDispatch(
+      dependencies,
+      agent,
+      supervisor,
+      visibleMessage.sourceRole,
+      friction,
+      visibleMessage.turnId,
+      turnEpoch,
+      owner,
+    );
+    const isCurrentTurn = () =>
+      !disposed && semanticTurnEpochs.get(agent.id) === dispatch.turnEpoch;
+    const currentSupervisor = await resolveCurrentSemanticDispatch(
+      dependencies,
+      dispatch,
+      isCurrentTurn,
+    );
+    if (!currentSupervisor) return;
+
+    if (classifier?.mode === "active" && semanticAttentionIsCoolingDown(dependencies, dispatch))
+      return;
+
+    if (!classifier || classifier.mode === "off") {
+      await sendSemanticAttentionSignal(dependencies, dispatch, currentSupervisor);
+      return;
+    }
+    if (classifier.mode === "shadow") {
+      await sendSemanticAttentionSignal(dependencies, dispatch, currentSupervisor);
+      if (!shouldClassify) return;
+    }
+    void classifyAndRouteSemanticAttention(dependencies, classifier, dispatch, isCurrentTurn);
   }
 
   return {
@@ -454,13 +889,22 @@ function createSlpAttentionProcessor(
       if (event.type !== "agent_stream") return;
       const agent = dependencies.agentManager.getAgent(event.agentId);
       if (!agent?.roleBinding || agent.internal) return;
+      if (event.event.type === "turn_started" && event.event.turnId) {
+        observeSemanticTurn(agent.id, event.event.turnId);
+      } else if (
+        event.event.type === "turn_completed" ||
+        event.event.type === "turn_failed" ||
+        event.event.type === "turn_canceled"
+      ) {
+        invalidateSemanticTurn(agent.id);
+      }
       if (event.event.type === "usage_updated") {
         await handleContextUsage(dependencies, agent, event.event.usage, owner);
       } else if (event.event.type === "turn_completed" && event.event.usage) {
         await handleContextUsage(dependencies, agent, event.event.usage, owner);
       }
       await handleAutomaticCompaction(dependencies, agent, event, owner);
-      await handleSemanticFriction(agent, event);
+      await handleSemanticFriction(agent, event, owner);
       await handleTerminalEvent(dependencies, agent, event, owner);
       if (
         event.event.type === "turn_completed" ||
@@ -472,7 +916,11 @@ function createSlpAttentionProcessor(
       }
     },
     dispose() {
+      disposed = true;
       visibleAssistantBuffers.clear();
+      semanticFingerprintsByAgent.clear();
+      semanticTurnEpochs.clear();
+      semanticTurnIds.clear();
     },
   };
 }

@@ -142,7 +142,9 @@ export class BundledPolicyPackRegistry<TContribution> {
     }
     const generation = this.generations.get(key);
     if (!generation || generation.owner.policyVersion !== owner.policyVersion) {
-      throw new Error(`${BUNDLED_POLICY_PACK_MISSING_ERROR}: generation '${key}' is unavailable`);
+      throw new Error(
+        `${BUNDLED_POLICY_PACK_MISSING_ERROR}: generation '${key}' is unavailable; this saved role-bound task cannot resume under a different policy generation. Create a new task with the current role profile`,
+      );
     }
     return generation;
   }

@@ -35,6 +35,25 @@ export function noWriteModeForInjectionMethod(
   return NO_WRITE_MODE_BY_INJECTION_METHOD[injectionMethod] ?? null;
 }
 
+/**
+ * Resolve, from the injection method alone, the provider mode a no-write role
+ * assignment pins to. Single source of truth shared by role-binding materialization
+ * (via requiredNoWriteMode) and the create_agent preflight. A Human-configured
+ * unattended override (Codex full-access, Claude bypassPermissions) wins so that
+ * behavioral no-write keeps full runtime capability; other transports fall back to
+ * their qualified no-write mode. Returns null when the injection method has no
+ * qualified no-write mode.
+ */
+export function requiredNoWriteModeForInjectionMethod(
+  injectionMethod: RoleBindingInjectionMethod,
+): string | null {
+  return (
+    ROLE_UNATTENDED_MODE_BY_INJECTION_METHOD[injectionMethod] ??
+    NO_WRITE_MODE_BY_INJECTION_METHOD[injectionMethod] ??
+    null
+  );
+}
+
 function requiresTechnicalNoWrite(roleBinding: PersistedRoleBinding | undefined): boolean {
   return roleBinding?.assignment?.mutationBoundary.mode === "no-write";
 }
@@ -43,11 +62,7 @@ export function requiredNoWriteMode(roleBinding: PersistedRoleBinding | undefine
   if (!roleBinding || !requiresTechnicalNoWrite(roleBinding)) {
     return null;
   }
-  const unattendedMode = ROLE_UNATTENDED_MODE_BY_INJECTION_METHOD[roleBinding.injectionMethod];
-  if (unattendedMode) {
-    return unattendedMode;
-  }
-  const modeId = noWriteModeForInjectionMethod(roleBinding.injectionMethod);
+  const modeId = requiredNoWriteModeForInjectionMethod(roleBinding.injectionMethod);
   if (!modeId) {
     throw new Error(
       `${ASSIGNMENT_CAPABILITY_BOUNDARY_ERROR}: provider injection '${roleBinding.injectionMethod}' has no qualified no-write mode for ${roleBinding.roleId} assignment`,

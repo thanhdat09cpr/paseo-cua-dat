@@ -558,6 +558,7 @@ function resolveStaticLoadConfigSettings(
     mcpInjectIntoAgents:
       cli?.mcpInjectIntoAgents ?? persisted.daemon?.mcp?.injectIntoAgents ?? false,
     browserToolsEnabled: resolveBrowserToolsEnabled(persisted),
+    slpAttentionClassifier: persisted.daemon?.slpAttentionClassifier,
     beadsCentral: resolveBeadsCentralConfig(env),
     autoArchiveAfterMerge: persisted.daemon?.autoArchiveAfterMerge ?? false,
     appendSystemPrompt: resolveAppendSystemPrompt(persisted),
@@ -597,6 +598,7 @@ export function resolveConfigFromPersisted(
     mcpEnabled,
     mcpInjectIntoAgents,
     browserToolsEnabled,
+    slpAttentionClassifier,
     beadsCentral,
     autoArchiveAfterMerge,
     appendSystemPrompt,
@@ -647,6 +649,7 @@ export function resolveConfigFromPersisted(
     mcpEnabled,
     mcpInjectIntoAgents,
     browserToolsEnabled,
+    slpAttentionClassifier,
     beadsCentral,
     git: resolveGitProcessConfig(env, persisted),
     autoArchiveAfterMerge,

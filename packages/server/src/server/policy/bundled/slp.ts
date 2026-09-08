@@ -41,7 +41,7 @@ import {
 } from "./slp/attention-policy.js";
 import type { AgentEventPolicy } from "../../agent/event-policy-runtime.js";
 
-export const SLP_BUNDLED_POLICY_VERSION = "1.2.0";
+export const SLP_BUNDLED_POLICY_VERSION = "1.3.0";
 
 type PluginPolicyOwner = Extract<PolicyOwner, { kind: "plugin" }>;
 

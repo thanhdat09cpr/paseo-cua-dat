@@ -1,10 +1,18 @@
+import { SemanticAttentionProjectStore } from "./semantic-attention-project-store.js";
+import {
+  opaqueAttentionRef,
+  type SemanticAttentionClassifierResult,
+} from "./semantic-attention-contract.js";
 import pino from "pino";
 import { describe, expect, test, vi } from "vitest";
 
 import type { AgentManagerEvent, ManagedAgent } from "../../../agent/agent-manager.js";
 import type { StoredAgentRecord } from "../../../agent/agent-storage.js";
 import { resolveCoordinationSignal } from "../../../agent/coordination-signals.js";
-import { startEventPolicyRuntime } from "../../../agent/event-policy-runtime.js";
+import {
+  startEventPolicyRuntime,
+  type EventPolicySemanticAttentionClassifier,
+} from "../../../agent/event-policy-runtime.js";
 import {
   classifySemanticFriction,
   SLP_ATTENTION_DISABLE_FLAG,
@@ -30,7 +38,12 @@ function roleBinding(roleId: "lead" | "peer" | "supervisor") {
   };
 }
 
-function createHarness() {
+function createHarness(
+  harnessOptions: {
+    classifier?: EventPolicySemanticAttentionClassifier;
+    projectId?: string | null;
+  } = {},
+) {
   const records = new Map<string, StoredAgentRecord>();
   const agents = new Map<string, ManagedAgent>();
   const subscribers = new Set<{
@@ -44,6 +57,7 @@ function createHarness() {
     roleId: "lead" | "peer" | "supervisor";
     lifecycle?: "idle" | "running" | "error";
     parentAgentId?: string;
+    workspaceId?: string;
   }) {
     const binding = roleBinding(input.roleId);
     const labels = input.parentAgentId ? { "paseo.parent-agent-id": input.parentAgentId } : {};
@@ -52,7 +66,7 @@ function createHarness() {
       id: input.id,
       provider: "codex",
       cwd: "/repo",
-      workspaceId: "workspace-1",
+      workspaceId: input.workspaceId ?? "workspace-1",
       roleBinding: binding,
       labels,
       lifecycle,
@@ -63,7 +77,7 @@ function createHarness() {
       id: input.id,
       provider: "codex",
       cwd: "/repo",
-      workspaceId: "workspace-1",
+      workspaceId: input.workspaceId ?? "workspace-1",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       labels,
@@ -107,6 +121,11 @@ function createHarness() {
       sent.push({ agentId, message });
     }),
     logger: pino({ level: "silent" }),
+    semanticAttentionProjectStore: new SemanticAttentionProjectStore(),
+    ...(harnessOptions.classifier
+      ? { semanticAttentionClassifier: harnessOptions.classifier }
+      : {}),
+    resolveProjectIdForWorkspace: vi.fn(async () => harnessOptions.projectId ?? null),
   };
 
   function eventAgentId(event: AgentManagerEvent): string | undefined {
@@ -137,6 +156,150 @@ function createHarness() {
 }
 
 describe("bundled SLP attention policy", () => {
+  test.each(["complete", "replace", "binding", "project", "parent", "dispose"])(
+    "discards late classifier output after %s",
+    async (change) => {
+      let resolve!: (value: SemanticAttentionClassifierResult) => void;
+      const classifier = {
+        mode: "active" as const,
+        classify: vi.fn(
+          () =>
+            new Promise<SemanticAttentionClassifierResult>((done) => {
+              resolve = done;
+            }),
+        ),
+      };
+      const harness = createHarness({ classifier, projectId: "p1" });
+      harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+      harness.addAgent({ id: "supervisor-2", roleId: "supervisor" });
+      harness.addAgent({ id: "lead-1", roleId: "lead", parentAgentId: "supervisor-1" });
+      const runtime = harness.start();
+      harness.emit({
+        type: "agent_stream",
+        agentId: "lead-1",
+        event: {
+          type: "timeline",
+          provider: "codex",
+          turnId: "t1",
+          item: { type: "assistant_message", text: "I made a mistake about the scope." },
+        },
+      });
+      await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(1));
+      const agent = harness.dependencies.agentManager.getAgent("lead-1")!;
+      if (change === "complete")
+        harness.emit({
+          type: "agent_stream",
+          agentId: "lead-1",
+          event: { type: "turn_completed", provider: "codex", turnId: "t1" },
+        });
+      if (change === "replace") agent.activeTurnId = "t2";
+      if (change === "binding") agent.roleBinding!.bindingDigest = "replacement";
+      if (change === "project")
+        harness.dependencies.resolveProjectIdForWorkspace.mockResolvedValue("p2");
+      if (change === "parent") agent.labels = { "paseo.parent-agent-id": "supervisor-2" };
+      if (change === "dispose") runtime.stop();
+      await new Promise((done) => setTimeout(done, 20));
+      resolve({ status: "unavailable", reason: "timeout" });
+      await new Promise((done) => setTimeout(done, 20));
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toBeUndefined();
+      expect(harness.records.get("supervisor-2")?.coordinationSignals).toBeUndefined();
+      runtime.stop();
+    },
+  );
+
+  test("deduplicates streaming friction while classification is pending", async () => {
+    let resolve!: (value: SemanticAttentionClassifierResult) => void;
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(
+        () =>
+          new Promise<SemanticAttentionClassifierResult>((done) => {
+            resolve = done;
+          }),
+      ),
+    };
+    const harness = createHarness({ classifier });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    const runtime = harness.start();
+    const event = {
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "t1",
+        item: { type: "assistant_message", text: "I made a mistake about the scope." },
+      },
+    } as AgentManagerEvent;
+    harness.emit(event);
+    await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(1));
+    harness.emit(event);
+    await new Promise((done) => setTimeout(done, 20));
+    expect(classifier.classify).toHaveBeenCalledTimes(1);
+    resolve({
+      status: "classified",
+      decision: {
+        decision: "ignore",
+        risk: "low",
+        confidence: 0.9,
+        reason: "Routine correction",
+        evidenceRefs: [],
+      },
+    });
+    await new Promise((done) => setTimeout(done, 20));
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toBeUndefined();
+    runtime.stop();
+  });
+
+  test("suppresses the same semantic fingerprint across turns during cooldown", async () => {
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(async (packet: { evidenceRefs: string[] }) => ({
+        status: "classified" as const,
+        decision: {
+          decision: "wake_candidate" as const,
+          risk: "high" as const,
+          confidence: 0.95,
+          reason: "Supervisor review is warranted.",
+          evidenceRefs: packet.evidenceRefs,
+        },
+      })),
+    };
+    const harness = createHarness({ classifier });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    const runtime = harness.start();
+    const emit = (turnId: string) =>
+      harness.emit({
+        type: "agent_stream",
+        agentId: "lead-1",
+        event: {
+          type: "timeline",
+          provider: "codex",
+          turnId,
+          item: { type: "assistant_message", text: "I cannot proceed; ownership is unclear." },
+        },
+      });
+
+    emit("turn-1");
+    await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1),
+    );
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: { type: "turn_completed", provider: "codex", turnId: "turn-1" },
+    });
+    emit("turn-2");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(classifier.classify).toHaveBeenCalledTimes(1);
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1);
+    runtime.stop();
+  });
+
   test("is enabled by default with an exact emergency disable", () => {
     expect(slpAttentionPolicyEnabled({})).toBe(true);
     expect(slpAttentionPolicyEnabled({ [SLP_ATTENTION_DISABLE_FLAG]: "0" })).toBe(true);
@@ -169,7 +332,10 @@ describe("bundled SLP attention policy", () => {
         },
       });
 
-    usage(90);
+    usage(59);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.records.get("lead-1")?.coordinationSignals).toBeUndefined();
+    usage(60);
     await vi.waitFor(() =>
       expect(harness.records.get("lead-1")?.coordinationSignals).toHaveLength(1),
     );
@@ -181,7 +347,7 @@ describe("bundled SLP attention policy", () => {
       resolution: "completed",
     });
     usage(40);
-    usage(90);
+    usage(60);
     await vi.waitFor(() =>
       expect(harness.records.get("lead-1")?.coordinationSignals).toHaveLength(2),
     );
@@ -264,7 +430,7 @@ describe("bundled SLP attention policy", () => {
     });
     await vi.waitFor(() =>
       expect(harness.records.get("lead-1")?.eventPolicyStates?.[TEST_STATE_KEY]).toMatchObject({
-        version: 5,
+        version: 6,
         state: { automaticCompactionCount: 1, consecutiveTurnFailures: 0 },
       }),
     );
@@ -322,6 +488,377 @@ describe("bundled SLP attention policy", () => {
     await vi.waitFor(() =>
       expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(2),
     );
+    runtime.stop();
+  });
+
+  test("keeps deterministic routing and skips classification when semantic mode is off", async () => {
+    const classifier = {
+      mode: "off" as const,
+      classify: vi.fn(),
+    } satisfies EventPolicySemanticAttentionClassifier;
+    const harness = createHarness({ classifier });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    const runtime = harness.start();
+
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "off-turn",
+        item: { type: "assistant_message", text: "I made a mistake about the scope." },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(classifier.classify).not.toHaveBeenCalled();
+    runtime.stop();
+  });
+
+  test("keeps shadow routing deterministic while recording one bounded classifier call", async () => {
+    const classifier = {
+      mode: "shadow" as const,
+      classify: vi.fn(async () => ({
+        status: "classified" as const,
+        decision: {
+          decision: "ignore" as const,
+          risk: "low" as const,
+          confidence: 0.94,
+          reason: "The message self-corrects without changing scope.",
+          evidenceRefs: [] as string[],
+        },
+      })),
+    };
+    const harness = createHarness({ classifier, projectId: "project-42" });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    const runtime = harness.start();
+
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "shadow-turn",
+        item: { type: "assistant_message", text: "I made a mistake about the scope." },
+      },
+    });
+
+    await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1),
+    );
+    const packet = classifier.classify.mock.calls[0]?.[0];
+    expect(packet).toMatchObject({ sourceRole: "lead", eventKind: "semantic_friction" });
+    expect(packet?.projectRef).toHaveLength(24);
+    expect(packet?.excerpt).not.toContain("project-42");
+    runtime.stop();
+  });
+
+  test("active classifier wakes Supervisor only for a high-confidence high-risk candidate", async () => {
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(async (packet: { evidenceRefs: string[] }) => ({
+        status: "classified" as const,
+        decision: {
+          decision: "wake_candidate" as const,
+          risk: "high" as const,
+          confidence: 0.91,
+          reason: "The admitted error can change the assignment boundary.",
+          evidenceRefs: packet.evidenceRefs,
+        },
+      })),
+    };
+    const harness = createHarness({ classifier, projectId: "project-42" });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    const runtime = harness.start();
+
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "active-turn",
+        item: { type: "assistant_message", text: "I overlooked the assignment authority." },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(harness.records.get("supervisor-1")?.coordinationSignals?.[0]).toMatchObject({
+      severity: "critical",
+      evidence: {
+        semanticDecision: "wake_candidate",
+        semanticRisk: "high",
+        semanticConfidence: 0.91,
+      },
+    });
+    runtime.stop();
+  });
+
+  test("active classifier suppresses low-risk semantic noise and falls back on unavailability", async () => {
+    const ignoreClassifier = {
+      mode: "active" as const,
+      classify: vi.fn(async (packet: { evidenceRefs: string[] }) => ({
+        status: "classified" as const,
+        decision: {
+          decision: "ignore" as const,
+          risk: "low" as const,
+          confidence: 0.95,
+          reason: "The correction is local and already resolved.",
+          evidenceRefs: packet.evidenceRefs,
+        },
+      })),
+    };
+    const ignored = createHarness({ classifier: ignoreClassifier });
+    ignored.addAgent({ id: "lead-ignore", roleId: "lead" });
+    ignored.addAgent({ id: "supervisor-ignore", roleId: "supervisor" });
+    const ignoredRuntime = ignored.start();
+    ignored.emit({
+      type: "agent_stream",
+      agentId: "lead-ignore",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "ignore-turn",
+        item: { type: "assistant_message", text: "I made a mistake, then fixed it locally." },
+      },
+    });
+    await vi.waitFor(() => expect(ignoreClassifier.classify).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(ignored.records.get("supervisor-ignore")?.coordinationSignals).toBeUndefined();
+    ignoredRuntime.stop();
+
+    const unavailableClassifier = {
+      mode: "active" as const,
+      classify: vi.fn(async () => ({ status: "unavailable" as const, reason: "runner_busy" })),
+    };
+    const fallback = createHarness({ classifier: unavailableClassifier });
+    fallback.addAgent({ id: "lead-fallback", roleId: "lead" });
+    fallback.addAgent({ id: "supervisor-fallback", roleId: "supervisor" });
+    const fallbackRuntime = fallback.start();
+    fallback.emit({
+      type: "agent_stream",
+      agentId: "lead-fallback",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "fallback-turn",
+        item: { type: "assistant_message", text: "I overlooked the ownership scope." },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(fallback.records.get("supervisor-fallback")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(fallback.records.get("supervisor-fallback")?.coordinationSignals?.[0]).toMatchObject({
+      severity: "warning",
+      evidence: { classifierFallback: "runner_busy" },
+    });
+    fallbackRuntime.stop();
+  });
+
+  test("persists medium-risk aggregation per project and supplies its count to the next call", async () => {
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(async (packet: { evidenceRefs: string[]; priorAggregateCount: number }) => ({
+        status: "classified" as const,
+        decision:
+          packet.priorAggregateCount === 0
+            ? {
+                decision: "aggregate" as const,
+                risk: "medium" as const,
+                confidence: 0.78,
+                reason: "One ambiguous correction should be accumulated.",
+                evidenceRefs: packet.evidenceRefs,
+              }
+            : {
+                decision: "wake_candidate" as const,
+                risk: "high" as const,
+                confidence: 0.9,
+                reason: "Repeated ambiguity now warrants Supervisor review.",
+                evidenceRefs: packet.evidenceRefs,
+              },
+      })),
+    };
+    const harness = createHarness({ classifier, projectId: "project-aggregate" });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    const runtime = harness.start();
+    const emit = (turnId: string, text: string) =>
+      harness.emit({
+        type: "agent_stream",
+        agentId: "lead-1",
+        event: {
+          type: "timeline",
+          provider: "codex",
+          turnId,
+          item: { type: "assistant_message", text },
+        },
+      });
+
+    emit("aggregate-1", "I made a mistake about the scope.");
+    await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => {
+      const call = classifier.classify.mock.calls[0]?.[0] as unknown as {
+        deterministicRule: string;
+      };
+      expect(
+        harness.dependencies.semanticAttentionProjectStore.getCount(
+          TEST_STATE_NAMESPACE,
+          opaqueAttentionRef("project-aggregate"),
+          call.deterministicRule,
+        ),
+      ).toBe(1);
+    });
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toBeUndefined();
+
+    harness.addAgent({ id: "supervisor-2", roleId: "supervisor", workspaceId: "control-2" });
+    harness.dependencies.agentManager.getAgent("lead-1")!.labels = {
+      "paseo.parent-agent-id": "supervisor-2",
+    };
+    emit("aggregate-2", "I overlooked the assignment scope.");
+    await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(2));
+    expect(classifier.classify.mock.calls[1]?.[0].priorAggregateCount).toBe(1);
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-2")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(harness.records.get("supervisor-2")?.coordinationSignals?.[0]).toMatchObject({
+      severity: "critical",
+    });
+    runtime.stop();
+  });
+
+  test("does not call the semantic model for deterministic hard triggers", async () => {
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(),
+    } satisfies EventPolicySemanticAttentionClassifier;
+    const harness = createHarness({ classifier });
+    harness.addAgent({ id: "lead-1", roleId: "lead" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    const runtime = harness.start();
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "usage_updated",
+        provider: "codex",
+        usage: { contextWindowUsedTokens: 60, contextWindowMaxTokens: 100 },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(harness.records.get("lead-1")?.coordinationSignals).toHaveLength(1),
+    );
+
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-1",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        item: { type: "compaction", status: "completed", trigger: "auto" },
+      },
+    });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      harness.emit({
+        type: "agent_stream",
+        agentId: "lead-1",
+        event: { type: "turn_failed", provider: "codex", error: "provider failed" },
+      });
+    }
+
+    await vi.waitFor(() =>
+      expect(harness.records.get("lead-1")?.coordinationSignals).toHaveLength(2),
+    );
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(classifier.classify).not.toHaveBeenCalled();
+    runtime.stop();
+  });
+
+  test("routes Lead attention to its delegated Supervisor in a separate Control Workspace", async () => {
+    const harness = createHarness();
+    harness.addAgent({
+      id: "supervisor-control",
+      roleId: "supervisor",
+      workspaceId: "control-workspace",
+    });
+    harness.addAgent({
+      id: "lead-project",
+      roleId: "lead",
+      parentAgentId: "supervisor-control",
+      workspaceId: "project-workspace",
+    });
+    const runtime = harness.start();
+    harness.emit({
+      type: "agent_stream",
+      agentId: "lead-project",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "turn-cross-workspace",
+        item: { type: "assistant_message", text: "I made a mistake in the authority scope." },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-control")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(harness.records.get("supervisor-control")?.coordinationSignals?.[0]).toMatchObject({
+      relatedAgentId: "lead-project",
+      recipientRole: "supervisor",
+    });
+    runtime.stop();
+  });
+
+  test("routes Peer attention through its Lead to the delegated Control Workspace Supervisor", async () => {
+    const harness = createHarness();
+    harness.addAgent({
+      id: "supervisor-control",
+      roleId: "supervisor",
+      workspaceId: "control-workspace",
+    });
+    harness.addAgent({
+      id: "lead-project",
+      roleId: "lead",
+      parentAgentId: "supervisor-control",
+      workspaceId: "project-workspace",
+    });
+    harness.addAgent({
+      id: "peer-project",
+      roleId: "peer",
+      parentAgentId: "lead-project",
+      workspaceId: "project-workspace",
+    });
+    const runtime = harness.start();
+    harness.emit({
+      type: "agent_stream",
+      agentId: "peer-project",
+      event: {
+        type: "timeline",
+        provider: "codex",
+        turnId: "turn-peer-cross-workspace",
+        item: { type: "assistant_message", text: "I overlooked the assignment requirement." },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-control")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(harness.records.get("supervisor-control")?.coordinationSignals?.[0]).toMatchObject({
+      relatedAgentId: "peer-project",
+      recipientRole: "supervisor",
+    });
     runtime.stop();
   });
 
@@ -594,6 +1131,36 @@ describe("bundled SLP attention policy", () => {
     harness.emit(failure);
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(harness.records.get("supervisor-1")?.coordinationSignals).toHaveLength(1);
+    expect(harness.dependencies.agentManager.notifyAgentAttention).not.toHaveBeenCalled();
+    runtime.stop();
+  });
+
+  test("routes repeated Lead failure to its delegated cross-workspace Supervisor", async () => {
+    const harness = createHarness();
+    harness.addAgent({
+      id: "supervisor-control",
+      roleId: "supervisor",
+      workspaceId: "control-workspace",
+    });
+    harness.addAgent({
+      id: "lead-project",
+      roleId: "lead",
+      parentAgentId: "supervisor-control",
+      workspaceId: "project-workspace",
+    });
+    const runtime = harness.start();
+    const failure = {
+      type: "agent_stream" as const,
+      agentId: "lead-project",
+      event: { type: "turn_failed" as const, provider: "codex", error: "provider failed" },
+    };
+
+    harness.emit(failure);
+    harness.emit(failure);
+    harness.emit(failure);
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-control")?.coordinationSignals).toHaveLength(1),
+    );
     expect(harness.dependencies.agentManager.notifyAgentAttention).not.toHaveBeenCalled();
     runtime.stop();
   });

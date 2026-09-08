@@ -63,7 +63,7 @@ describe("immutable assignment contract", () => {
     expect(contract.receipt.assignmentDigest).toMatch(/^[a-f0-9]{64}$/u);
     expect(buildSlpAssignmentInstruction(contract)).toContain("Mutation boundary: no-write");
     expect(buildSlpAssignmentInstruction(contract)).toContain(
-      "Paseo pins this session to a provider-enforced no-write mode",
+      "this no-write lease is a behavioral obligation, not a guaranteed provider sandbox",
     );
     expect(buildSlpAssignmentInstruction(contract)).toContain("Beads issue grants: ps123-abc");
     expect(buildSlpAssignmentInstruction(contract)).toContain(
@@ -104,7 +104,9 @@ describe("immutable assignment contract", () => {
     expect(buildSlpAssignmentInstruction(peer)).toContain(
       "Only an authoritative Paseo tool receipt counts",
     );
-    expect(buildSlpAssignmentInstruction(supervisor)).toContain("Remain read-only");
+    expect(buildSlpAssignmentInstruction(supervisor)).toContain(
+      "Keep every Beads tracker operation read-only",
+    );
     expect(buildSlpAssignmentInstruction(supervisor)).toContain("material handoff");
     expect(buildSlpAssignmentInstruction(delegatingSupervisor)).toContain(
       "staffing your own direct role-bound Lead children is explicitly authorized",
@@ -254,5 +256,135 @@ describe("immutable assignment contract", () => {
         }),
       }),
     ).toThrow("protocol exception scope must equal assignment cwd");
+  });
+});
+
+describe("supervisor notebook delegation contract", () => {
+  const NOTEBOOK = "/repo/SUPERVISOR_NOTEBOOK.md";
+  function supervisorDelegation(overrides: Partial<AssignmentEnvelope> = {}): AssignmentEnvelope {
+    return envelope({ disposition: "supervision", effectClass: "delegation", ...overrides });
+  }
+
+  test("materializes a Human-issued Supervisor notebook write and projects its boundary", () => {
+    const contract = materialize({
+      roleId: "supervisor",
+      envelope: supervisorDelegation({
+        mutationBoundary: { mode: "bounded-write", scope: NOTEBOOK },
+      }),
+    });
+
+    expect(contract.receipt.mutationBoundary).toEqual({ mode: "bounded-write", scope: NOTEBOOK });
+    const instruction = buildSlpAssignmentInstruction(contract);
+    expect(instruction).toContain(
+      `Notebook write scope: your only permitted workspace write is creating and updating ${NOTEBOOK}`,
+    );
+    expect(instruction).toContain(
+      "staffing your own direct role-bound Lead children is explicitly authorized",
+    );
+    expect(instruction).toContain(
+      "behavioral obligation under the Human's explicit full runtime access",
+    );
+  });
+
+  test("keeps the default Supervisor delegation lease no-write", () => {
+    expect(
+      materialize({ roleId: "supervisor", envelope: supervisorDelegation() }).receipt
+        .mutationBoundary,
+    ).toEqual({ mode: "no-write" });
+  });
+
+  test("rejects a directory, traversal, or non-notebook delegation write scope", () => {
+    for (const scope of ["/repo", "/repo/../SUPERVISOR_NOTEBOOK.md", "/repo/notes.md"]) {
+      expect(() =>
+        materialize({
+          roleId: "supervisor",
+          envelope: supervisorDelegation({ mutationBoundary: { mode: "bounded-write", scope } }),
+        }),
+      ).toThrow(`${ASSIGNMENT_CONTRACT_INVALID_ERROR}: delegation requires no-write`);
+    }
+  });
+
+  test("rejects a notebook scope outside the assignment cwd", () => {
+    expect(() =>
+      materialize({
+        roleId: "supervisor",
+        envelope: supervisorDelegation({
+          mutationBoundary: { mode: "bounded-write", scope: "/other/SUPERVISOR_NOTEBOOK.md" },
+        }),
+      }),
+    ).toThrow(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: Supervisor notebook scope must equal ${NOTEBOOK}`,
+    );
+  });
+
+  test("rejects a notebook write for a non-Supervisor role", () => {
+    expect(() =>
+      materialize({
+        roleId: "lead",
+        envelope: envelope({
+          effectClass: "delegation",
+          mutationBoundary: { mode: "bounded-write", scope: NOTEBOOK },
+        }),
+      }),
+    ).toThrow(`${ASSIGNMENT_CONTRACT_INVALID_ERROR}: delegation requires no-write`);
+  });
+
+  test("rejects an agent-issued notebook write", () => {
+    expect(() =>
+      materialize({
+        roleId: "supervisor",
+        assigner: { kind: "agent", agentId: "agent-1" },
+        envelope: supervisorDelegation({
+          mutationBoundary: { mode: "bounded-write", scope: NOTEBOOK },
+        }),
+      }),
+    ).toThrow(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: Supervisor notebook write requires a Human session issuer`,
+    );
+  });
+});
+
+describe("supervisor lead-workspace delegation grant", () => {
+  test("carries an exact lead-workspace grant on a Human Supervisor delegation", () => {
+    const contract = materialize({
+      roleId: "supervisor",
+      envelope: envelope({
+        disposition: "supervision",
+        effectClass: "delegation",
+        resourceGrants: { leadWorkspaceIds: ["wks_4d70c7554d658f5d"] },
+      }),
+    });
+
+    expect(contract.receipt.resourceGrants?.leadWorkspaceIds).toEqual(["wks_4d70c7554d658f5d"]);
+  });
+
+  test("rejects a lead-workspace grant on a non-delegation Supervisor lease", () => {
+    expect(() =>
+      materialize({
+        roleId: "supervisor",
+        envelope: envelope({
+          disposition: "supervision",
+          resourceGrants: { leadWorkspaceIds: ["wks_x"] },
+        }),
+      }),
+    ).toThrow(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: lead-workspace grant is limited to a Supervisor delegation lease`,
+    );
+  });
+
+  test("rejects an agent-issued lead-workspace grant", () => {
+    expect(() =>
+      materialize({
+        roleId: "supervisor",
+        assigner: { kind: "agent", agentId: "agent-1" },
+        envelope: envelope({
+          disposition: "supervision",
+          effectClass: "delegation",
+          resourceGrants: { leadWorkspaceIds: ["wks_x"] },
+        }),
+      }),
+    ).toThrow(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: lead-workspace grant requires a Human session issuer`,
+    );
   });
 });

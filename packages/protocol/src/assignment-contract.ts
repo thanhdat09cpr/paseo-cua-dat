@@ -48,12 +48,42 @@ export function assignmentExternalEffectBoundaryFor(
     : { mode: "denied" };
 }
 
+/** The single local coordination note a Human-launched Supervisor may own. */
+export const SUPERVISOR_NOTEBOOK_FILE_NAME = "SUPERVISOR_NOTEBOOK.md";
+
+/**
+ * Exact absolute write scope permitted for a Supervisor notebook grant: the
+ * named notebook file directly inside the assignment cwd. Mirrors the
+ * single-file scope shape already used for the bootstrap WORKSPACE_PROTOCOL.md
+ * grant so both narrow writes construct the same way.
+ */
+export function supervisorNotebookScopeForCwd(cwd: string): string {
+  const separator = cwd.includes("\\") && !cwd.includes("/") ? "\\" : "/";
+  return `${cwd.replace(/[\\/]+$/u, "")}${separator}${SUPERVISOR_NOTEBOOK_FILE_NAME}`;
+}
+
+/**
+ * Structural admission for a Supervisor notebook write scope without binding to
+ * a specific cwd: an absolute path whose final segment is the notebook file and
+ * that contains no `.`/`..` traversal segments. The exact cwd match and the
+ * Human-session issuer are enforced later, at receipt materialization.
+ */
+export function isSupervisorNotebookScopeShape(scope: string): boolean {
+  const normalized = scope.trim();
+  if (!normalized) return false;
+  const isAbsolute = normalized.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(normalized);
+  if (!isAbsolute) return false;
+  const segments = normalized.split(/[\\/]+/u);
+  if (segments.some((segment) => segment === "." || segment === "..")) return false;
+  return segments[segments.length - 1] === SUPERVISOR_NOTEBOOK_FILE_NAME;
+}
+
 export const PASEO_ASSIGNMENT_EFFECT_SUMMARIES = [
   {
     id: "read-only",
     label: "Read-only lease",
     description:
-      "No workspace mutation. Launch fails unless the provider can enforce a no-write mode.",
+      "No workspace mutation is authorized. Provider access is configured separately; this lease does not guarantee a sandbox.",
   },
   {
     id: "mutating",
@@ -65,7 +95,7 @@ export const PASEO_ASSIGNMENT_EFFECT_SUMMARIES = [
     id: "delegation",
     label: "Delegation lease",
     description:
-      "Route bounded work without direct mutation; the launched agent remains technically no-write.",
+      "Route bounded work without direct workspace mutation, except an explicitly granted Supervisor notebook. Provider access is configured separately.",
   },
   {
     id: "bootstrap",
@@ -119,10 +149,14 @@ const AssignmentBeadsIssueIdSchema = z
   .max(128)
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u);
 
+/** Exact existing workspace(s) a Human-issued Supervisor delegation may staff a Lead into. */
+const AssignmentLeadWorkspaceIdSchema = z.string().trim().min(1).max(128);
+
 /** Exact durable resources leased to this one-task assignment. */
 export const AssignmentResourceGrantsSchema = z
   .object({
     beadsIssueIds: z.array(AssignmentBeadsIssueIdSchema).max(100).optional(),
+    leadWorkspaceIds: z.array(AssignmentLeadWorkspaceIdSchema).max(64).optional(),
   })
   .strict();
 export type AssignmentResourceGrants = z.infer<typeof AssignmentResourceGrantsSchema>;

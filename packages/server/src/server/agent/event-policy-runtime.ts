@@ -1,8 +1,19 @@
+import type { SemanticAttentionProjectStore } from "../policy/bundled/slp/semantic-attention-project-store.js";
 import type { Logger } from "pino";
 
 import type { AgentManager, AgentManagerEvent } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
 import type { CoordinationSignalDependencies } from "./coordination-signals.js";
+import type {
+  SemanticAttentionClassifierResult,
+  SemanticAttentionMode,
+  SemanticAttentionPacket,
+} from "../policy/bundled/slp/semantic-attention-contract.js";
+
+export interface EventPolicySemanticAttentionClassifier {
+  readonly mode: SemanticAttentionMode;
+  classify(packet: SemanticAttentionPacket): Promise<SemanticAttentionClassifierResult>;
+}
 
 type EventPolicyAgentManager = Pick<
   AgentManager,
@@ -21,6 +32,9 @@ export interface EventPolicyRuntimeDependencies extends Omit<
   agentManager: EventPolicyAgentManager;
   agentStorage: Pick<AgentStorage, "get" | "upsert" | "list">;
   logger: Logger;
+  semanticAttentionClassifier?: EventPolicySemanticAttentionClassifier;
+  semanticAttentionProjectStore?: SemanticAttentionProjectStore;
+  resolveProjectIdForWorkspace?: (workspaceId: string) => Promise<string | null>;
 }
 
 export interface AgentEventPolicyProcessor {

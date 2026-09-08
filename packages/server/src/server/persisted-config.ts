@@ -194,6 +194,17 @@ const AgentMetadataGenerationSchema = z
   })
   .strict();
 
+const SlpAttentionClassifierConfigSchema = z
+  .object({
+    mode: z.enum(["off", "shadow", "active"]).default("off"),
+    binaryPath: z.string().min(1).optional(),
+    model: z.string().min(1).default("gemini-3.8-flash-low"),
+    agentProfile: z.string().min(1).default("paseo-attention-classifier"),
+    timeoutMs: z.number().int().min(5_000).max(60_000).default(30_000),
+    maxInvocationsPerMinute: z.number().int().min(1).max(30).default(1),
+  })
+  .strict();
+
 const BUILTIN_PROVIDER_IDS = ["claude", "codex", "copilot", "opencode", "pi", "omp"] as const;
 
 function isLegacyProviderEntry(value: unknown): boolean {
@@ -271,6 +282,7 @@ export const PersistedConfigSchema = z
           })
           .passthrough()
           .optional(),
+        slpAttentionClassifier: SlpAttentionClassifierConfigSchema.optional(),
         beadsCentral: z
           .object({
             endpoint: BeadsCentralEndpointSchema.optional(),
@@ -403,6 +415,7 @@ const DEFAULT_PERSISTED_CONFIG = PersistedConfigSchema.parse({
 interface LoggerLike {
   child(bindings: Record<string, unknown>): LoggerLike;
   info(...args: unknown[]): void;
+  warn?(...args: unknown[]): void;
 }
 
 function getConfigPath(paseoHome: string): string {
@@ -452,6 +465,33 @@ function stripRemovedConfigFields(parsed: unknown): unknown {
   return root;
 }
 
+function disableInvalidSlpAttentionClassifier(
+  parsed: unknown,
+  logger: LoggerLike | undefined,
+): unknown {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return parsed;
+  const root = parsed as Record<string, unknown>;
+  const daemon = root.daemon;
+  if (!daemon || typeof daemon !== "object" || Array.isArray(daemon)) return parsed;
+  const daemonRecord = daemon as Record<string, unknown>;
+  if (!("slpAttentionClassifier" in daemonRecord)) return parsed;
+
+  const result = SlpAttentionClassifierConfigSchema.safeParse(daemonRecord.slpAttentionClassifier);
+  if (result.success) return parsed;
+
+  const diagnostic = {
+    configKey: "daemon.slpAttentionClassifier",
+    issueCount: result.error.issues.length,
+  };
+  const message = "Invalid semantic attention classifier config; classifier disabled";
+  if (logger?.warn) logger.warn(diagnostic, message);
+  else logger?.info(diagnostic, message);
+  return {
+    ...root,
+    daemon: { ...daemonRecord, slpAttentionClassifier: { mode: "off" } },
+  };
+}
+
 export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): PersistedConfig {
   const log = getLogger(logger);
   const configPath = getConfigPath(paseoHome);
@@ -490,7 +530,7 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
     });
   }
 
-  const migrated = stripRemovedConfigFields(parsed);
+  const migrated = disableInvalidSlpAttentionClassifier(stripRemovedConfigFields(parsed), log);
   const result = PersistedConfigSchema.safeParse(migrated);
   if (!result.success) {
     const issues = result.error.issues

@@ -42,10 +42,19 @@ export function addRunOptions(cmd: Command): Command {
         "--assignment-effect <effect>",
         "Role assignment effect: read-only, mutating, delegation, bootstrap, or recovery",
       )
-      .option("--write-scope <scope>", "Narrow write scope for a mutating role assignment")
+      .option(
+        "--write-scope <scope>",
+        "Exact write scope for a mutating assignment or Supervisor delegation notebook",
+      )
       .option(
         "--beads-issue <id>",
         "Grant an exact Beads Central issue to a Peer (can be used multiple times)",
+        collectMultiple,
+        [],
+      )
+      .option(
+        "--lead-workspace <id>",
+        "Grant a Supervisor delegation an exact existing workspace to staff a Lead into (can be used multiple times)",
         collectMultiple,
         [],
       )
@@ -135,6 +144,7 @@ export interface AgentRunOptions extends CommandOptions {
   assignmentEffect?: string;
   writeScope?: string;
   beadsIssue?: string[];
+  leadWorkspace?: string[];
   name?: string;
   provider?: string;
   model?: string;
@@ -398,47 +408,36 @@ function validateRunWorkspaceOptions(options: AgentRunOptions): void {
   }
 }
 
-function validateRunOptions(prompt: string, options: AgentRunOptions, outputSchema: unknown): void {
-  if (!prompt || prompt.trim().length === 0) {
-    throw {
-      code: "MISSING_PROMPT",
-      message: "A prompt is required",
-      details: "Usage: paseo agent run [options] <prompt>",
-    } satisfies CommandError;
-  }
-
-  validateRunWorkspaceOptions(options);
-  const roleId = parseRoleOption(options.role);
-  const assignmentEffect = parseAssignmentEffectOption(options.assignmentEffect);
-  if (roleId && !assignmentEffect) {
-    throw {
-      code: "INVALID_OPTIONS",
-      message: "--assignment-effect is required with --role",
-    } satisfies CommandError;
-  }
-  if (!roleId && assignmentEffect) {
-    throw {
-      code: "INVALID_OPTIONS",
-      message: "--assignment-effect requires --role",
-    } satisfies CommandError;
-  }
+function validateRunWriteScopeOption(
+  options: AgentRunOptions,
+  roleId: PaseoRoleId | undefined,
+  assignmentEffect: AssignmentEffectClass | undefined,
+): void {
   if (options.writeScope && !assignmentEffect) {
     throw {
       code: "INVALID_OPTIONS",
       message: "--write-scope requires --role and --assignment-effect",
     } satisfies CommandError;
   }
-  if (
-    options.writeScope &&
-    assignmentEffect &&
-    !new Set<AssignmentEffectClass>(["mutating", "bootstrap", "recovery"]).has(assignmentEffect)
-  ) {
+  if (!options.writeScope || !assignmentEffect) return;
+  const scopeAllowed =
+    new Set<AssignmentEffectClass>(["mutating", "bootstrap", "recovery"]).has(assignmentEffect) ||
+    // A Supervisor may narrow a delegation lease to its own notebook file; the
+    // daemon enforces the exact <cwd>/SUPERVISOR_NOTEBOOK.md path and Human issuer.
+    (assignmentEffect === "delegation" && roleId === "supervisor");
+  if (!scopeAllowed) {
     throw {
       code: "INVALID_OPTIONS",
       message: `--write-scope is not allowed for ${assignmentEffect}`,
     } satisfies CommandError;
   }
+}
 
+function validateRunGrantOptions(
+  options: AgentRunOptions,
+  roleId: PaseoRoleId | undefined,
+  assignmentEffect: AssignmentEffectClass | undefined,
+): void {
   const beadsIssueIds = normalizeBeadsIssueIds(options.beadsIssue);
   if (beadsIssueIds.length > 0 && roleId !== "peer") {
     throw {
@@ -454,6 +453,48 @@ function validateRunOptions(prompt: string, options: AgentRunOptions, outputSche
         "Pin at least one exact durable issue ID; the daemon verifies it in the bound project before provider launch",
     } satisfies CommandError;
   }
+
+  const leadWorkspaceIds = normalizeLeadWorkspaceIds(options.leadWorkspace);
+  const isSupervisorDelegation = roleId === "supervisor" && assignmentEffect === "delegation";
+  if (leadWorkspaceIds.length > 0 && !isSupervisorDelegation) {
+    throw {
+      code: "INVALID_OPTIONS",
+      message:
+        "--lead-workspace is only valid with --role supervisor --assignment-effect delegation",
+    } satisfies CommandError;
+  }
+}
+
+function validateRunRoleOptions(options: AgentRunOptions): void {
+  const roleId = parseRoleOption(options.role);
+  const assignmentEffect = parseAssignmentEffectOption(options.assignmentEffect);
+  if (roleId && !assignmentEffect) {
+    throw {
+      code: "INVALID_OPTIONS",
+      message: "--assignment-effect is required with --role",
+    } satisfies CommandError;
+  }
+  if (!roleId && assignmentEffect) {
+    throw {
+      code: "INVALID_OPTIONS",
+      message: "--assignment-effect requires --role",
+    } satisfies CommandError;
+  }
+  validateRunWriteScopeOption(options, roleId, assignmentEffect);
+  validateRunGrantOptions(options, roleId, assignmentEffect);
+}
+
+function validateRunOptions(prompt: string, options: AgentRunOptions, outputSchema: unknown): void {
+  if (!prompt || prompt.trim().length === 0) {
+    throw {
+      code: "MISSING_PROMPT",
+      message: "A prompt is required",
+      details: "Usage: paseo agent run [options] <prompt>",
+    } satisfies CommandError;
+  }
+
+  validateRunWorkspaceOptions(options);
+  validateRunRoleOptions(options);
 
   if (outputSchema && runsInBackground(options)) {
     throw {
@@ -507,6 +548,46 @@ function normalizeBeadsIssueIds(values: readonly string[] | undefined): string[]
   return beadsIssueIds;
 }
 
+function normalizeLeadWorkspaceIds(values: readonly string[] | undefined): string[] {
+  const leadWorkspaceIds = Array.from(
+    new Set((values ?? []).map((workspaceId) => workspaceId.trim()).filter(Boolean)),
+  );
+  const parsed = AssignmentResourceGrantsSchema.safeParse({ leadWorkspaceIds });
+  if (!parsed.success) {
+    throw {
+      code: "INVALID_OPTIONS",
+      message: "Invalid --lead-workspace value",
+      details: parsed.error.issues.map((issue) => issue.message).join("; "),
+    } satisfies CommandError;
+  }
+  return leadWorkspaceIds;
+}
+
+function cliMutationBoundary(input: {
+  roleId: PaseoRoleId;
+  effectClass: AssignmentEffectClass;
+  cwd: string;
+  writeScope?: string;
+}): AssignmentEnvelope["mutationBoundary"] {
+  const writeScope = input.writeScope?.trim();
+  if (input.effectClass === "mutating") {
+    return { mode: "bounded-write", scope: writeScope || input.cwd };
+  }
+  if (
+    (input.effectClass === "bootstrap" || input.effectClass === "recovery") &&
+    Boolean(writeScope)
+  ) {
+    return { mode: "bounded-write", scope: writeScope as string };
+  }
+  // A Supervisor narrows a delegation lease to its own notebook: resolve the
+  // caller-provided scope to an absolute path so it can equal the daemon's exact
+  // <cwd>/SUPERVISOR_NOTEBOOK.md check. Without --write-scope the lease stays no-write.
+  if (input.roleId === "supervisor" && input.effectClass === "delegation" && Boolean(writeScope)) {
+    return { mode: "bounded-write", scope: resolve(input.cwd, writeScope as string) };
+  }
+  return { mode: "no-write" };
+}
+
 export function buildCliAssignment(input: {
   roleId: PaseoRoleId;
   effectClass: AssignmentEffectClass;
@@ -514,24 +595,25 @@ export function buildCliAssignment(input: {
   cwd: string;
   writeScope?: string;
   beadsIssueIds?: readonly string[];
+  leadWorkspaceIds?: readonly string[];
 }): AssignmentEnvelope {
   let disposition: AssignmentEnvelope["disposition"] = "supervision";
   if (input.roleId === "lead") disposition = "lead-direct";
   if (input.roleId === "peer") disposition = "peer-execution";
   const beadsIssueIds = normalizeBeadsIssueIds(input.beadsIssueIds);
+  const leadWorkspaceIds = normalizeLeadWorkspaceIds(input.leadWorkspaceIds);
+  const resourceGrants = {
+    ...(beadsIssueIds.length > 0 ? { beadsIssueIds } : {}),
+    ...(leadWorkspaceIds.length > 0 ? { leadWorkspaceIds } : {}),
+  };
   return {
     version: PASEO_ASSIGNMENT_CONTRACT_VERSION,
     disposition,
     objective: input.objective.trim(),
     effectClass: input.effectClass,
-    mutationBoundary:
-      input.effectClass === "mutating" ||
-      ((input.effectClass === "bootstrap" || input.effectClass === "recovery") &&
-        Boolean(input.writeScope?.trim()))
-        ? { mode: "bounded-write", scope: input.writeScope?.trim() || input.cwd }
-        : { mode: "no-write" },
+    mutationBoundary: cliMutationBoundary(input),
     externalEffectBoundary: assignmentExternalEffectBoundaryFor(input.roleId, input.effectClass),
-    ...(beadsIssueIds.length > 0 ? { resourceGrants: { beadsIssueIds } } : {}),
+    ...(Object.keys(resourceGrants).length > 0 ? { resourceGrants } : {}),
     evidence: "Return exact changed or inspected scope and proportional verification.",
     handbackAndStop:
       "Stop at completion or a material blocker; hand back evidence, unknowns, residual risk, and lease state.",
@@ -545,6 +627,7 @@ function buildOptionalCliAssignment(input: {
   cwd: string;
   writeScope?: string;
   beadsIssueIds?: readonly string[];
+  leadWorkspaceIds?: readonly string[];
 }): AssignmentEnvelope | undefined {
   if (!input.roleId || !input.effectClass) return undefined;
   return buildCliAssignment({
@@ -554,6 +637,7 @@ function buildOptionalCliAssignment(input: {
     cwd: input.cwd,
     writeScope: input.writeScope,
     beadsIssueIds: input.beadsIssueIds,
+    leadWorkspaceIds: input.leadWorkspaceIds,
   });
 }
 
@@ -794,6 +878,7 @@ export async function runRunCommand(
       cwd: runCwd,
       writeScope: options.writeScope,
       beadsIssueIds: options.beadsIssue,
+      leadWorkspaceIds: options.leadWorkspace,
     });
 
     if (outputSchema) {

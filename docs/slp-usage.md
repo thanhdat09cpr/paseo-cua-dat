@@ -207,10 +207,47 @@ generic subscription, versioned state, persistence, safe-boundary delivery, coal
 Emergency rollback đặt `PASEO_DISABLE_SLP_ATTENTION_POLICY=1`. Missing telemetry hoặc missing/ambiguous
 role target fail closed.
 
-F-06 Phase 2B chỉ có bằng chứng source/test: semantic-friction được gate trước khi buffer/classify,
-Lead failure không có Supervisor duy nhất phát một coordination attention bounded, và protocol validator
-được regenerate đồng bộ. Các receipt này không chứng minh release artifact, daemon đã cài, WebSocket live
-hay multi-day operational effect; những lớp đó vẫn `UNPROVEN` cho tới khi có readback riêng.
+Lead context pressure phát signal khi telemetry hợp lệ đi từ dưới ngưỡng lên `60%`. Hard events như
+context pressure, automatic compaction và repeated turn failure đi bằng rule xác định, không gọi model.
+Semantic friction đi qua prefilter trên assistant output rồi mới có thể gọi một shared short-lived
+classifier. Packet chỉ chứa project/evidence reference đã hash, role, rule, bounded excerpt và số lần
+aggregate trước đó; classifier không được chọn target hoặc cấp authority. Lead/Peer vẫn route theo parent
+topology tới Supervisor, kể cả Supervisor ở Control Workspace khác.
+
+Classifier `agy` là startup-only config và mặc định `off`:
+
+```json
+{
+  "daemon": {
+    "slpAttentionClassifier": {
+      "mode": "shadow",
+      "binaryPath": "/absolute/path/to/agy",
+      "model": "gemini-3.8-flash-low",
+      "agentProfile": "paseo-attention-classifier",
+      "timeoutMs": 30000,
+      "maxInvocationsPerMinute": 1
+    }
+  }
+}
+```
+
+`shadow` giữ deterministic signal hiện tại và chỉ ghi classifier result. `active` bỏ low-risk noise,
+lưu medium-risk aggregate theo project/generation trong `attention/projects.json` của daemon, và chỉ wake Supervisor khi model trả
+`wake_candidate + high + confidence >= 0.8`. Runner dùng NDJSON stdin trong empty temporary workspace,
+minimal environment, sandbox, strict structured output, single-flight và rate limit.
+Mỗi workspace tạm được mount bằng `--add-dir` để nạp `PreToolUse` hook: chặn mọi action tool trước
+thực thi, chỉ cho phép `finish` trả JSON. Runner yêu cầu receipt `PreInvocation` và chờ child/process
+group dừng trước khi nhận lần chạy mới; không xác nhận được termination thì runner tự khóa. `agy` vẫn có
+thể quảng bá built-in tool catalog trong `init`; catalog không phải tool execution. Bất kỳ streamed action tool
+hoặc subagent execution nào đều bị terminate và classifier fail closed. Khi runner timeout, bận, rate
+limited hoặc output sai, `active` rơi về deterministic semantic signal thay vì làm mất cảnh báo.
+Một semantic fingerprint đã phân loại được cooldown 10 phút theo exact project, policy generation và
+rule. Nhắc lại cùng bằng chứng ở turn sau chỉ ghi log suppression; fingerprint khác cùng rule vẫn được
+phân loại và có thể tăng aggregate. Bộ đệm assistant reset theo `turnId`, kể cả provider không phát
+`turn_started`, để nội dung turn cũ không làm sai fingerprint của turn mới.
+
+Các receipt source/test không tự chứng minh release artifact, daemon đã cài, WebSocket live hay multi-day
+operational effect; từng lớp cần readback riêng trước khi gọi là qualified.
 
 Role-bound Supervisor có thể dùng bounded `ask_attention_question`, hoặc Human dùng CLI `--kind
 question`, để hỏi Lead/Peer tại safe boundary. Request bắt buộc tách observation, open question và

@@ -118,6 +118,30 @@ describe("server config", () => {
     expect(loadConfig(paseoHome, { env: {} }).browserToolsEnabled).toBe(true);
   });
 
+  test("loads the startup-only semantic attention classifier config", async () => {
+    const paseoHome = await mkdtemp(path.join(os.tmpdir(), "paseo-config-attention-"));
+    roots.push(paseoHome);
+    await writeFile(
+      path.join(paseoHome, "config.json"),
+      JSON.stringify({
+        daemon: {
+          slpAttentionClassifier: {
+            mode: "active",
+            binaryPath: "/opt/paseo/bin/agy",
+            maxInvocationsPerMinute: 2,
+          },
+        },
+      }),
+    );
+
+    expect(loadConfig(paseoHome, { env: {} }).slpAttentionClassifier).toMatchObject({
+      mode: "active",
+      binaryPath: "/opt/paseo/bin/agy",
+      model: "gemini-3.8-flash-low",
+      maxInvocationsPerMinute: 2,
+    });
+  });
+
   test("records mutable and startup launch overrides by persisted leaf", async () => {
     const paseoHome = await mkdtemp(path.join(os.tmpdir(), "paseo-config-overrides-"));
     roots.push(paseoHome);

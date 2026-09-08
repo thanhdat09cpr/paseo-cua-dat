@@ -90,6 +90,46 @@ describe("product role skill policy", () => {
     },
   );
 
+  test.each(["lead", "peer", "supervisor"] as const)(
+    "admits slp-workspace-protocol only to Supervisor from the canonical manifest for %s",
+    (role) => {
+      const root = path.resolve(import.meta.dirname, "../../../../../skills");
+      const policy = loadProductSkillPolicy(role, root);
+      const enabled = role === "supervisor";
+      expect(policy.status).toBe("bound");
+      expect(policy.packageNames).toContain("slp-workspace-protocol");
+
+      const inventory = [
+        { name: "slp-workspace-protocol" },
+        { name: "slp-workspace-protocol:slp-workspace-protocol" },
+      ];
+      expect(filterProductSkills(inventory, policy)).toEqual(enabled ? inventory : []);
+      expect(policy.enabledNames.has("slp-workspace-protocol")).toBe(enabled);
+
+      const claude = mergeClaudeProductPlugins(
+        [{ type: "local" as const, path: "/custom/slp-workspace-protocol" }],
+        policy,
+      );
+      const canonicalPluginPath = path.join(root, "slp-workspace-protocol");
+      if (enabled) {
+        expect(claude).toContainEqual({
+          type: "local",
+          path: canonicalPluginPath,
+          skipMcpDiscovery: true,
+        });
+        expect(claudeProductSkillDenyRules(policy)).not.toContain("Skill(slp-workspace-protocol)");
+      } else {
+        expect(claude).not.toContainEqual(expect.objectContaining({ path: canonicalPluginPath }));
+        expect(claudeProductSkillDenyRules(policy)).toEqual(
+          expect.arrayContaining([
+            "Skill(slp-workspace-protocol)",
+            "Skill(slp-workspace-protocol:slp-workspace-protocol)",
+          ]),
+        );
+      }
+    },
+  );
+
   test.each(["missing", "invalid", "missing-package"])(
     "keeps known independent workflows disabled when admission is %s",
     (failure) => {

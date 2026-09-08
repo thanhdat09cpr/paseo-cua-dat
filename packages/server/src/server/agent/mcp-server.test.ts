@@ -12,7 +12,12 @@ import { createAgentMcpServer } from "./mcp-server.js";
 import { AgentManager, type ManagedAgent } from "./agent-manager.js";
 import { AgentStorage, type StoredAgentRecord } from "./agent-storage.js";
 import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
-import type { AgentMode, AgentProvider, ProviderSnapshotEntry } from "./agent-sdk-types.js";
+import type {
+  AgentMode,
+  AgentModelDefinition,
+  AgentProvider,
+  ProviderSnapshotEntry,
+} from "./agent-sdk-types.js";
 import type { ProviderSnapshotManager } from "./provider-snapshot-manager.js";
 import { createProviderSnapshotManagerStub } from "../test-utils/session-stubs.js";
 import {
@@ -499,6 +504,7 @@ function createActiveStoredRecord(overrides: Partial<StoredAgentRecord> = {}): S
 function createTestRoleBinding(
   roleId: PaseoRoleId,
   requestedEffectClass?: AssignmentEffectClass,
+  leadWorkspaceIds?: string[],
 ): NonNullable<StoredAgentRecord["roleBinding"]> {
   let readership: "full" | "assignment-only" | "governance-only";
   if (roleId === "lead") {
@@ -530,6 +536,7 @@ function createTestRoleBinding(
           externalEffectBoundary: assignmentExternalEffectBoundaryFor(roleId, effectClass),
           evidence: "Return exact child launch receipts.",
           handbackAndStop: "Stop when the bounded topology is established.",
+          ...(leadWorkspaceIds ? { resourceGrants: { leadWorkspaceIds } } : {}),
         },
         createdAt: new Date("2026-08-09T00:00:00.000Z"),
       })
@@ -1807,7 +1814,7 @@ describe("create_agent MCP tool", () => {
         role: "peer",
         initialPrompt: "Do bounded work",
       }),
-    ).rejects.toThrow("omit provider and settings");
+    ).rejects.toThrow("omit provider, settings.modeId, and settings.features");
     await expect(
       tool.handler({
         title: "Disallowed Peer",
@@ -1840,6 +1847,272 @@ describe("create_agent MCP tool", () => {
       expect.objectContaining({
         launchProfile: { id: "peer-scout", name: "Peer Scout" },
       }),
+    );
+  });
+
+  it("lets a Lead override the profile effort per launch, retains the profile default when omitted, and rejects invalid, empty, or protected settings", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "lead-agent",
+      provider: "codex",
+      config: { model: "gpt-5.4" },
+      cwd: existingCwd,
+      workspaceId: "wks_lead",
+      roleBinding: createTestRoleBinding("lead"),
+    });
+    // The created Peer record carries the applied effort; the receipt reads it from
+    // the record (configured effort, runtimeInfo not yet observed), never from the
+    // caller's requested value.
+    const peerAgent = createManagedAgent({
+      id: "peer-agent",
+      roleBinding: createTestRoleBinding("peer"),
+      config: { model: "gpt-5.4", thinkingOptionId: "low" },
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) => {
+      if (agentId === caller.id) return caller;
+      if (agentId === "peer-agent") return peerAgent;
+      return null;
+    });
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    spies.agentManager.createAgent.mockResolvedValue(peerAgent);
+    const manager = createOpenCodeManager();
+    manager.stub.listModels.mockResolvedValue([
+      {
+        provider: "codex",
+        id: "gpt-5.4",
+        label: "GPT-5.4",
+        thinkingOptions: [
+          { id: "low", label: "Low" },
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+        defaultThinkingOptionId: "medium",
+      },
+    ]);
+    const daemonConfigStore = {
+      get: () =>
+        MutableDaemonConfigSchema.parse({
+          mcp: { injectIntoAgents: true },
+          peerDelegation: {
+            enabled: true,
+            runMode: "unattended",
+            allowedModels: [{ provider: "codex", model: "gpt-5.4" }],
+          },
+          peerDelegationProfileIds: ["peer-scout"],
+          agentProfiles: [
+            {
+              id: "peer-scout",
+              name: "Peer Scout",
+              provider: "codex",
+              model: "gpt-5.4",
+              modeId: "full-access",
+              thinkingOptionId: "high",
+            },
+          ],
+        }),
+    };
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: manager.manager,
+      daemonConfigStore,
+      callerAgentId: caller.id,
+      logger,
+    });
+    const tool = registeredTool(server, "create_agent");
+
+    // Explicit effort overrides the profile default and is echoed in the receipt.
+    const overridden = await tool.handler({
+      title: "Scout Peer low",
+      launchProfileId: "peer-scout",
+      role: "peer",
+      settings: { thinkingOptionId: "low" },
+      initialPrompt: "Map the bounded implementation path",
+    });
+    expect(spies.agentManager.createAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ thinkingOptionId: "low" }),
+      undefined,
+      expect.objectContaining({ roleId: "peer" }),
+    );
+    expect(overridden.structuredContent).toEqual(
+      expect.objectContaining({ effectiveThinkingOptionId: "low" }),
+    );
+
+    // Omitted effort retains the profile default.
+    await tool.handler({
+      title: "Scout Peer default",
+      launchProfileId: "peer-scout",
+      role: "peer",
+      initialPrompt: "Map the bounded implementation path",
+    });
+    expect(spies.agentManager.createAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ thinkingOptionId: "high" }),
+      undefined,
+      expect.objectContaining({ roleId: "peer" }),
+    );
+
+    const createCallsBeforeRejections = spies.agentManager.createAgent.mock.calls.length;
+
+    // Invalid effort for the actual model is rejected before launch.
+    await expect(
+      tool.handler({
+        title: "Scout Peer invalid",
+        launchProfileId: "peer-scout",
+        role: "peer",
+        settings: { thinkingOptionId: "ultra" },
+        initialPrompt: "Map the bounded implementation path",
+      }),
+    ).rejects.toThrow("is not a valid thinking option");
+
+    // Empty effort is rejected; omit it to keep the profile default.
+    await expect(
+      tool.handler({
+        title: "Scout Peer empty",
+        launchProfileId: "peer-scout",
+        role: "peer",
+        settings: { thinkingOptionId: "" },
+        initialPrompt: "Map the bounded implementation path",
+      }),
+    ).rejects.toThrow("thinkingOptionId cannot be empty");
+
+    // Mode and feature overrides remain rejected under profile routing.
+    await expect(
+      tool.handler({
+        title: "Scout Peer mode",
+        launchProfileId: "peer-scout",
+        role: "peer",
+        settings: { modeId: "auto" },
+        initialPrompt: "Map the bounded implementation path",
+      }),
+    ).rejects.toThrow("omit provider, settings.modeId, and settings.features");
+    await expect(
+      tool.handler({
+        title: "Scout Peer features",
+        launchProfileId: "peer-scout",
+        role: "peer",
+        settings: { features: { fast_mode: true } },
+        initialPrompt: "Map the bounded implementation path",
+      }),
+    ).rejects.toThrow("omit provider, settings.modeId, and settings.features");
+
+    expect(spies.agentManager.createAgent.mock.calls.length).toBe(createCallsBeforeRejections);
+  });
+
+  it("fails closed when explicit effort cannot be verified against the actual model", async () => {
+    const buildLeadServer = async (models: AgentModelDefinition[]) => {
+      const { agentManager, agentStorage, spies } = createTestDeps();
+      const caller = createManagedAgent({
+        id: "lead-agent",
+        provider: "codex",
+        config: { model: "gpt-5.4" },
+        cwd: existingCwd,
+        workspaceId: "wks_lead",
+        roleBinding: createTestRoleBinding("lead"),
+      });
+      spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+        agentId === caller.id ? caller : null,
+      );
+      mockStoredAgentRecords(spies.agentStorage.get, [
+        createActiveStoredRecord({
+          id: caller.id,
+          cwd: caller.cwd,
+          workspaceId: caller.workspaceId,
+          roleBinding: caller.roleBinding,
+        }),
+      ]);
+      spies.agentManager.createAgent.mockResolvedValue(
+        createManagedAgent({ id: "peer-agent", roleBinding: createTestRoleBinding("peer") }),
+      );
+      const manager = createOpenCodeManager();
+      manager.stub.listModels.mockResolvedValue(models);
+      const server = await createAgentMcpServer({
+        agentManager,
+        agentStorage,
+        providerSnapshotManager: manager.manager,
+        daemonConfigStore: {
+          get: () =>
+            MutableDaemonConfigSchema.parse({
+              mcp: { injectIntoAgents: true },
+              peerDelegation: {
+                enabled: true,
+                runMode: "unattended",
+                allowedModels: [{ provider: "codex", model: "gpt-5.4" }],
+              },
+              peerDelegationProfileIds: ["peer-scout"],
+              agentProfiles: [
+                {
+                  id: "peer-scout",
+                  name: "Peer Scout",
+                  provider: "codex",
+                  model: "gpt-5.4",
+                  modeId: "full-access",
+                  thinkingOptionId: "high",
+                },
+              ],
+            }),
+        },
+        callerAgentId: caller.id,
+        logger,
+      });
+      return { tool: registeredTool(server, "create_agent"), spies };
+    };
+
+    const overrideArgs = {
+      title: "Scout Peer override",
+      launchProfileId: "peer-scout",
+      role: "peer" as const,
+      settings: { thinkingOptionId: "low" },
+      initialPrompt: "Map the bounded implementation path",
+    };
+
+    // Empty catalog: cannot verify the override, so reject before launch.
+    const emptyCatalog = await buildLeadServer([]);
+    await expect(emptyCatalog.tool.handler(overrideArgs)).rejects.toThrow("is unavailable");
+    expect(emptyCatalog.spies.agentManager.createAgent).not.toHaveBeenCalled();
+
+    // Resolved model absent from the catalog: rejected before launch by the model
+    // availability guard (a different actionable error, still fail-closed).
+    const modelAbsent = await buildLeadServer([
+      {
+        provider: "codex",
+        id: "other-model",
+        label: "Other",
+        thinkingOptions: [{ id: "low", label: "Low" }],
+      },
+    ]);
+    await expect(modelAbsent.tool.handler(overrideArgs)).rejects.toThrow(
+      "is not available for provider",
+    );
+    expect(modelAbsent.spies.agentManager.createAgent).not.toHaveBeenCalled();
+
+    // Model exposes no selectable effort options: reject before launch.
+    const noOptions = await buildLeadServer([
+      { provider: "codex", id: "gpt-5.4", label: "GPT-5.4", thinkingOptions: [] },
+    ]);
+    await expect(noOptions.tool.handler(overrideArgs)).rejects.toThrow(
+      "does not support selectable effort options",
+    );
+    expect(noOptions.spies.agentManager.createAgent).not.toHaveBeenCalled();
+
+    // Omitted effort with an empty catalog still launches with the profile default.
+    const omitted = await buildLeadServer([]);
+    await omitted.tool.handler({
+      title: "Scout Peer default",
+      launchProfileId: "peer-scout",
+      role: "peer",
+      initialPrompt: "Map the bounded implementation path",
+    });
+    expect(omitted.spies.agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ thinkingOptionId: "high" }),
+      undefined,
+      expect.objectContaining({ roleId: "peer" }),
     );
   });
 
@@ -1997,7 +2270,7 @@ describe("create_agent MCP tool", () => {
     expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
   });
 
-  it("lets a no-write Peer assignment override an unattended Agent Profile mode", async () => {
+  it("keeps the Human-configured unattended full-access mode for a no-write Claude Peer", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const caller = createManagedAgent({
       id: "lead-agent",
@@ -2069,11 +2342,15 @@ describe("create_agent MCP tool", () => {
       initialPrompt: "Review this bounded change and do not write anything",
     });
 
+    // No-write is a behavioral obligation carried by the assignment, not a forced
+    // provider read-only mode: the Peer keeps the Human-configured unattended
+    // full-access mode (Claude bypassPermissions) while still receiving the official
+    // no-write assignment.
     expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: "claude",
         model: "claude-fable-5",
-        modeId: "default",
+        modeId: "bypassPermissions",
       }),
       undefined,
       expect.objectContaining({
@@ -2085,6 +2362,91 @@ describe("create_agent MCP tool", () => {
           peerSubrole: "reviewer",
         },
       }),
+    );
+  });
+
+  it("keeps the Human-configured unattended full-access mode for a no-write Codex Peer", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "lead-agent",
+      provider: "codex",
+      config: { model: "gpt-5.4" },
+      cwd: existingCwd,
+      workspaceId: "wks_lead",
+      roleBinding: createTestRoleBinding("lead"),
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    spies.agentManager.createAgent.mockResolvedValue(
+      createManagedAgent({ id: "peer-agent", roleBinding: createTestRoleBinding("peer") }),
+    );
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      daemonConfigStore: {
+        get: () =>
+          MutableDaemonConfigSchema.parse({
+            mcp: { injectIntoAgents: true },
+            peerDelegation: {
+              enabled: true,
+              runMode: "unattended",
+              allowedModels: [{ provider: "codex", model: "gpt-5.4" }],
+            },
+            peerDelegationProfileIds: ["peer-engineer-codex"],
+            agentProfiles: [
+              {
+                id: "peer-engineer-codex",
+                name: "Peer Engineer Codex",
+                provider: "codex",
+                model: "gpt-5.4",
+                modeId: "full-access",
+                peerSubrole: "engineer",
+              },
+            ],
+          }),
+      },
+      callerAgentId: caller.id,
+      logger,
+    });
+    const assignment = {
+      version: 1,
+      disposition: "peer-execution",
+      objective: "Investigate the bounded question without writing files.",
+      effectClass: "read-only",
+      mutationBoundary: { mode: "no-write" },
+      externalEffectBoundary: { mode: "denied" },
+      evidence: "Return exact findings.",
+      handbackAndStop: "Stop after the handback.",
+    } as const;
+
+    await registeredTool(server, "create_agent").handler({
+      title: "Scout Peer",
+      launchProfileId: "peer-engineer-codex",
+      role: "peer",
+      assignment,
+      initialPrompt: "Investigate the bounded question and do not write anything",
+    });
+
+    // Codex no-write Peer keeps the Human-configured unattended full-access mode; the
+    // no-write obligation rides on the assignment, not a forced read-only provider mode.
+    expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "codex",
+        model: "gpt-5.4",
+        modeId: "full-access",
+      }),
+      undefined,
+      expect.objectContaining({ roleId: "peer", assignment }),
     );
   });
 
@@ -2278,6 +2640,344 @@ describe("create_agent MCP tool", () => {
         roleId: "lead",
       }),
     );
+  });
+
+  // Human Supervisor cross-workspace Lead routing (flat within this suite to keep
+  // callback nesting within lint limits).
+  const outsideCwd = resolvePath("/tmp/separate-product-workspace");
+  const grantedWorkspaceId = "wks_product_pilot";
+
+  function setupSupervisorCreate(input: {
+    callerRoleBinding: NonNullable<ManagedAgent["roleBinding"]>;
+    activeWorkspaces?: Array<{
+      workspaceId: string;
+      cwd: string;
+      kind: "worktree" | "local_checkout" | "directory";
+    }>;
+    createdLead?: { cwd: string; workspaceId: string };
+  }) {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "supervisor-agent",
+      provider: "claude",
+      config: { model: "claude-haiku-4-5" },
+      cwd: existingCwd,
+      workspaceId: "wks_control",
+      roleBinding: input.callerRoleBinding,
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    if (input.createdLead) {
+      spies.agentManager.createAgent.mockResolvedValue(
+        createManagedAgent({
+          id: "lead-agent",
+          provider: "claude",
+          config: { model: "claude-haiku-4-5" },
+          cwd: input.createdLead.cwd,
+          workspaceId: input.createdLead.workspaceId,
+          roleBinding: createTestRoleBinding("lead"),
+        }),
+      );
+    }
+    const ensureWorkspace = vi.fn(async () => "unexpected-directory-workspace");
+    const listActiveWorkspaces = vi.fn(async () => input.activeWorkspaces ?? []);
+    return { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces };
+  }
+
+  it("lets a granted Human Supervisor delegation staff its Lead into an outside existing workspace", async () => {
+    const { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces } =
+      setupSupervisorCreate({
+        callerRoleBinding: createTestRoleBinding("supervisor", "delegation", [grantedWorkspaceId]),
+        activeWorkspaces: [
+          { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" },
+        ],
+        createdLead: { cwd: outsideCwd, workspaceId: grantedWorkspaceId },
+      });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await registeredTool(server, "create_agent").handler({
+      title: "Product Lead",
+      role: "lead",
+      workspaceId: grantedWorkspaceId,
+      initialPrompt: "Own the bounded product workspace",
+    });
+
+    expect(ensureWorkspace).not.toHaveBeenCalled();
+    expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "claude", model: "claude-haiku-4-5", cwd: outsideCwd }),
+      undefined,
+      expect.objectContaining({
+        labels: expect.objectContaining({ [PARENT_AGENT_ID_LABEL]: caller.id }),
+        workspaceId: grantedWorkspaceId,
+        roleId: "lead",
+      }),
+    );
+  });
+
+  it("denies an outside workspace when the Supervisor delegation carries no lead-workspace grant", async () => {
+    const { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces } =
+      setupSupervisorCreate({
+        callerRoleBinding: createTestRoleBinding("supervisor", "delegation"),
+        activeWorkspaces: [
+          { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" },
+        ],
+      });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Product Lead",
+        role: "lead",
+        workspaceId: grantedWorkspaceId,
+        initialPrompt: "Own the bounded product workspace",
+      }),
+    ).rejects.toThrow("is outside the role-bound caller cwd");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("denies an outside workspace the grant does not name", async () => {
+    const { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces } =
+      setupSupervisorCreate({
+        callerRoleBinding: createTestRoleBinding("supervisor", "delegation", [
+          "wks_a_different_one",
+        ]),
+        activeWorkspaces: [
+          { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" },
+        ],
+      });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Product Lead",
+        role: "lead",
+        workspaceId: grantedWorkspaceId,
+        initialPrompt: "Own the bounded product workspace",
+      }),
+    ).rejects.toThrow("is outside the role-bound caller cwd");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("denies a non-Human (agent-issued) receipt even when the grant names the workspace", async () => {
+    const grantedBinding = createTestRoleBinding("supervisor", "delegation", [grantedWorkspaceId]);
+    const contract = grantedBinding.assignmentContract;
+    if (!contract) throw new Error("expected a materialized assignment contract");
+    // Simulate a forged/agent-issued receipt that still carries the grant: the
+    // runtime must fail closed on the issuer, not trust the grant alone.
+    const forgedBinding = {
+      ...grantedBinding,
+      assignmentContract: {
+        ...contract,
+        receipt: {
+          ...contract.receipt,
+          assigner: { kind: "agent" as const, agentId: "agent-issuer" },
+        },
+      },
+    };
+    const { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces } =
+      setupSupervisorCreate({
+        callerRoleBinding: forgedBinding,
+        activeWorkspaces: [
+          { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" },
+        ],
+      });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Product Lead",
+        role: "lead",
+        workspaceId: grantedWorkspaceId,
+        initialPrompt: "Own the bounded product workspace",
+      }),
+    ).rejects.toThrow("is outside the role-bound caller cwd");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("denies a non-delegation Supervisor before resolving the workspace", async () => {
+    const { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces } =
+      setupSupervisorCreate({
+        callerRoleBinding: createTestRoleBinding("supervisor", "read-only"),
+        activeWorkspaces: [
+          { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" },
+        ],
+      });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Product Lead",
+        role: "lead",
+        workspaceId: grantedWorkspaceId,
+        initialPrompt: "Own the bounded product workspace",
+      }),
+    ).rejects.toThrow(
+      "A role-bound Supervisor may create only a role-bound Lead under a Human-issued delegation assignment",
+    );
+    expect(listActiveWorkspaces).not.toHaveBeenCalled();
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("denies a raw cwd outside the root even when a matching grant exists", async () => {
+    const { agentManager, agentStorage, spies, caller, ensureWorkspace, listActiveWorkspaces } =
+      setupSupervisorCreate({
+        callerRoleBinding: createTestRoleBinding("supervisor", "delegation", [grantedWorkspaceId]),
+      });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      ensureWorkspaceForCreate: ensureWorkspace,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Product Lead",
+        role: "lead",
+        cwd: outsideCwd,
+        initialPrompt: "Own the bounded product workspace",
+      }),
+    ).rejects.toThrow("is outside the role-bound caller cwd");
+    expect(ensureWorkspace).not.toHaveBeenCalled();
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("denies a non-Supervisor role-bound caller an outside workspace by id", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "lead-agent",
+      cwd: existingCwd,
+      workspaceId: "wks_lead",
+      roleBinding: createTestRoleBinding("lead"),
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    const listActiveWorkspaces = vi.fn(async () => [
+      { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" as const },
+    ]);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        title: "Escaping Peer",
+        role: "peer",
+        workspaceId: grantedWorkspaceId,
+        provider: "opencode/gpt-5.4",
+        initialPrompt: "Must not escape the caller root",
+      }),
+    ).rejects.toThrow("is outside the role-bound caller cwd");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("denies legacy placement into an outside workspace with no grant exception", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const caller = createManagedAgent({
+      id: "lead-agent",
+      cwd: existingCwd,
+      workspaceId: "wks_lead",
+      roleBinding: createTestRoleBinding("lead"),
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+    ]);
+    const listActiveWorkspaces = vi.fn(async () => [
+      { workspaceId: grantedWorkspaceId, cwd: outsideCwd, kind: "local_checkout" as const },
+    ]);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      callerAgentId: caller.id,
+      listActiveWorkspaces,
+      logger,
+    });
+
+    await expect(
+      registeredTool(server, "create_agent").handler({
+        ...detachedExistingWorkspace(grantedWorkspaceId),
+        title: "Escaping Peer",
+        role: "peer",
+        provider: "opencode/gpt-5.4",
+        initialPrompt: "Must not escape the caller root",
+      }),
+    ).rejects.toThrow("is outside the role-bound caller cwd");
+    expect(spies.agentManager.createAgent).not.toHaveBeenCalled();
   });
 
   it("rejects an unavailable explicit role-child model before creating an agent", async () => {

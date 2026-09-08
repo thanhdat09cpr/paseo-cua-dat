@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   loadPersistedConfig,
@@ -55,6 +55,49 @@ describe("PersistedConfigSchema daemon browser tools config", () => {
     });
 
     expect(parsed.daemon?.browserTools?.enabled).toBe(true);
+  });
+});
+
+describe("PersistedConfigSchema semantic attention classifier", () => {
+  test("accepts an explicit local agy runner and keeps conservative defaults", () => {
+    const parsed = PersistedConfigSchema.parse({
+      daemon: {
+        slpAttentionClassifier: {
+          mode: "shadow",
+          binaryPath: "/opt/paseo/bin/agy",
+        },
+      },
+    });
+
+    expect(parsed.daemon?.slpAttentionClassifier).toEqual({
+      mode: "shadow",
+      binaryPath: "/opt/paseo/bin/agy",
+      model: "gemini-3.8-flash-low",
+      agentProfile: "paseo-attention-classifier",
+      timeoutMs: 30_000,
+      maxInvocationsPerMinute: 1,
+    });
+  });
+
+  test("keeps invalid classifier settings rejected on save", () => {
+    const home = createTempHome();
+    try {
+      expect(() =>
+        savePersistedConfig(home, {
+          daemon: {
+            slpAttentionClassifier: {
+              mode: "active",
+              model: "gemini-3.8-flash-low",
+              agentProfile: "paseo-attention-classifier",
+              timeoutMs: 1,
+              maxInvocationsPerMinute: 1,
+            },
+          },
+        }),
+      ).toThrow("[Config] Invalid config to save");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 
@@ -761,6 +804,68 @@ describe("loadPersistedConfig", () => {
       expect((config.providers?.openai as Record<string, unknown>)?.voice).toBeUndefined();
       expect(config.providers?.openai?.stt).toBeUndefined();
       expect(config.providers?.openai?.tts).toBeUndefined();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("disables an invalid optional semantic attention classifier without exposing its values", () => {
+    const home = createTempHome();
+    const configPath = path.join(home, "config.json");
+    const sensitiveBinaryPath = "/private/attention/classifier-with-secret-name";
+    const logger = {
+      child: vi.fn(function () {
+        return logger;
+      }),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    try {
+      writeFileSync(
+        configPath,
+        `${JSON.stringify({
+          version: 1,
+          daemon: {
+            listen: "127.0.0.1:6767",
+            slpAttentionClassifier: {
+              mode: "active",
+              binaryPath: sensitiveBinaryPath,
+              timeoutMs: 1,
+            },
+          },
+        })}\n`,
+      );
+
+      const config = loadPersistedConfig(home, logger);
+
+      expect(config.daemon?.listen).toBe("127.0.0.1:6767");
+      expect(config.daemon?.slpAttentionClassifier).toMatchObject({ mode: "off" });
+      expect(logger.warn).toHaveBeenCalledWith(
+        { configKey: "daemon.slpAttentionClassifier", issueCount: 1 },
+        "Invalid semantic attention classifier config; classifier disabled",
+      );
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(sensitiveBinaryPath);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("does not hide unrelated invalid config while disabling the classifier", () => {
+    const home = createTempHome();
+    const configPath = path.join(home, "config.json");
+    try {
+      writeFileSync(
+        configPath,
+        `${JSON.stringify({
+          version: 1,
+          daemon: {
+            listen: 6767,
+            slpAttentionClassifier: { mode: "active", timeoutMs: 1 },
+          },
+        })}\n`,
+      );
+
+      expect(() => loadPersistedConfig(home)).toThrow("daemon.listen");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

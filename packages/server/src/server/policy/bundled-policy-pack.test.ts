@@ -31,8 +31,8 @@ describe("bundled policy pack registry", () => {
     expect(first.owner).toEqual({
       kind: "plugin",
       pluginId: "slp",
-      policyVersion: "1.2.0",
-      generationDigest: "4c011117f1467c68405c3f63559f221df7d35b8f51ae6ca38dce539364844589",
+      policyVersion: "1.3.0",
+      generationDigest: "7438eb67e4813ec9d1daa21ef295272146697ac4bf957ec4c895840846ea5404",
     });
     expect(first.contribution.eventPolicies).toHaveLength(1);
     expect(first.contribution.eventPolicies[0]?.id).toBe("slp.attention");
@@ -45,9 +45,12 @@ describe("bundled policy pack registry", () => {
   test("fails closed for a removed historical generation with no compatibility fallback", () => {
     const registry = createDefaultSlpBundledPolicyRegistry();
 
-    expect(registry.resolveActive("slp").owner.policyVersion).toBe("1.2.0");
+    expect(registry.resolveActive("slp").owner.policyVersion).toBe("1.3.0");
     expect(() => registry.resolvePinned(REMOVED_HISTORICAL_OWNER)).toThrow(
       BUNDLED_POLICY_PACK_MISSING_ERROR,
+    );
+    expect(() => registry.resolvePinned(REMOVED_HISTORICAL_OWNER)).toThrow(
+      "Create a new task with the current role profile",
     );
   });
 

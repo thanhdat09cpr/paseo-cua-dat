@@ -90,6 +90,42 @@ describe("assignment envelope", () => {
     ).toThrow("assignment_contract_required: objective");
   });
 
+  test("keeps a Supervisor delegation no-write until the notebook write is granted", () => {
+    expect(
+      buildAssignmentEnvelope({
+        roleId: "supervisor",
+        effectClass: "delegation",
+        objective: "Coordinate Leads only",
+        cwd: "/repo",
+      }).mutationBoundary,
+    ).toEqual({ mode: "no-write" });
+    expect(
+      buildAssignmentEnvelope({
+        roleId: "supervisor",
+        effectClass: "delegation",
+        objective: "Coordinate Leads and keep the notebook",
+        cwd: "/repo",
+        grantSupervisorNotebook: true,
+      }).mutationBoundary,
+    ).toEqual({ mode: "bounded-write", scope: "/repo/SUPERVISOR_NOTEBOOK.md" });
+  });
+
+  test("does not grant a directory-wide write and carries exact lead-workspace grants", () => {
+    const envelope = buildAssignmentEnvelope({
+      roleId: "supervisor",
+      effectClass: "delegation",
+      objective: "Staff a product Lead",
+      cwd: "/repo",
+      grantSupervisorNotebook: true,
+      leadWorkspaceIds: [" wks_4d70c7554d658f5d ", "wks_4d70c7554d658f5d"],
+    });
+    expect(envelope.mutationBoundary).toEqual({
+      mode: "bounded-write",
+      scope: "/repo/SUPERVISOR_NOTEBOOK.md",
+    });
+    expect(envelope.resourceGrants).toEqual({ leadWorkspaceIds: ["wks_4d70c7554d658f5d"] });
+  });
+
   test("bounds bootstrap to the root protocol artifact", () => {
     expect(
       buildAssignmentEnvelope({

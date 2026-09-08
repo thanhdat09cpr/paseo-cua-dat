@@ -3,6 +3,7 @@ import {
   AssignmentContractReceiptSchema,
   AssignmentEnvelopeSchema,
   PASEO_ASSIGNMENT_CONTRACT_VERSION,
+  supervisorNotebookScopeForCwd,
   type AssignmentAssignerReceipt,
   type AssignmentContractReceipt,
   type AssignmentEnvelope,
@@ -50,6 +51,68 @@ function validateProtocolException(
   requireFuture(exception.expiresAt, now, "protocolException.expiresAt");
 }
 
+/**
+ * A bounded-write delegation lease is the narrow Supervisor-notebook contract.
+ * Trace the actual side effect and authorize it at the earliest trusted point:
+ * only a Human-session issuer may grant it, only role Supervisor may hold it,
+ * and the scope must equal exactly the notebook file in this assignment cwd.
+ * Any general directory, traversal, outside-cwd, or agent-issued scope fails.
+ */
+function validateDelegationWriteScope(
+  roleId: PaseoRoleId,
+  envelope: AssignmentEnvelope,
+  assigner: AssignmentAssignerReceipt,
+  cwd: string,
+): void {
+  if (envelope.effectClass !== "delegation" || envelope.mutationBoundary.mode !== "bounded-write") {
+    return;
+  }
+  if (roleId !== "supervisor") {
+    throw new Error(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: bounded-write delegation is limited to a Supervisor notebook`,
+    );
+  }
+  if (assigner.kind !== "human-session") {
+    throw new Error(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: Supervisor notebook write requires a Human session issuer`,
+    );
+  }
+  const expected = supervisorNotebookScopeForCwd(cwd);
+  if (envelope.mutationBoundary.scope !== expected) {
+    throw new Error(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: Supervisor notebook scope must equal ${expected}`,
+    );
+  }
+}
+
+/**
+ * The lead-workspace grant lets a Human-launched Supervisor staff a Lead into an
+ * exact existing workspace outside its own control cwd, so the separate-Supervisor
+ * topology can reach the product workspace. It is authority, not a filesystem
+ * write grant, and does not widen external effects. Only a Human-session issuer
+ * holding a Supervisor delegation lease may carry it; target existence is resolved
+ * through normal workspace resolution at child creation.
+ */
+function validateLeadWorkspaceGrant(
+  roleId: PaseoRoleId,
+  envelope: AssignmentEnvelope,
+  assigner: AssignmentAssignerReceipt,
+): void {
+  if (!envelope.resourceGrants?.leadWorkspaceIds?.length) {
+    return;
+  }
+  if (roleId !== "supervisor" || envelope.effectClass !== "delegation") {
+    throw new Error(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: lead-workspace grant is limited to a Supervisor delegation lease`,
+    );
+  }
+  if (assigner.kind !== "human-session") {
+    throw new Error(
+      `${ASSIGNMENT_CONTRACT_INVALID_ERROR}: lead-workspace grant requires a Human session issuer`,
+    );
+  }
+}
+
 function canonicalAssignmentBytes(input: {
   roleId: PaseoRoleId;
   assigner: AssignmentAssignerReceipt;
@@ -84,6 +147,8 @@ export function materializeAssignmentContract(input: {
     createdAt: now,
   });
   validateProtocolException(envelope, input.assigner, input.cwd, now);
+  validateDelegationWriteScope(input.roleId, envelope, input.assigner, input.cwd);
+  validateLeadWorkspaceGrant(input.roleId, envelope, input.assigner);
 
   const createdAt = now.toISOString();
   const receipt: AssignmentContractReceipt = {
