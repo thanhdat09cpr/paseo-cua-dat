@@ -272,6 +272,7 @@ class AntigravityNativeAgentSession implements AgentSession {
     private readonly env: Record<string, string>,
     private readonly profile: MaterializedAntigravityProfile,
     private readonly gateway: AntigravityPaseoGateway | null,
+    private readonly modeLocked: boolean,
     private readonly logger: Logger,
     conversationId?: string | null,
   ) {
@@ -460,7 +461,7 @@ class AntigravityNativeAgentSession implements AgentSession {
   }
 
   async getAvailableModes(): Promise<AgentMode[]> {
-    return MODES;
+    return this.modeLocked ? MODES.filter((mode) => mode.id === PLAN_MODE) : MODES;
   }
 
   async getCurrentMode(): Promise<string | null> {
@@ -468,6 +469,9 @@ class AntigravityNativeAgentSession implements AgentSession {
   }
 
   async setMode(modeId: string): Promise<void> {
+    if (this.modeLocked && modeId !== PLAN_MODE) {
+      throw new Error("Antigravity Watcher mode is locked to plan");
+    }
     if (!MODES.some((mode) => mode.id === modeId)) {
       throw new Error(`Unsupported Antigravity mode: ${modeId}`);
     }
@@ -588,6 +592,7 @@ export class AntigravityNativeAgentClient implements AgentClient {
         { ...this.env, ...launchContext["env"] },
         profile,
         null,
+        true,
         this.options.logger,
         conversationId,
       );
@@ -614,6 +619,7 @@ export class AntigravityNativeAgentClient implements AgentClient {
         { ...this.env, ...launchContext.env, ...gateway.env },
         profile,
         gateway,
+        false,
         this.options.logger,
         conversationId,
       );

@@ -1894,9 +1894,9 @@ test("does not register a session that finishes starting after shutdown begins",
 
 test("deduplicates concurrent project Watcher creation by project label", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-watcher-dedupe-"));
-  const client = new HeldAgentCreationClient();
+  const client = new HeldAgentCreationClient("gemini-antigravity");
   const manager = new AgentManager({
-    clients: { codex: client },
+    clients: { "gemini-antigravity": client },
     logger,
     idFactory: () => "00000000-0000-4000-8000-000000000140",
   });
@@ -1906,15 +1906,23 @@ test("deduplicates concurrent project Watcher creation by project label", async 
   };
 
   try {
-    const first = manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
-      workspaceId: "workspace-1",
-      labels,
-    });
+    const first = manager.createAgent(
+      { provider: "gemini-antigravity", cwd: workdir, systemPrompt: "watcher" },
+      undefined,
+      {
+        workspaceId: "workspace-1",
+        labels,
+      },
+    );
     await client.waitForCreationToStart();
-    const second = manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
-      workspaceId: "workspace-1",
-      labels,
-    });
+    const second = manager.createAgent(
+      { provider: "gemini-antigravity", cwd: workdir, systemPrompt: "watcher" },
+      undefined,
+      {
+        workspaceId: "workspace-1",
+        labels,
+      },
+    );
 
     client.finishCreating();
     const [firstAgent, secondAgent] = await Promise.all([first, second]);
@@ -3438,13 +3446,13 @@ test("project Watcher launch context stays outside the role and tool planes", as
       launchContext?: AgentLaunchContext,
     ): Promise<AgentSession> {
       this.launchContext = launchContext;
-      return new TestAgentSession({ provider: "codex", cwd: workdir });
+      return new TestAgentSession({ provider: "gemini-antigravity", cwd: workdir });
     }
   }
 
-  const client = new WatcherCaptureClient("codex");
+  const client = new WatcherCaptureClient("gemini-antigravity");
   const manager = new AgentManager({
-    clients: { codex: client },
+    clients: { "gemini-antigravity": client },
     registry: storage,
     logger,
     paseoToolCatalogFactory: () => paseoTools,
@@ -3454,7 +3462,7 @@ test("project Watcher launch context stays outside the role and tool planes", as
   try {
     const agent = await manager.createAgent(
       {
-        provider: "codex",
+        provider: "gemini-antigravity",
         cwd: workdir,
         systemPrompt: "bounded watcher instructions",
       },

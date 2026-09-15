@@ -228,7 +228,7 @@ Nếu project được đồng bộ trên nhiều host, dòng hiện mở host �
 multi-host aggregate chưa được chứng minh. Nếu host không quảng cáo `gemini-antigravity` khả dụng,
 không có model/mode `plan`, hoặc snapshot provider lỗi, Watcher dừng ở trạng thái unavailable/error và
 không giả lập câu trả lời cục bộ. UI/report
-và agent creation này là source candidate cho `.64`, chưa phải bằng chứng daemon `.62` đang chạy đã
+và agent creation này là source candidate cho `.65`, chưa phải bằng chứng daemon bản cũ đang chạy đã
 được reload; việc tạo session Gemini thật cần được kiểm tra riêng trên host có provider đó.
 
 ## Candidate coordination signal

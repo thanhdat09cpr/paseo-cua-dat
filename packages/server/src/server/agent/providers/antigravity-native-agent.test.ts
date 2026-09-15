@@ -179,6 +179,12 @@ describe("native Antigravity provider", () => {
         },
       );
       try {
+        await expect(session.getAvailableModes()).resolves.toEqual([
+          expect.objectContaining({ id: "plan" }),
+        ]);
+        await expect(session.setMode("full-access")).rejects.toThrow(
+          "Antigravity Watcher mode is locked to plan",
+        );
         await expect(session.run("Return AGY_OK")).resolves.toMatchObject({ finalText: "AGY_OK" });
         const argv = await readFile(argvLog, "utf8");
         expect(argv).toContain("--mode\nplan\n");

@@ -1856,9 +1856,6 @@ export class AgentManager {
       paseoToolPolicy,
       undefined,
       launchContract,
-      projectWatcherKey(input.labels)
-        ? { instructions: storedConfig.systemPrompt ?? "" }
-        : undefined,
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
     const imported = await client.importSession(
@@ -5887,6 +5884,9 @@ export class AgentManager {
     watcher?: AgentLaunchContext["watcher"],
   ): Promise<AgentLaunchContext> {
     const roleBinding = launchContract?.roleBinding;
+    if (watcher && client.provider !== "gemini-antigravity") {
+      throw new Error("Project Watcher requires the native Antigravity provider");
+    }
     if (watcher && (roleBinding || launchContract)) {
       throw new Error("Project Watcher cannot use a role-bound launch contract");
     }
