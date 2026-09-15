@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import type { FetchAgentTimelinePayload } from "@getpaseo/client/internal/daemon-client";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import {
   buildWatcherConversation,
   buildWatcherQuestionPrompt,
@@ -47,8 +47,6 @@ function formatError(error: unknown): string {
 export function useWatcherAgent(input: UseWatcherAgentInput): UseWatcherAgentResult {
   const client = useHostRuntimeClient(input.serverId);
   const session = useSessionStore((state) => state.sessions[input.serverId]);
-  const [providerEntries, setProviderEntries] = useState<ProviderSnapshotEntry[] | null>(null);
-  const [providerError, setProviderError] = useState<string | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [messages, setMessages] = useState<WatcherConversationMessage[]>([]);
   const [status, setStatus] = useState<WatcherAgentStatus>("loading");
@@ -56,6 +54,15 @@ export function useWatcherAgent(input: UseWatcherAgentInput): UseWatcherAgentRes
   const creatingRef = useRef(false);
   const creationPromiseRef = useRef<Promise<string> | null>(null);
   const askPromiseRef = useRef<Promise<void> | null>(null);
+  const {
+    entries: providerSnapshotEntries,
+    error: providerError,
+    refresh: refreshProviderSnapshot,
+  } = useProvidersSnapshot(input.serverId, {
+    cwd: input.projectRootPath,
+    enabled: Boolean(input.projectRootPath),
+  });
+  const providerEntries = providerSnapshotEntries ?? null;
   const labeledWatchers = useMemo(
     () =>
       [...(session?.agents.values() ?? [])].filter((agent) =>
@@ -127,27 +134,14 @@ export function useWatcherAgent(input: UseWatcherAgentInput): UseWatcherAgentRes
       setStatusMessage("Host chưa kết nối; Watcher chưa được khởi tạo.");
       return undefined;
     }
-    let cancelled = false;
-    setProviderEntries(null);
-    setProviderError(null);
-    void client
-      .getProvidersSnapshot({ cwd: input.projectRootPath })
-      .then((payload) => {
-        if (!cancelled) setProviderEntries(payload.entries);
-        return payload;
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          const message = formatError(error);
-          setProviderError(message);
-          setStatus("error");
-          setStatusMessage(`Không đọc được danh sách provider Gemini: ${message}`);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [client, input.projectRootPath]);
+
+  useEffect(() => {
+    if (providerError) {
+      setStatus("error");
+      setStatusMessage(`Không đọc được danh sách provider Gemini: ${providerError}`);
+    }
+  }, [providerError]);
 
   useEffect(() => {
     if (watcherAgent && !agentId) {
@@ -249,12 +243,10 @@ export function useWatcherAgent(input: UseWatcherAgentInput): UseWatcherAgentRes
       return;
     }
     if (!client || !input.projectRootPath) return;
-    const payload = await client.getProvidersSnapshot({ cwd: input.projectRootPath });
-    setProviderError(null);
-    setProviderEntries(payload.entries);
+    await refreshProviderSnapshot();
     setStatus("loading");
     setStatusMessage(null);
-  }, [agentId, client, fetchConversation, input.projectRootPath]);
+  }, [agentId, client, fetchConversation, input.projectRootPath, refreshProviderSnapshot]);
 
   const ask = useCallback(
     async (question: string) => {
