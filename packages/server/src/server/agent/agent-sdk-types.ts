@@ -602,6 +602,11 @@ export interface AgentSessionConfig {
   internal?: boolean;
 }
 
+/** Human-selected live settings that must not rewrite a role's launch receipt. */
+export interface AgentRuntimeConfigOverride {
+  model?: string;
+}
+
 interface ProviderLaunchBindingBase {
   providerId: AgentProvider;
   providerFamily: string;

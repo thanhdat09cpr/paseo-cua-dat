@@ -8,24 +8,25 @@ không phải role, provider, tool permission hoặc authority lease.
 
 Các package dưới [`skills/`](../skills/) phục vụ client hoặc coding agent đang điều khiển Paseo:
 
-| Skill                    | Dùng khi                                                                  |
-| ------------------------ | ------------------------------------------------------------------------- |
-| `paseo`                  | Quản lý workspace, agent, script, provider, schedule và heartbeat         |
-| `paseo-advisor`          | Lấy một second opinion mà không giao ownership của task                   |
-| `paseo-committee`        | Dùng hai advisor cho hard planning/root-cause question                    |
-| `council`                | Lead chạy sealed evidence review và tự ra binding verdict, không vote     |
-| `slp-blind-design`       | Lead điều phối hai hoặc ba thiết kế độc lập rồi hội tụ bằng evidence      |
-| `slp-dual-review`        | Lead điều phối hai review độc lập cùng candidate và phân xử từng finding  |
-| `slp-workspace-protocol` | Supervisor phỏng vấn Human rồi soạn/review Workspace Protocol của project |
-| `paseo-handoff`          | Chuẩn bị briefing và launch receiving agent; không transfer SLP authority |
+| Skill                    | Dùng khi                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `paseo`                  | Quản lý workspace, agent, script, provider, schedule và heartbeat                     |
+| `paseo-advisor`          | Lấy một second opinion mà không giao ownership của task                               |
+| `paseo-committee`        | Dùng hai advisor cho hard planning/root-cause question                                |
+| `council`                | Lead chạy sealed evidence review và tự ra binding verdict, không vote                 |
+| `slp-blind-design`       | Lead điều phối hai hoặc ba thiết kế độc lập rồi hội tụ bằng evidence                  |
+| `slp-dual-review`        | Lead điều phối hai review độc lập cùng candidate và phân xử từng finding              |
+| `slp-plan-and-assign`    | Lead lập kế hoạch outcome-first, đóng dependency graph và giao assignment có giới hạn |
+| `slp-workspace-protocol` | Supervisor phỏng vấn Human rồi soạn/review Workspace Protocol của project             |
+| `paseo-handoff`          | Chuẩn bị briefing và launch receiving agent; không transfer SLP authority             |
 
 Đây là product capabilities. Việc một package được install hoặc visible không cho agent quyền tạo
 workspace, launch agent, mutate repository hoặc accept engineering. Current role, exact lease và exposed
 tool catalog vẫn quyết định action hợp lệ.
 
 Product package không đồng nghĩa với global package. Canonical admission cho product skill nhạy role nằm
-tại [`skills/role-admission.json`](../skills/role-admission.json). `council`, `slp-blind-design` và
-`slp-dual-review` được admit `active` cho Lead và
+tại [`skills/role-admission.json`](../skills/role-admission.json). `council`, `slp-blind-design`,
+`slp-dual-review` và `slp-plan-and-assign` được admit `active` cho Lead và
 `packaged-disabled` cho Peer/Supervisor. `slp-workspace-protocol` ngược lại: `active` cho Supervisor và
 `packaged-disabled` cho Lead/Peer, vì đây là method soạn Workspace Protocol thuộc attention của Supervisor.
 Daemon-owned host controller loại các package trong manifest này khỏi
@@ -33,11 +34,12 @@ catalog selectable, nhưng vẫn quản lý tên của chúng để phát hiện
 bytes rồi project vào từng role-bound session, nên một Lead có thể gọi Council trong bất kỳ workspace nào
 mà không phụ thuộc `~/.agents/skills`, `~/.claude/skills` hay `~/.codex/skills`.
 
-Hai package `slp-*` là phần cá nhân hóa `PASEO_DERIVATIVE`, không phải nguyên bản doctrine.
+Các package `slp-*` là phần cá nhân hóa `PASEO_DERIVATIVE`, không phải nguyên bản doctrine.
 Lead chọn khi task khớp trigger và lease; không cần một Human invocation mới nếu quyền đã có.
 Peer nhận participant brief qua assignment, không nhận skill điều phối; Supervisor giữ attention/advisory.
 Blind design khám phá nhiều lời giải; dual review kiểm cùng một candidate ổn định và giữ từng finding
-qua các lần sửa. Chúng không thay Council hoặc `triple-review` khi workflow ấy được yêu cầu.
+qua các lần sửa; plan-and-assign đóng outcome, câu hỏi nền tảng, dependency graph và handback trước khi
+giao Peer. Các package này không thay Council hoặc `triple-review` khi workflow ấy được yêu cầu.
 Trigger Human của Council không thay đổi. Package source/admission không chứng minh build đã được
 cài hay các phiên agent mới đã thực hiện đúng workflow.
 

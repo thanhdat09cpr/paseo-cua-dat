@@ -40,6 +40,12 @@ const SERIALIZABLE_CONFIG_SCHEMA = z
   .nullable()
   .optional();
 
+const RUNTIME_CONFIG_OVERRIDE_SCHEMA = z
+  .object({
+    model: z.string().min(1).optional(),
+  })
+  .strict();
+
 const PERSISTENCE_HANDLE_SCHEMA = z
   .object({
     provider: z.string(),
@@ -84,6 +90,7 @@ const STORED_AGENT_SCHEMA = z.object({
       extra: z.record(z.string(), z.unknown()).optional(),
     })
     .optional(),
+  runtimeConfigOverride: RUNTIME_CONFIG_OVERRIDE_SCHEMA.optional(),
   features: z.array(AgentFeatureSchema).optional(),
   persistence: PERSISTENCE_HANDLE_SCHEMA,
   lastError: z.string().nullable().optional(),

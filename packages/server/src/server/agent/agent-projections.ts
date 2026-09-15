@@ -87,6 +87,7 @@ export function toStoredAgentRecord(
     lastModeId: agent.currentModeId ?? config?.modeId ?? null,
     config: config ?? null,
     runtimeInfo,
+    ...(agent.runtimeConfigOverride ? { runtimeConfigOverride: agent.runtimeConfigOverride } : {}),
     features: normalizeFeatures(agent.features),
     persistence,
     lastError: agent.lastError ?? undefined,

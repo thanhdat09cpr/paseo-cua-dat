@@ -9,6 +9,7 @@ const KNOWN_PRODUCT_ROLE_SKILLS = [
   "slp-blind-design",
   "slp-dual-review",
   "slp-workspace-protocol",
+  "slp-plan-and-assign",
 ] as const;
 
 interface RoleAdmissionRecord {

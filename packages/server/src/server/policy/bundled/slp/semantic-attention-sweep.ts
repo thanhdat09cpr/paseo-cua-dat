@@ -157,6 +157,20 @@ function checkpointAfterPage(
   };
 }
 
+function checkpointAfterUnresolvedRoute(
+  checkpoint: SemanticAttentionSweepCheckpoint,
+  now: number,
+): SemanticAttentionSweepCheckpoint {
+  // Keep the cursor and digests unchanged: no activity can be considered
+  // delivered while its owning route is unresolved or changed in flight.
+  return {
+    ...checkpoint,
+    coverage: "failed",
+    coverageDebt: Math.min(100, checkpoint.coverageDebt + 1),
+    lastSweepAt: new Date(now).toISOString(),
+  };
+}
+
 function pageCoverage(page: AgentTimelineFetchResult): SweepCoverageStatus {
   if (page.gap || page.reset || page.staleCursor) return "gap";
   return page.hasNewer ? "partial" : "complete";
@@ -320,8 +334,34 @@ export class SemanticAttentionSweep {
       const ordered = [...agents.slice(start), ...agents.slice(0, start)];
       for (const agent of ordered) {
         this.cursorAgentId = agent.id;
-        let route = await this.options.resolveRoute(agent);
-        if (!route) continue;
+        const stateNamespace =
+          this.options.resolveStateNamespace?.(agent) ?? this.options.stateNamespace;
+        const currentCheckpoint = parseSemanticAttentionSweepCheckpoint(
+          await this.options.loadCheckpoint(agent.id, stateNamespace),
+        );
+        let route: SemanticAttentionSweepRoute | null;
+        try {
+          route = await this.options.resolveRoute(agent);
+        } catch (error) {
+          this.options.dependencies.logger.warn(
+            { err: error, agentId: agent.id },
+            "Semantic attention sweep route resolution failed",
+          );
+          await this.options.saveCheckpoint(
+            agent.id,
+            stateNamespace,
+            checkpointAfterUnresolvedRoute(currentCheckpoint, (this.options.now ?? Date.now)()),
+          );
+          continue;
+        }
+        if (!route) {
+          await this.options.saveCheckpoint(
+            agent.id,
+            stateNamespace,
+            checkpointAfterUnresolvedRoute(currentCheckpoint, (this.options.now ?? Date.now)()),
+          );
+          continue;
+        }
         if (this.options.resolveProjectScope) {
           try {
             route = { ...route, ...(await this.options.resolveProjectScope(agent)) };
@@ -330,14 +370,14 @@ export class SemanticAttentionSweep {
               { err: error, agentId: agent.id },
               "Semantic attention sweep project scope could not be resolved",
             );
+            await this.options.saveCheckpoint(
+              agent.id,
+              stateNamespace,
+              checkpointAfterUnresolvedRoute(currentCheckpoint, (this.options.now ?? Date.now)()),
+            );
             continue;
           }
         }
-        const stateNamespace =
-          this.options.resolveStateNamespace?.(agent) ?? this.options.stateNamespace;
-        const currentCheckpoint = parseSemanticAttentionSweepCheckpoint(
-          await this.options.loadCheckpoint(agent.id, stateNamespace),
-        );
         const now = (this.options.now ?? Date.now)();
         const lastSweep = Date.parse(currentCheckpoint.lastSweepAt ?? "");
         // The lightweight scheduler drains due sources within the existing model rate limit.
@@ -366,19 +406,17 @@ export class SemanticAttentionSweep {
         }
         const changed = changedRows(currentCheckpoint, page);
         if (changed.length === 0) {
-          if (page.rows.length > 0) {
-            await this.options.saveCheckpoint(
-              agent.id,
-              stateNamespace,
-              checkpointAfterPage(
-                currentCheckpoint,
-                page,
-                pageCoverage(page),
-                (this.options.now ?? Date.now)(),
-                true,
-              ),
-            );
-          }
+          await this.options.saveCheckpoint(
+            agent.id,
+            stateNamespace,
+            checkpointAfterPage(
+              currentCheckpoint,
+              page,
+              pageCoverage(page),
+              (this.options.now ?? Date.now)(),
+              true,
+            ),
+          );
           continue;
         }
         const bounded = rowsForBoundedPacket(
@@ -412,7 +450,7 @@ export class SemanticAttentionSweep {
             checkpointAfterPage(
               currentCheckpoint,
               { ...page, rows: evaluatedRows },
-              "partial",
+              pageCoverage(page) === "gap" ? "gap" : "partial",
               (this.options.now ?? Date.now)(),
               true,
             ),
@@ -451,6 +489,11 @@ export class SemanticAttentionSweep {
           this.options.dependencies.logger.info(
             { agentId: agent.id },
             "Semantic attention sweep route changed before delivery",
+          );
+          await this.options.saveCheckpoint(
+            agent.id,
+            stateNamespace,
+            checkpointAfterUnresolvedRoute(currentCheckpoint, (this.options.now ?? Date.now)()),
           );
           return { status: "evaluated", agentId: agent.id, reason: "topology_changed" };
         }
@@ -495,18 +538,21 @@ export class SemanticAttentionSweep {
             result.decision,
           );
         }
-        const coverage: SweepCoverageStatus =
-          page.gap ||
-          page.reset ||
-          page.staleCursor ||
+        let coverage: SweepCoverageStatus;
+        if (pageCoverage(page) === "gap") {
+          coverage = "gap";
+        } else if (
           page.hasNewer ||
           (!currentCheckpoint.epoch && page.hasOlder) ||
           Boolean(bounded.pendingRow) ||
           report.coverage.contentTruncated ||
           report.coverage.omittedVisibleEntries > 0 ||
           evaluatedRows.length < page.rows.length
-            ? "partial"
-            : "complete";
+        ) {
+          coverage = "partial";
+        } else {
+          coverage = "complete";
+        }
         await this.options.saveCheckpoint(
           agent.id,
           stateNamespace,

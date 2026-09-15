@@ -1,10 +1,12 @@
 import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react-native";
 import { composeRoleInstructionBase } from "@getpaseo/protocol/role-profile";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 
+import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { FormTextInput } from "@/components/ui/form-field";
+import type { EditingTextInputHandle } from "@/components/ui/text-input";
 import type { Theme } from "@/styles/theme";
 
 const MAX_CUSTOM_INSTRUCTION_CHARS = 16_384;
@@ -81,10 +83,35 @@ export function RoleInstructionEditor({
   onChangeCustomInstructions: (value: string) => void;
   roleId: string;
 }) {
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const inlineInputRef = useRef<EditingTextInputHandle | null>(null);
+  const expandedInputRef = useRef<EditingTextInputHandle | null>(null);
   const effectivePreview = useMemo(() => {
     const custom = customInstructions.trim();
     return composeRoleInstructionBase(foundationInstructions, custom || undefined);
   }, [customInstructions, foundationInstructions]);
+  const reviewHeader = useMemo<SheetHeader>(
+    () => ({ title: `Human custom instructions · ${roleId}` }),
+    [roleId],
+  );
+  const handleOpenReview = useCallback(() => setReviewOpen(true), []);
+  const handleCloseReview = useCallback(() => setReviewOpen(false), []);
+  const syncEditorValues = useCallback((value: string) => {
+    if (inlineInputRef.current?.getText() !== value) {
+      inlineInputRef.current?.replaceText(value);
+    }
+    if (expandedInputRef.current?.getText() !== value) {
+      expandedInputRef.current?.replaceText(value);
+    }
+  }, []);
+  const handleCustomInstructionsChange = useCallback(
+    (value: string) => {
+      onChangeCustomInstructions(value);
+      syncEditorValues(value);
+    },
+    [onChangeCustomInstructions, syncEditorValues],
+  );
+  useEffect(() => syncEditorValues(customInstructions), [customInstructions, syncEditorValues]);
 
   return (
     <View style={styles.container} testID={`role-instructions-${roleId}`}>
@@ -108,14 +135,25 @@ export function RoleInstructionEditor({
       <View style={styles.customBlock}>
         <View style={styles.customTitleRow}>
           <Text style={styles.title}>Human custom instructions</Text>
-          <Text style={styles.counter}>
-            {customInstructions.length}/{MAX_CUSTOM_INSTRUCTION_CHARS}
-          </Text>
+          <View style={styles.customTitleActions}>
+            <Text style={styles.counter}>
+              {customInstructions.length}/{MAX_CUSTOM_INSTRUCTION_CHARS}
+            </Text>
+            <Pressable
+              onPress={handleOpenReview}
+              accessibilityRole="button"
+              accessibilityLabel="Open Human custom instructions in a larger editor"
+              testID={`role-instructions-${roleId}-expand`}
+            >
+              <Text style={styles.expandAction}>Open full editor</Text>
+            </Pressable>
+          </View>
         </View>
         <FormTextInput
+          ref={inlineInputRef}
           initialValue={savedCustomInstructions}
           resetKey={`${roleId}:${savedCustomInstructions}`}
-          onChangeText={onChangeCustomInstructions}
+          onChangeText={handleCustomInstructionsChange}
           editable={editable}
           multiline
           maxLength={MAX_CUSTOM_INSTRUCTION_CHARS}
@@ -139,6 +177,42 @@ export function RoleInstructionEditor({
       >
         <InstructionText text={effectivePreview} testID={`effective-${roleId}-content`} />
       </InstructionDisclosure>
+
+      <AdaptiveModalSheet
+        header={reviewHeader}
+        visible={reviewOpen}
+        onClose={handleCloseReview}
+        snapPoints={["90%"]}
+        desktopMaxWidth={760}
+        testID={`role-instructions-${roleId}-editor-sheet`}
+      >
+        <View style={styles.reviewBody}>
+          <Text style={styles.hint}>
+            Review the full draft here. Foundation remains read only; changes still apply only to
+            agents created after save.
+          </Text>
+          <FormTextInput
+            ref={expandedInputRef}
+            initialValue={customInstructions}
+            resetKey={`${roleId}:${reviewOpen ? "open" : "closed"}`}
+            onChangeText={handleCustomInstructionsChange}
+            editable={editable}
+            multiline
+            maxLength={MAX_CUSTOM_INSTRUCTION_CHARS}
+            textAlignVertical="top"
+            placeholder={
+              editable
+                ? "Add role-specific guidance without editing Foundation…"
+                : "Update the daemon to edit Human role instructions."
+            }
+            style={styles.reviewInput}
+            testID={`role-instructions-${roleId}-expanded-custom`}
+          />
+          <Text style={styles.counter}>
+            {customInstructions.length}/{MAX_CUSTOM_INSTRUCTION_CHARS}
+          </Text>
+        </View>
+      </AdaptiveModalSheet>
     </View>
   );
 }
@@ -200,10 +274,28 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[2],
   },
+  customTitleActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+  },
   counter: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.xs },
+  expandAction: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+  },
   customInput: {
     minHeight: 160,
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
+  },
+  reviewBody: { gap: theme.spacing[3], minHeight: 520 },
+  reviewInput: {
+    flex: 1,
+    minHeight: 440,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
   },
 }));

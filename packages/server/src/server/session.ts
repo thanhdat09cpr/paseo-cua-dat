@@ -1041,12 +1041,16 @@ export class Session {
         },
         setMode: async (agentId, modeId) =>
           (await setAgentModeCommand({ agentManager }, { agentId, modeId })).notice,
-        setModel: (agentId, modelId) => agentManager.setAgentModel(agentId, modelId),
+        setModel: (agentId, modelId, allowRoleBoundOverride) =>
+          allowRoleBoundOverride
+            ? agentManager.setAgentRoleModelOverride(agentId, modelId)
+            : agentManager.setAgentModel(agentId, modelId),
         setFeature: (agentId, featureId, value) =>
           agentManager.setAgentFeature(agentId, featureId, value),
         setThinking: (agentId, thinkingOptionId) =>
           agentManager.setAgentThinkingOption(agentId, thinkingOptionId),
       },
+      canOverrideRoleBoundModel: () => this.authorization.allowsPermission("workspace.manage"),
       logger: this.sessionLogger,
     });
     this.projectConfigSession = new ProjectConfigSession({

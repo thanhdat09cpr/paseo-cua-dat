@@ -433,6 +433,97 @@ describe("bundled SLP attention policy", () => {
     runtime.stop();
   });
 
+  test("routes periodic Peer activity through its Lead to the delegated Supervisor", async () => {
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(async (packet: { evidenceRefs: string[] }) => ({
+        status: "classified" as const,
+        decision: {
+          decision: "wake_candidate" as const,
+          risk: "high" as const,
+          confidence: 0.95,
+          reason: "Peer activity warrants a topology-aware review.",
+          evidenceRefs: packet.evidenceRefs,
+        },
+      })),
+    };
+    const harness = createHarness({ classifier, projectId: "project-peer-periodic" });
+    harness.addAgent({
+      id: "supervisor-control",
+      roleId: "supervisor",
+      workspaceId: "control-workspace",
+    });
+    harness.addAgent({
+      id: "lead-project",
+      roleId: "lead",
+      parentAgentId: "supervisor-control",
+      workspaceId: "project-workspace",
+    });
+    harness.addAgent({
+      id: "peer-project",
+      roleId: "peer",
+      parentAgentId: "lead-project",
+      workspaceId: "project-workspace",
+    });
+    harness.setTimeline("peer-project", [
+      timelineRow(1, { type: "assistant_message", text: "Peer activity needs review." }),
+    ]);
+    const runtime = harness.start();
+
+    harness.tickPeriodic();
+    await vi.waitFor(() => expect(classifier.classify).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(harness.records.get("supervisor-control")?.coordinationSignals).toHaveLength(1),
+    );
+    expect(harness.records.get("supervisor-control")?.coordinationSignals?.[0]).toMatchObject({
+      relatedAgentId: "peer-project",
+      recipientRole: "supervisor",
+      customEvent: "slp.semantic_friction",
+      evidence: {
+        sourceAgentRole: "peer",
+        owningLeadAgentId: "lead-project",
+      },
+    });
+    expect(harness.records.get("lead-project")?.coordinationSignals).toBeUndefined();
+    expect(harness.records.get("peer-project")?.coordinationSignals).toBeUndefined();
+    runtime.stop();
+  });
+
+  test("fails closed for an ambiguous or unrelated periodic Supervisor route", async () => {
+    const classifier = {
+      mode: "active" as const,
+      classify: vi.fn(),
+    } satisfies EventPolicySemanticAttentionClassifier;
+    const harness = createHarness({ classifier, projectId: "project-ambiguous-periodic" });
+    harness.addAgent({ id: "supervisor-1", roleId: "supervisor" });
+    harness.addAgent({ id: "supervisor-2", roleId: "supervisor" });
+    harness.addAgent({ id: "lead-project", roleId: "lead" });
+    harness.addAgent({
+      id: "peer-project",
+      roleId: "peer",
+      parentAgentId: "lead-project",
+    });
+    harness.setTimeline("peer-project", [
+      timelineRow(1, { type: "assistant_message", text: "Peer activity is unrouted." }),
+    ]);
+    const runtime = harness.start();
+
+    harness.tickPeriodic();
+    await vi.waitFor(() =>
+      expect(
+        harness.records.get("peer-project")?.eventPolicyStates?.["static/slp.attention"],
+      ).toMatchObject({
+        version: 6,
+        state: { sweepCheckpoint: { coverage: "failed", coverageDebt: 1 } },
+      }),
+    );
+    expect(classifier.classify).not.toHaveBeenCalled();
+    expect(harness.records.get("supervisor-1")?.coordinationSignals).toBeUndefined();
+    expect(harness.records.get("supervisor-2")?.coordinationSignals).toBeUndefined();
+    expect(harness.records.get("lead-project")?.coordinationSignals).toBeUndefined();
+    runtime.stop();
+  });
+
   test("classifies sparse semantic friction and ignores ordinary output", () => {
     expect(classifySemanticFriction("Hold on, I overlooked the ownership contract.")).toMatchObject(
       {

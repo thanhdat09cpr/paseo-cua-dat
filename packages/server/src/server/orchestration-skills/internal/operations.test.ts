@@ -107,7 +107,7 @@ describe("getSkillsStatus", () => {
   it.each([true, false])(
     "excludes independent workflows from global installation with manifest present=%s",
     async (manifestPresent) => {
-      const names = ["slp-blind-design", "slp-dual-review"];
+      const names = ["slp-blind-design", "slp-dual-review", "slp-plan-and-assign"];
       await writeCurrentBundle(sandbox.targets.sourceDir);
       for (const name of names) {
         await writeBundleSkill(sandbox.targets.sourceDir, name, { "SKILL.md": name });

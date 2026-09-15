@@ -55,10 +55,14 @@ catalog hiện tại và không nhận role/system-prompt override.
 
 Ngay trước launch, daemon compose `RoleBinding` với exact provider route thành một immutable
 `LaunchContract`. Contract pin `roleId`, logical `providerId`, provider family, model,
-`model_provider`, auth method, credential readiness và exact internal route bytes. Agent đã bind không đổi
-model tại chỗ; muốn đổi role/provider/model phải spawn agent mới. Public snapshot, MCP create result và
-`paseo agent inspect` chỉ trả secret-safe receipt cùng `credentialConfigured`, không trả base URL,
-`credentialRef`, credential-file path hoặc secret.
+`model_provider`, auth method, credential readiness và exact internal route bytes. Agent đã bind giữ
+nguyên role, provider, credential route, mode và assignment trong contract. Human session có
+`workspace.manage` có thể đổi model đang chạy hoặc thinking option nếu provider hỗ trợ; model này được
+lưu thành runtime override riêng, không sửa LaunchContract, và được áp dụng lại khi resume/reload. Xóa
+override trả về model đã pin lúc launch. Muốn đổi role, provider, credential route, mode hoặc assignment
+vẫn phải spawn agent mới. Public snapshot, MCP create result và `paseo agent inspect` chỉ trả
+secret-safe receipt cùng `credentialConfigured`, không trả base URL, `credentialRef`, credential-file
+path hoặc secret.
 
 Role catalog là một registry provider-neutral do Paseo sở hữu, pin `ROLE_CONTRACTS` version và doctrine precedence `Human → Deep Dive → Role Contract/Workspace Protocol → current evidence`; Giáo Án Herdr là extended historical evidence, không override source hiện hành. Đây là một catalog chung, không phải ba bản role config nhân với từng provider. `definitionDigest` làm drift visible; thay standing bytes phải đi cùng contract/version decision mới.
 
@@ -264,7 +268,8 @@ Không restart daemon hoặc mutate user credentials/provider activation trong i
   model-visible mandatory Paseo tools phải fail closed trước interactive model turn.
 - Execution specialization chỉ được role-bound Lead chọn cho fresh Peer, giữ exact profile receipt/bytes
   qua LaunchContract và resume, và bị redacted khỏi generic role receipt.
-- Resume/reload giữ exact provider route và model; model mutation trên role-bound agent bị reject.
+- Resume/reload giữ exact provider route và launch model trong LaunchContract. Human live model override
+  chỉ đổi provider runtime, được persist/reapply riêng và không mở rộng role, assignment hoặc authority.
 - Assignment `no-write` phải persist và launch bằng exact qualified no-write mode; provider thiếu mode
   đó bị reject trước session launch.
 - Role-bound no-write session từ chối mode switch ra khỏi pinned mode và permission response `allow`

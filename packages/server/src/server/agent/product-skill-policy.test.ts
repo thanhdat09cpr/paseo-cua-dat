@@ -130,6 +130,28 @@ describe("product role skill policy", () => {
     },
   );
 
+  test.each(["lead", "peer", "supervisor"] as const)(
+    "admits plan-and-assign only to Lead from the canonical manifest for %s",
+    (role) => {
+      const root = path.resolve(import.meta.dirname, "../../../../../skills");
+      const policy = loadProductSkillPolicy(role, root);
+      const enabled = role === "lead";
+
+      expect(policy.packageNames).toContain("slp-plan-and-assign");
+      expect(policy.enabledNames.has("slp-plan-and-assign")).toBe(enabled);
+      expect(
+        filterProductSkills(
+          [{ name: "slp-plan-and-assign" }, { name: "slp-plan-and-assign:slp-plan-and-assign" }],
+          policy,
+        ),
+      ).toEqual(
+        enabled
+          ? [{ name: "slp-plan-and-assign" }, { name: "slp-plan-and-assign:slp-plan-and-assign" }]
+          : [],
+      );
+    },
+  );
+
   test.each(["missing", "invalid", "missing-package"])(
     "keeps known independent workflows disabled when admission is %s",
     (failure) => {

@@ -2058,7 +2058,9 @@ export const AgentControls = memo(function AgentControls({
         modelOptions={modelOptions}
         selectedModelId={modelSelection.activeModelId ?? undefined}
         onSelectModel={handleSelectModel}
-        modelSelectionDisabled={Boolean(agent.launchContract)}
+        // Role-bound agents keep their immutable launch receipt, but Human
+        // sessions may choose a live model override through the daemon gate.
+        modelSelectionDisabled={false}
         agentProfiles={agentProfiles}
         onApplyAgentProfile={agentProfiles?.applyProfile}
         onEditAgentProfiles={handleEditAgentProfiles}

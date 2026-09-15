@@ -11,7 +11,11 @@ import type { SessionOutboundMessage } from "../../messages.js";
 class FakeAgentConfigOperations implements AgentConfigOperations {
   readonly loadedAgentIds: string[] = [];
   readonly modeCalls: Array<{ agentId: string; modeId: string }> = [];
-  readonly modelCalls: Array<{ agentId: string; modelId: string | null }> = [];
+  readonly modelCalls: Array<{
+    agentId: string;
+    modelId: string | null;
+    allowRoleBoundOverride?: boolean;
+  }> = [];
   readonly featureCalls: Array<{ agentId: string; featureId: string; value: unknown }> = [];
   readonly thinkingCalls: Array<{ agentId: string; thinkingOptionId: string | null }> = [];
   /** Cross-operation ordering, which the per-operation arrays above cannot show. */
@@ -33,8 +37,12 @@ class FakeAgentConfigOperations implements AgentConfigOperations {
     return this.modeNotice;
   }
 
-  async setModel(agentId: string, modelId: string | null): Promise<void> {
-    this.modelCalls.push({ agentId, modelId });
+  async setModel(
+    agentId: string,
+    modelId: string | null,
+    allowRoleBoundOverride?: boolean,
+  ): Promise<void> {
+    this.modelCalls.push({ agentId, modelId, allowRoleBoundOverride });
     this.callLog.push("model");
     if (this.failWith) throw this.failWith;
   }
@@ -170,13 +178,41 @@ describe("AgentConfigSession", () => {
       requestId: "req-1",
     });
 
-    expect(operations.modelCalls).toEqual([{ agentId: "agent-1", modelId: "claude-opus-4-8" }]);
+    expect(operations.modelCalls).toEqual([
+      { agentId: "agent-1", modelId: "claude-opus-4-8", allowRoleBoundOverride: false },
+    ]);
     expect(emitted).toEqual([
       {
         type: "set_agent_model_response",
         payload: { requestId: "req-1", agentId: "agent-1", accepted: true, error: null },
       },
     ]);
+  });
+
+  test("set model: passes the Human role-bound override gate when enabled", async () => {
+    const emitted: SessionOutboundMessage[] = [];
+    const operations = new FakeAgentConfigOperations();
+    const subsystem = new AgentConfigSession({
+      host: { emit: (msg) => emitted.push(msg) },
+      operations,
+      canOverrideRoleBoundModel: () => true,
+      logger: pino({ level: "silent" }),
+    });
+
+    await subsystem.handleSetAgentModelRequest({
+      type: "set_agent_model_request",
+      agentId: "agent-1",
+      modelId: "gpt-5.4-mini",
+      requestId: "req-role-model",
+    });
+
+    expect(operations.modelCalls).toEqual([
+      { agentId: "agent-1", modelId: "gpt-5.4-mini", allowRoleBoundOverride: true },
+    ]);
+    expect(emitted.at(-1)).toMatchObject({
+      type: "set_agent_model_response",
+      payload: { accepted: true, requestId: "req-role-model" },
+    });
   });
 
   test("set model: a failed mutation reports the model-specific failure text", async () => {
@@ -325,7 +361,9 @@ describe("AgentConfigSession", () => {
     });
 
     expect(operations.callLog).toEqual(["model", "mode", "thinking", "feature:webSearch"]);
-    expect(operations.modelCalls).toEqual([{ agentId: "agent-1", modelId: "opus-5" }]);
+    expect(operations.modelCalls).toEqual([
+      { agentId: "agent-1", modelId: "opus-5", allowRoleBoundOverride: false },
+    ]);
     expect(operations.modeCalls).toEqual([{ agentId: "agent-1", modeId: "plan" }]);
     expect(operations.thinkingCalls).toEqual([{ agentId: "agent-1", thinkingOptionId: "high" }]);
     expect(operations.featureCalls).toEqual([
@@ -369,7 +407,9 @@ describe("AgentConfigSession", () => {
       requestId: "req-1",
     });
 
-    expect(operations.modelCalls).toEqual([{ agentId: "agent-1", modelId: null }]);
+    expect(operations.modelCalls).toEqual([
+      { agentId: "agent-1", modelId: null, allowRoleBoundOverride: false },
+    ]);
     expect(operations.thinkingCalls).toEqual([{ agentId: "agent-1", thinkingOptionId: null }]);
   });
 

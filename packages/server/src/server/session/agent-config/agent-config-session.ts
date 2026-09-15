@@ -27,7 +27,11 @@ export interface AgentConfigSessionHost {
 export interface AgentConfigOperations {
   ensureLoaded(agentId: string): Promise<void>;
   setMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null>;
-  setModel(agentId: string, modelId: string | null): Promise<void>;
+  setModel(
+    agentId: string,
+    modelId: string | null,
+    allowRoleBoundOverride?: boolean,
+  ): Promise<void>;
   setFeature(agentId: string, featureId: string, value: unknown): Promise<void>;
   setThinking(
     agentId: string,
@@ -38,6 +42,7 @@ export interface AgentConfigOperations {
 export interface AgentConfigSessionOptions {
   host: AgentConfigSessionHost;
   operations: AgentConfigOperations;
+  canOverrideRoleBoundModel?: () => boolean;
   logger: pino.Logger;
 }
 
@@ -61,11 +66,13 @@ interface ConfigChange {
 export class AgentConfigSession {
   private readonly host: AgentConfigSessionHost;
   private readonly operations: AgentConfigOperations;
+  private readonly canOverrideRoleBoundModel: () => boolean;
   private readonly logger: pino.Logger;
 
   constructor(options: AgentConfigSessionOptions) {
     this.host = options.host;
     this.operations = options.operations;
+    this.canOverrideRoleBoundModel = options.canOverrideRoleBoundModel ?? (() => false);
     this.logger = options.logger;
   }
 
@@ -95,7 +102,7 @@ export class AgentConfigSession {
       logFields: { agentId, modelId, requestId },
       failureText: "Failed to set agent model",
       run: async () => {
-        await this.operations.setModel(agentId, modelId);
+        await this.operations.setModel(agentId, modelId, this.canOverrideRoleBoundModel());
         return undefined;
       },
       emitResponse: (payload) => this.host.emit({ type: "set_agent_model_response", payload }),
@@ -177,7 +184,7 @@ export class AgentConfigSession {
     let notice: AgentProviderNotice | null = null;
 
     if (config.modelId !== undefined) {
-      await this.operations.setModel(agentId, config.modelId);
+      await this.operations.setModel(agentId, config.modelId, this.canOverrideRoleBoundModel());
     }
     if (config.modeId !== undefined) {
       // Await first, assign second: `notice ??= await ...` would skip the call

@@ -551,6 +551,10 @@ class TestAgentSession implements AgentSession {
 
   async setMode(): Promise<void> {}
 
+  async setModel(modelId: string | null): Promise<void> {
+    this.runtimeModel = modelId;
+  }
+
   getPendingPermissions() {
     return [];
   }
@@ -11924,6 +11928,21 @@ test("role-bound create persists immutable binding and passes only launch instru
     await expect(manager.setAgentModel(created.id, "gpt-5.4-mini")).rejects.toThrow(
       "Cannot change model on role-bound agent",
     );
+    await manager.setAgentRoleModelOverride(created.id, "gpt-5.4-mini");
+    await manager.flush();
+    expect(manager.getAgent(created.id)?.config.model).toBe("gpt-5.4");
+    expect(manager.getAgent(created.id)?.runtimeInfo?.model).toBe("gpt-5.4-mini");
+    expect((await storage.get(created.id))?.runtimeConfigOverride).toEqual({
+      model: "gpt-5.4-mini",
+    });
+    expect(client.launchContexts[1]?.providerLaunchBinding?.model).toBe("gpt-5.4");
+    await manager.reloadAgentSession(created.id);
+    expect(manager.getAgent(created.id)?.runtimeInfo?.model).toBe("gpt-5.4-mini");
+    expect(client.launchContexts[2]?.providerLaunchBinding?.model).toBe("gpt-5.4");
+    await manager.setAgentRoleModelOverride(created.id, null);
+    await manager.flush();
+    expect(manager.getAgent(created.id)?.runtimeInfo?.model).toBe("gpt-5.4");
+    expect((await storage.get(created.id))?.runtimeConfigOverride).toBeUndefined();
     await expect(manager.setAgentMode(created.id, "auto")).rejects.toThrow(
       "assignment_capability_boundary_required",
     );
@@ -11949,7 +11968,89 @@ test("role-bound create persists immutable binding and passes only launch instru
     await expect(manager.reloadAgentSession(created.id)).rejects.toThrow(
       "workspace_protocol_admission_required: stale_digest",
     );
-    expect(client.launchContexts).toHaveLength(2);
+    expect(client.launchContexts).toHaveLength(3);
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("restores a role-bound model override when provider persistence is unavailable", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-role-model-fallback-"));
+  writeFileSync(
+    join(workdir, "WORKSPACE_PROTOCOL.md"),
+    buildWorkspaceProtocolTemplate(workdir),
+    "utf8",
+  );
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+
+  class NoPersistenceRoleClient extends TestAgentClient {
+    override readonly capabilities = {
+      ...TEST_CAPABILITIES,
+      supportsMcpServers: true,
+      supportsNativePaseoTools: true,
+    };
+
+    async materializeProviderLaunchBinding(input: { config: AgentSessionConfig }) {
+      if (!input.config.model) throw new Error("missing test model");
+      return {
+        providerId: "codex",
+        providerFamily: "codex",
+        model: input.config.model,
+        credentialConfigured: true as const,
+        routeKind: "codex-subscription" as const,
+        modelProviderId: "openai" as const,
+        authMethod: "codex-native" as const,
+      };
+    }
+
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const session = new TestAgentSession(config);
+      Object.defineProperty(session, "describePersistence", { value: () => null });
+      return session;
+    }
+  }
+
+  const firstManager = new AgentManager({
+    clients: { codex: new NoPersistenceRoleClient() },
+    bundledPolicyPacks: createDefaultSlpBundledPolicyRegistry(),
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000129",
+  });
+
+  try {
+    const created = await firstManager.createAgent(
+      { provider: "codex", cwd: workdir, model: "gpt-5.4" },
+      undefined,
+      {
+        workspaceId: "workspace-role-model-fallback",
+        roleId: "lead",
+        assignment: leadAssignment(),
+      },
+    );
+    await firstManager.setAgentRoleModelOverride(created.id, "gpt-5.4-mini");
+    await firstManager.flush();
+
+    const stored = await storage.get(created.id);
+    if (!stored) throw new Error("missing stored role-bound agent");
+    await storage.upsert({ ...stored, persistence: null });
+
+    const secondManager = new AgentManager({
+      clients: { codex: new NoPersistenceRoleClient() },
+      bundledPolicyPacks: createDefaultSlpBundledPolicyRegistry(),
+      registry: storage,
+      logger,
+    });
+    const restored = await ensureAgentLoaded(created.id, {
+      agentManager: secondManager,
+      agentStorage: storage,
+      logger,
+    });
+
+    expect(restored.runtimeInfo?.model).toBe("gpt-5.4-mini");
+    expect((await storage.get(created.id))?.runtimeConfigOverride).toEqual({
+      model: "gpt-5.4-mini",
+    });
   } finally {
     rmSync(workdir, { recursive: true, force: true });
   }

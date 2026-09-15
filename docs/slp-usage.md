@@ -79,7 +79,10 @@ Agent profile là route shortlist do Human cấu hình, không phải role profi
 `list_profiles`, đọc routing notes, bỏ qua preset thiếu model, rồi verify candidate bằng
 `list_providers`/`list_models`/`inspect_provider`. Với customized `create_agent`, Lead ghép
 `provider/model` vào `provider` và đặt mode, thinking, features dưới `settings`. Preset không cấp
-assignment authority và không được apply lên live role-bound agent; đổi route cần create replacement.
+assignment authority và không apply nguyên gói lên live role-bound agent. Human vẫn có thể đổi model
+đang chạy và thinking/effort từ **Agent controls** khi provider hỗ trợ; model override được lưu riêng
+và không sửa LaunchContract. Provider, credential, role, mode, assignment và authority vẫn giữ nguyên;
+đổi các phần đó cần create replacement.
 
 Daemon ép mọi role-bound **Lead**, **Peer** và **Supervisor** sang mode unattended: Claude dùng
 `bypassPermissions`, Codex dùng `full-access` (`approvalPolicy: never`, sandbox
@@ -96,11 +99,13 @@ Trong **Settings → Host → Role profiles**, mỗi role có ba phần tách bi
 - **Human custom instructions**: overlay mutable do Human lưu trên host;
 - **Effective role base for new agents**: preview baseline cộng overlay theo đúng thứ tự compose.
 
-Overlay chỉ áp dụng khi daemon materialize role binding cho agent mới. Agent đang chạy và binding đã
-persist không đổi; muốn áp dụng phải tạo replacement theo authority hiện có. Reset xóa riêng Human
-overlay và trả preview về Foundation baseline. Overlay không thay đổi normative SLP authority hoặc
-Paseo MCP tool/topology ceiling. Với policy unattended đã chọn, native shell/file tools của Codex và
-Claude bounded-write không được daemon technically contain theo mutation/external-effect envelope.
+Mở **Open full editor** để review hoặc sửa toàn bộ Human custom instructions trong một sheet lớn hơn;
+Foundation vẫn read-only. Overlay chỉ áp dụng khi daemon materialize role binding cho agent mới. Agent
+đang chạy và binding đã persist không đổi; muốn áp dụng instruction mới phải tạo replacement theo
+authority hiện có. Reset xóa riêng Human overlay và trả preview về Foundation baseline. Overlay không
+thay đổi normative SLP authority hoặc Paseo MCP tool/topology ceiling. Với policy unattended đã chọn,
+native shell/file tools của Codex và Claude bounded-write không được daemon technically contain theo
+mutation/external-effect envelope.
 
 Ở agent-scoped action boundary, Lead đã bind role chỉ được tạo `role=peer` và prompt direct Peer child.
 Supervisor với delegation lease chỉ được tạo `role=lead` và prompt direct Lead child. Observe Supervisor

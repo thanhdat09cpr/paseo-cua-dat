@@ -5777,7 +5777,9 @@ describe("agent config setters", () => {
     const messages: SessionOutboundMessage[] = [];
     const session = createSessionForTest({
       messages,
-      agentManager: liveAgentManager({ setAgentModel: vi.fn().mockResolvedValue(undefined) }),
+      agentManager: liveAgentManager({
+        setAgentRoleModelOverride: vi.fn().mockResolvedValue(undefined),
+      }),
     });
 
     await session.handleMessage({
@@ -5795,12 +5797,35 @@ describe("agent config setters", () => {
     ]);
   });
 
+  test("set_agent_model_request: without workspace.manage keeps the ordinary model path", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const setAgentModel = vi.fn().mockResolvedValue(undefined);
+    const session = createSessionForTest({
+      messages,
+      permissions: ["workspace.write"],
+      agentManager: liveAgentManager({ setAgentModel }),
+    });
+
+    await session.handleMessage({
+      type: "set_agent_model_request",
+      agentId: "agent-1",
+      modelId: "claude-opus-4-8",
+      requestId: "req-model-write-only",
+    });
+
+    expect(setAgentModel).toHaveBeenCalledWith("agent-1", "claude-opus-4-8");
+    expect(messages.at(-1)).toMatchObject({
+      type: "set_agent_model_response",
+      payload: { requestId: "req-model-write-only", accepted: true },
+    });
+  });
+
   test("set_agent_model_request: failure emits the activity_log error frame before the rejected response", async () => {
     const messages: SessionOutboundMessage[] = [];
     const session = createSessionForTest({
       messages,
       agentManager: liveAgentManager({
-        setAgentModel: vi.fn().mockRejectedValue(new Error("model boom")),
+        setAgentRoleModelOverride: vi.fn().mockRejectedValue(new Error("model boom")),
       }),
     });
 

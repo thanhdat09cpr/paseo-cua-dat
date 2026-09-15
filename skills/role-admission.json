@@ -12,11 +12,15 @@
     },
     "slp-workspace-protocol": {
       "provenance": "PASEO_DERIVATIVE"
+    },
+    "slp-plan-and-assign": {
+      "provenance": "PASEO_DERIVATIVE",
+      "source": "codex-room-setup/slp-plan-and-assign"
     }
   },
   "roles": {
     "lead": {
-      "active": ["council", "slp-blind-design", "slp-dual-review"],
+      "active": ["council", "slp-blind-design", "slp-dual-review", "slp-plan-and-assign"],
       "explicitOnly": [],
       "packagedDisabled": ["slp-workspace-protocol"]
     },
@@ -27,13 +31,14 @@
         "council",
         "slp-blind-design",
         "slp-dual-review",
-        "slp-workspace-protocol"
+        "slp-workspace-protocol",
+        "slp-plan-and-assign"
       ]
     },
     "supervisor": {
       "active": ["slp-workspace-protocol"],
       "explicitOnly": [],
-      "packagedDisabled": ["council", "slp-blind-design", "slp-dual-review"]
+      "packagedDisabled": ["council", "slp-blind-design", "slp-dual-review", "slp-plan-and-assign"]
     }
   }
 }

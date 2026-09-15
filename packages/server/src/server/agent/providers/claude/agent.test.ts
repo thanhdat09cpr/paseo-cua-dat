@@ -901,6 +901,11 @@ describe("ClaudeAgentSession features", () => {
           path: expect.stringMatching(/[\\/]skills[\\/]slp-dual-review$/u),
           skipMcpDiscovery: true,
         },
+        {
+          type: "local",
+          path: expect.stringMatching(/[\\/]skills[\\/]slp-plan-and-assign$/u),
+          skipMcpDiscovery: true,
+        },
       ]);
       expect(launches[0]?.options.disallowedTools).not.toEqual(
         expect.arrayContaining(["Skill(council)", "Skill(council:council)"]),

@@ -838,6 +838,7 @@ describe("Codex app-server provider", () => {
               !/[\\/]council[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]slp-blind-design[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]slp-dual-review[\\/]SKILL\.md$/u.test(entry.path) &&
+              !/[\\/]slp-plan-and-assign[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]beads-issue-tracker[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]repo-refresh[\\/]SKILL\.md$/u.test(entry.path) &&
               !/[\\/]triple-review[\\/]SKILL\.md$/u.test(entry.path),

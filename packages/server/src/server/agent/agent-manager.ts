@@ -47,6 +47,7 @@ import {
   type AgentTimelineItem,
   type AgentUsage,
   type AgentRuntimeInfo,
+  type AgentRuntimeConfigOverride,
   type ImportedTimelineEntry,
   type ImportableProviderSession,
   type ListImportableSessionsOptions,
@@ -363,6 +364,8 @@ export interface CreateAgentOptions {
   launchContract?: PersistedLaunchContract;
   /** Immutable snapshot of the Human-approved Agent Profile selected for this launch. */
   launchProfile?: AgentProfileLaunchReceipt;
+  /** Internal storage reload path for a Human-selected live model route. */
+  runtimeConfigOverride?: AgentRuntimeConfigOverride;
 }
 
 interface RoleSessionInput {
@@ -532,6 +535,7 @@ interface ManagedAgentBase {
   capabilities: AgentCapabilityFlags;
   config: AgentSessionConfig;
   runtimeInfo?: AgentRuntimeInfo;
+  runtimeConfigOverride?: AgentRuntimeConfigOverride;
   createdAt: Date;
   updatedAt: Date;
   availableModes: AgentMode[];
@@ -1682,6 +1686,7 @@ export class AgentManager {
         roleBinding,
         launchContract,
         launchProfile: options.launchProfile,
+        runtimeConfigOverride: options.runtimeConfigOverride,
         historyPrimed: true,
       });
     } finally {
@@ -1729,6 +1734,7 @@ export class AgentManager {
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
       launchProfile?: AgentProfileLaunchReceipt;
+      runtimeConfigOverride?: AgentRuntimeConfigOverride;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -1751,6 +1757,7 @@ export class AgentManager {
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
       launchProfile?: AgentProfileLaunchReceipt;
+      runtimeConfigOverride?: AgentRuntimeConfigOverride;
     },
     resumeOptions?: AgentResumeSessionOptions,
   ): Promise<ManagedAgent> {
@@ -2013,6 +2020,7 @@ export class AgentManager {
         roleBinding,
         launchContract,
         launchProfile: existing.launchProfile,
+        runtimeConfigOverride: existing.runtimeConfigOverride,
       });
     } finally {
       if (!handedToRegistration) {
@@ -2354,6 +2362,7 @@ export class AgentManager {
         roleBinding: record.roleBinding,
         launchContract: record.launchContract,
         launchProfile: record.launchProfile,
+        runtimeConfigOverride: record.runtimeConfigOverride,
         session: null,
         capabilities: STORED_AGENT_CAPABILITIES,
         config: buildStoredAgentConfig(record),
@@ -2421,6 +2430,32 @@ export class AgentManager {
     agent.config.model = normalizedModelId ?? undefined;
     if (agent.runtimeInfo) {
       agent.runtimeInfo = { ...agent.runtimeInfo, model: normalizedModelId };
+    }
+    this.touchUpdatedAt(agent);
+    this.emitState(agent);
+  }
+
+  /**
+   * Change only the live provider route for a role-bound agent. The immutable
+   * launch contract remains the receipt of the original role/provider/credential
+   * decision, while this Human-authorized override is persisted separately.
+   */
+  async setAgentRoleModelOverride(agentId: string, modelId: string | null): Promise<void> {
+    const agent = this.requireSessionAgent(agentId);
+    if (!agent.launchContract) {
+      return this.setAgentModel(agentId, modelId);
+    }
+    const normalizedModelId =
+      typeof modelId === "string" && modelId.trim().length > 0 ? modelId.trim() : null;
+    const effectiveModelId = normalizedModelId ?? agent.launchContract.providerBinding.model;
+    if (!agent.session.setModel) {
+      throw new Error(`Agent provider '${agent.provider}' does not support live model changes`);
+    }
+    await agent.session.setModel(effectiveModelId);
+    await this.drainSessionEvents(agentId);
+    agent.runtimeConfigOverride = normalizedModelId ? { model: normalizedModelId } : undefined;
+    if (agent.runtimeInfo) {
+      agent.runtimeInfo = { ...agent.runtimeInfo, model: effectiveModelId };
     }
     this.touchUpdatedAt(agent);
     this.emitState(agent);
@@ -3946,6 +3981,7 @@ export class AgentManager {
       roleBinding?: PersistedRoleBinding;
       launchContract?: PersistedLaunchContract;
       launchProfile?: AgentProfileLaunchReceipt;
+      runtimeConfigOverride?: AgentRuntimeConfigOverride;
     },
   ): Promise<ManagedAgent> {
     let registered = false;
@@ -3986,6 +4022,7 @@ export class AgentManager {
       // Initialize previousStatus to track transitions
       this.previousStatuses.set(resolvedAgentId, managed.lifecycle);
       await this.refreshRuntimeInfo(managed, { emit: false });
+      await this.applyRuntimeConfigOverride(managed);
       this.assertAgentRegistrationActive(managed);
       await this.persistSnapshot(managed, {
         title: initialPersistedTitle,
@@ -4009,6 +4046,33 @@ export class AgentManager {
         await this.closeUnregisteredSession(session);
       }
       throw error;
+    }
+  }
+
+  private async applyRuntimeConfigOverride(agent: ActiveManagedAgent): Promise<void> {
+    const override = agent.runtimeConfigOverride;
+    if (!override?.model || !agent.session.setModel) {
+      if (override?.model) {
+        this.logger.warn(
+          { agentId: agent.id, provider: agent.provider },
+          "Stored live model override is unsupported; using the launch model",
+        );
+        agent.runtimeConfigOverride = undefined;
+      }
+      return;
+    }
+    try {
+      await agent.session.setModel(override.model);
+      await this.drainSessionEvents(agent.id);
+      if (agent.runtimeInfo) {
+        agent.runtimeInfo = { ...agent.runtimeInfo, model: override.model };
+      }
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId: agent.id, provider: agent.provider },
+        "Stored live model override could not be restored; using the launch model",
+      );
+      agent.runtimeConfigOverride = undefined;
     }
   }
 
@@ -4103,6 +4167,7 @@ export class AgentManager {
           roleBinding?: PersistedRoleBinding;
           launchContract?: PersistedLaunchContract;
           launchProfile?: AgentProfileLaunchReceipt;
+          runtimeConfigOverride?: AgentRuntimeConfigOverride;
         }
       | undefined;
   }): ActiveManagedAgent {
@@ -4117,6 +4182,7 @@ export class AgentManager {
       roleBinding: registration.roleBinding,
       launchContract: registration.launchContract,
       launchProfile: registration.launchProfile,
+      runtimeConfigOverride: registration.runtimeConfigOverride,
       session,
       capabilities: session.capabilities,
       config,
