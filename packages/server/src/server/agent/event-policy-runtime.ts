@@ -23,7 +23,8 @@ type EventPolicyAgentManager = Pick<
   | "notifyAgentAttention"
   | "notifyAgentState"
   | "subscribe"
->;
+> &
+  Partial<Pick<AgentManager, "fetchTimeline" | "fetchDurableTimeline">>;
 
 export interface EventPolicyRuntimeDependencies extends Omit<
   CoordinationSignalDependencies,
@@ -35,10 +36,17 @@ export interface EventPolicyRuntimeDependencies extends Omit<
   semanticAttentionClassifier?: EventPolicySemanticAttentionClassifier;
   semanticAttentionProjectStore?: SemanticAttentionProjectStore;
   resolveProjectIdForWorkspace?: (workspaceId: string) => Promise<string | null>;
+  semanticAttentionSweepIntervalMs?: number;
+}
+
+export interface EventPolicyPeriodicTask {
+  intervalMs: number;
+  run(): Promise<void>;
 }
 
 export interface AgentEventPolicyProcessor {
   handleEvent(event: AgentManagerEvent, context: AgentEventPolicyDispatchContext): Promise<void>;
+  periodicTask?(): EventPolicyPeriodicTask | null;
   dispose?(): void;
 }
 
@@ -72,6 +80,10 @@ export function startEventPolicyRuntime(input: {
   resolvePolicies?: (agentId: string) => readonly ResolvedAgentEventPolicy[];
   advertisedPolicies?: readonly AgentEventPolicy[];
   environment?: NodeJS.ProcessEnv;
+  scheduler?: {
+    setInterval(callback: () => void, delayMs: number): unknown;
+    clearInterval(handle: unknown): void;
+  };
 }): EventPolicyRuntime {
   const environment = input.environment ?? process.env;
   const advertisedPolicies = input.advertisedPolicies ?? input.policies ?? [];
@@ -82,16 +94,38 @@ export function startEventPolicyRuntime(input: {
     string,
     { policy: AgentEventPolicy; processor: AgentEventPolicyProcessor }
   >();
+  const scheduler = input.scheduler ?? { setInterval, clearInterval };
+  const periodicHandles: unknown[] = [];
+  let stopped = false;
   for (const { policy, stateNamespace } of staticPolicies) {
+    const processor = policy.createProcessor(input.dependencies);
     processors.set(`${stateNamespace}:${policy.id}:${policy.version}`, {
       policy,
-      processor: policy.createProcessor(input.dependencies),
+      processor,
     });
+    const task = processor.periodicTask?.();
+    if (task && Number.isFinite(task.intervalMs) && task.intervalMs > 0) {
+      const handle = scheduler.setInterval(() => {
+        void task
+          .run()
+          .catch((error) =>
+            input.dependencies.logger.warn(
+              { err: error, policyId: policy.id },
+              "Agent event policy periodic task failed",
+            ),
+          );
+      }, task.intervalMs);
+      if (typeof (handle as { unref?: () => void } | null)?.unref === "function") {
+        (handle as { unref: () => void }).unref();
+      }
+      periodicHandles.push(handle);
+    }
   }
   const queues = new Map<string, Promise<void>>();
 
   const unsubscribe = input.dependencies.agentManager.subscribe(
     (event) => {
+      if (stopped) return;
       if (event.type !== "agent_stream") return;
       let resolved: readonly ResolvedAgentEventPolicy[];
       try {
@@ -136,7 +170,10 @@ export function startEventPolicyRuntime(input: {
       .filter((policy) => policy.enabled(environment))
       .map((policy) => ({ id: policy.id, version: policy.version })),
     stop() {
+      if (stopped) return;
+      stopped = true;
       unsubscribe();
+      for (const handle of periodicHandles) scheduler.clearInterval(handle);
       queues.clear();
       for (const { processor } of processors.values()) processor.dispose?.();
     },

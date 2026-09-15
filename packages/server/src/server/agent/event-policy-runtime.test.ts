@@ -120,4 +120,35 @@ describe("event policy runtime", () => {
     await vi.waitFor(() => expect(handled).toEqual(["slp@current-digest"]));
     runtime.stop();
   });
+
+  test("starts static periodic work without waiting for a stream event", async () => {
+    const runtimeHarness = harness();
+    const ticks: Array<() => void> = [];
+    const run = vi.fn(async () => undefined);
+    const policy: AgentEventPolicy = {
+      id: "periodic.policy",
+      version: "1",
+      enabled: () => true,
+      createProcessor: () => ({
+        async handleEvent() {},
+        periodicTask: () => ({ intervalMs: 900_000, run }),
+      }),
+    };
+    const runtime = startEventPolicyRuntime({
+      dependencies: runtimeHarness.dependencies,
+      policies: [policy],
+      scheduler: {
+        setInterval(callback) {
+          ticks.push(callback);
+          return ticks.length;
+        },
+        clearInterval: vi.fn(),
+      },
+    });
+
+    expect(ticks).toHaveLength(1);
+    ticks[0]?.();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    runtime.stop();
+  });
 });

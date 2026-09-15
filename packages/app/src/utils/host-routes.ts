@@ -426,6 +426,13 @@ export function buildHostTopologyRoute(serverId: string) {
   return `${base}/topology` as const;
 }
 
+export function buildHostWatcherRoute(serverId: string, projectId: string) {
+  const base = buildHostRootRoute(serverId);
+  const normalizedProjectId = trimNonEmpty(projectId);
+  if (base === "/" || !normalizedProjectId) return base;
+  return `${base}/watcher/${encodeSegment(normalizedProjectId)}` as const;
+}
+
 export function buildHostRoomsRoute(serverId: string) {
   const base = buildHostRootRoute(serverId);
   if (base === "/") {

@@ -9,7 +9,7 @@ const DEFAULT_MAX_ITEMS = 0;
 const MAX_TOOL_INPUT_CHARS = 400;
 const MAX_TOOL_SUMMARY_CHARS = 200;
 
-interface ActivityCuratorOptions {
+export interface ActivityCuratorOptions {
   maxItems?: number;
   labelAssistantMessages?: boolean;
   includeKinds?: readonly AgentTimelineItem["type"][];
@@ -203,6 +203,24 @@ function curateAgentActivityEntries(
   return curateProjectedActivityEntries(collapsed, options);
 }
 
+function renderActivityEntries(entries: readonly ActivityEntry[]): string {
+  return entries.length > 0
+    ? entries.map((entry) => entry.text).join("\n")
+    : "No activity to display.";
+}
+
+/**
+ * Render entries that were already projected from canonical timeline rows.
+ * Callers that need source sequence references should project rows first and
+ * use this function so curation does not invent a second sequence space.
+ */
+export function curateProjectedAgentActivity(
+  timeline: readonly AgentTimelineItem[],
+  options?: ActivityCuratorOptions,
+): string {
+  return renderActivityEntries(curateProjectedActivityEntries(timeline, options));
+}
+
 /**
  * Convert normalized agent timeline items into a concise text summary.
  */
@@ -210,10 +228,7 @@ export function curateAgentActivity(
   timeline: AgentTimelineItem[],
   options?: ActivityCuratorOptions,
 ): string {
-  const entries = curateAgentActivityEntries(timeline, options);
-  return entries.length > 0
-    ? entries.map((entry) => entry.text).join("\n")
-    : "No activity to display.";
+  return renderActivityEntries(curateAgentActivityEntries(timeline, options));
 }
 
 interface ForkCursorBoundary {

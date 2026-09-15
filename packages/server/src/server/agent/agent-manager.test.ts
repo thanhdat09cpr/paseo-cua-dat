@@ -1892,6 +1892,40 @@ test("does not register a session that finishes starting after shutdown begins",
   });
 });
 
+test("deduplicates concurrent project Watcher creation by project label", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-watcher-dedupe-"));
+  const client = new HeldAgentCreationClient();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000140",
+  });
+  const labels = {
+    "paseo.surface": "watcher",
+    "paseo.projectId": "project-1",
+  };
+
+  try {
+    const first = manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: "workspace-1",
+      labels,
+    });
+    await client.waitForCreationToStart();
+    const second = manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: "workspace-1",
+      labels,
+    });
+
+    client.finishCreating();
+    const [firstAgent, secondAgent] = await Promise.all([first, second]);
+    expect(secondAgent.id).toBe(firstAgent.id);
+    expect(manager.listAgents()).toHaveLength(1);
+  } finally {
+    await Promise.all(manager.listAgents().map((agent) => manager.closeAgent(agent.id)));
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("flush waits for rejected session cleanup that starts after shutdown", async () => {
   const client = new HeldAgentCreationAndCloseClient();
   const manager = new AgentManager({

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
 
+import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
+import {
+  assignmentExternalEffectBoundaryFor,
+  type AssignmentEnvelope,
+} from "@getpaseo/protocol/assignment-contract";
+import { materializeAssignmentContract } from "../../../agent/assignment-contract.js";
 import {
   assertAttentionQuestionAuthority,
   attentionQuestionCoalescingKey,
@@ -17,6 +23,92 @@ const question = {
   question: "What evidence supports the current conclusion?",
   evidenceRefs: ["timeline:lead-1:turn-7"],
 };
+
+function delegatedCrossWorkspaceQuestion(
+  options: {
+    parentAgentId?: string;
+    expiresAt?: string;
+    createdAt?: string;
+  } = {},
+) {
+  const callerAgentId = "supervisor-1";
+  const targetAgentId = "lead-1";
+  const callerWorkspaceId = "control-workspace";
+  const targetWorkspaceId = "product-workspace";
+  const callerCwd = "/tmp/control";
+  const targetCwd = "/tmp/product";
+  const createdAt = new Date(options.createdAt ?? "2026-09-14T00:00:00.000Z");
+  const callerEnvelope: AssignmentEnvelope = {
+    version: 1,
+    disposition: "supervision",
+    objective: "Delegate the exact product workspace Lead",
+    effectClass: "delegation",
+    mutationBoundary: { mode: "no-write" },
+    externalEffectBoundary: assignmentExternalEffectBoundaryFor("supervisor", "delegation"),
+    evidence: "Human issued the bounded Lead workspace grant.",
+    handbackAndStop: "Stop after the delegated Lead reports back.",
+    resourceGrants: { leadWorkspaceIds: [targetWorkspaceId] },
+    ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
+  };
+  const callerContract = materializeAssignmentContract({
+    roleId: "supervisor",
+    assigner: { kind: "human-session" },
+    workspaceId: callerWorkspaceId,
+    cwd: callerCwd,
+    envelope: callerEnvelope,
+    createdAt,
+  });
+  const targetContract = materializeAssignmentContract({
+    roleId: "lead",
+    assigner: { kind: "agent", agentId: callerAgentId },
+    workspaceId: targetWorkspaceId,
+    cwd: targetCwd,
+    envelope: {
+      version: 1,
+      disposition: "lead-direct",
+      objective: "Own the delegated product workspace",
+      effectClass: "mutating",
+      mutationBoundary: { mode: "bounded-write", scope: targetCwd },
+      externalEffectBoundary: assignmentExternalEffectBoundaryFor("lead", "mutating"),
+      evidence: "The Supervisor delegated this product workspace Lead assignment.",
+      handbackAndStop: "Stop after the bounded product workspace work is complete.",
+    },
+    createdAt,
+  });
+  return {
+    ...question,
+    targetAgentId,
+    callerAgentId,
+    callerRoleId: "supervisor" as const,
+    callerWorkspaceId,
+    targetWorkspaceId,
+    callerAgent: {
+      id: callerAgentId,
+      workspaceId: callerWorkspaceId,
+      labels: {},
+      roleBinding: {
+        roleId: "supervisor" as const,
+        bindingDigest: "b".repeat(64),
+        assignment: callerContract.receipt,
+        assignmentContract: callerContract,
+      },
+    },
+    targetAgent: {
+      id: targetAgentId,
+      workspaceId: targetWorkspaceId,
+      labels: {
+        [PARENT_AGENT_ID_LABEL]: options.parentAgentId ?? callerAgentId,
+      },
+      roleBinding: {
+        roleId: "lead" as const,
+        bindingDigest: "c".repeat(64),
+        assignment: targetContract.receipt,
+        assignmentContract: targetContract,
+      },
+    },
+    now: new Date("2026-09-15T00:00:00.000Z"),
+  };
+}
 
 describe("bundled SLP attention question authority", () => {
   test("allows a Supervisor to ask a structurally bounded Lead or Peer question", () => {
@@ -52,7 +144,55 @@ describe("bundled SLP attention question authority", () => {
         ...question,
         targetWorkspaceId: "workspace-2",
       }),
-    ).toThrow("one workspace");
+    ).toThrow("exact delegated Lead child");
+    expect(() =>
+      assertAttentionQuestionAuthority({
+        ...question,
+        callerWorkspaceId: undefined,
+        targetWorkspaceId: undefined,
+      }),
+    ).toThrow("workspace identity");
+  });
+
+  test("allows only the exact direct delegated Lead across workspaces", () => {
+    expect(() => assertAttentionQuestionAuthority(delegatedCrossWorkspaceQuestion())).not.toThrow();
+  });
+
+  test("rejects a Lead whose assignment belongs to another workspace", () => {
+    const input = delegatedCrossWorkspaceQuestion();
+    input.targetAgent.roleBinding.assignment.workspaceId = "unrelated-workspace";
+    input.targetAgent.roleBinding.assignmentContract.receipt.workspaceId = "unrelated-workspace";
+    expect(() => assertAttentionQuestionAuthority(input)).toThrow("exact delegated Lead child");
+  });
+
+  test.each([
+    {
+      name: "unrelated Lead parent",
+      input: delegatedCrossWorkspaceQuestion({ parentAgentId: "supervisor-2" }),
+    },
+    {
+      name: "expired Supervisor lease",
+      input: delegatedCrossWorkspaceQuestion({
+        createdAt: "2026-09-14T00:00:00.000Z",
+        expiresAt: "2026-09-14T12:00:00.000Z",
+      }),
+    },
+  ])("fails closed for $name", ({ input }) => {
+    expect(() => assertAttentionQuestionAuthority(input)).toThrow("exact delegated Lead child");
+  });
+
+  test("rejects a cross-workspace Peer even when a Lead grant exists", () => {
+    const input = delegatedCrossWorkspaceQuestion();
+    expect(() =>
+      assertAttentionQuestionAuthority({
+        ...input,
+        targetRoleId: "peer",
+        targetAgent: {
+          ...input.targetAgent,
+          roleBinding: { ...input.targetAgent.roleBinding, roleId: "peer" },
+        },
+      }),
+    ).toThrow("exact delegated Lead child");
   });
 
   test.each([

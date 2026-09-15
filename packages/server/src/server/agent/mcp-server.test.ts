@@ -9,8 +9,10 @@ import { z } from "zod";
 
 import { createTestLogger } from "../../test-utils/test-logger.js";
 import { createAgentMcpServer } from "./mcp-server.js";
+import { createPaseoToolCatalog } from "./tools/paseo-tools.js";
 import { AgentManager, type ManagedAgent } from "./agent-manager.js";
 import { AgentStorage, type StoredAgentRecord } from "./agent-storage.js";
+import { InMemoryAgentTimelineStore } from "./agent-timeline-store.js";
 import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
 import type {
   AgentMode,
@@ -221,6 +223,7 @@ function buildAgentManagerSpies() {
     getAgent: vi.fn(),
     listAgents: vi.fn().mockReturnValue([]),
     getTimeline: vi.fn().mockReturnValue([]),
+    fetchTimeline: vi.fn(),
     resumeAgentFromPersistence: vi.fn(),
     hydrateTimelineFromProvider: vi.fn().mockResolvedValue(undefined),
     appendTimelineItem: vi.fn().mockResolvedValue(undefined),
@@ -1380,6 +1383,119 @@ describe("ask_attention_question MCP tool", () => {
     };
   }
 
+  function setupDelegatedCrossWorkspaceAttentionScenario(
+    input: {
+      targetParentId?: string;
+      grantedWorkspaceId?: string;
+      expiresAt?: string;
+    } = {},
+  ) {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const registry = createDefaultSlpBundledPolicyRegistry();
+    const callerAgentId = "supervisor-46";
+    const targetAgentId = "target-agent";
+    const callerWorkspaceId = "wks_control";
+    const targetWorkspaceId = "wks_project";
+    const createdAt = new Date("2025-12-31T00:00:00.000Z");
+    const callerContract = materializeAssignmentContract({
+      roleId: "supervisor",
+      assigner: { kind: "human-session" },
+      workspaceId: callerWorkspaceId,
+      cwd: "/tmp/control",
+      envelope: {
+        version: 1,
+        disposition: "supervision",
+        objective: "Delegate the exact product Lead",
+        effectClass: "delegation",
+        mutationBoundary: { mode: "no-write" },
+        externalEffectBoundary: assignmentExternalEffectBoundaryFor("supervisor", "delegation"),
+        evidence: "Human issued the bounded Lead workspace grant.",
+        handbackAndStop: "Stop after the delegated Lead reports back.",
+        resourceGrants: { leadWorkspaceIds: [input.grantedWorkspaceId ?? targetWorkspaceId] },
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      },
+      createdAt,
+    });
+    const targetContract = materializeAssignmentContract({
+      roleId: "lead",
+      assigner: { kind: "agent", agentId: callerAgentId },
+      workspaceId: targetWorkspaceId,
+      cwd: "/tmp/project",
+      envelope: {
+        version: 1,
+        disposition: "lead-direct",
+        objective: "Own the delegated product workspace",
+        effectClass: "mutating",
+        mutationBoundary: { mode: "bounded-write", scope: "/tmp/project" },
+        externalEffectBoundary: assignmentExternalEffectBoundaryFor("lead", "mutating"),
+        evidence: "The Supervisor delegated this product workspace Lead assignment.",
+        handbackAndStop: "Stop after the bounded product workspace work is complete.",
+      },
+      createdAt,
+    });
+    const callerRoleBinding = {
+      ...createTestRoleBinding("supervisor"),
+      assignment: callerContract.receipt,
+      assignmentContract: callerContract,
+    };
+    const targetRoleBinding = {
+      ...createTestRoleBinding("lead"),
+      policyOwner: registry.resolveActive("slp").owner,
+      assignment: targetContract.receipt,
+      assignmentContract: targetContract,
+    };
+    const caller = createManagedAgent({
+      id: callerAgentId,
+      cwd: "/tmp/control",
+      workspaceId: callerWorkspaceId,
+      roleBinding: callerRoleBinding,
+    });
+    let target = createActiveStoredRecord({
+      id: targetAgentId,
+      cwd: "/tmp/project",
+      workspaceId: targetWorkspaceId,
+      labels: {
+        [PARENT_AGENT_ID_LABEL]: input.targetParentId ?? callerAgentId,
+      },
+      roleBinding: targetRoleBinding,
+      coordinationSignals: [],
+    });
+    spies.agentManager.getAgent.mockImplementation((agentId: string) =>
+      agentId === caller.id ? caller : null,
+    );
+    spies.agentManager.hasInFlightRun.mockReturnValue(false);
+    mockStoredAgentRecords(spies.agentStorage.get, [
+      createActiveStoredRecord({
+        id: caller.id,
+        cwd: caller.cwd,
+        workspaceId: caller.workspaceId,
+        roleBinding: caller.roleBinding,
+      }),
+      target,
+    ]);
+    spies.agentStorage.upsert.mockImplementation(async (record: StoredAgentRecord) => {
+      if (record.id === target.id) target = record;
+    });
+    spies.agentManager.assertAttentionQuestionTargetSupport.mockImplementation((binding) =>
+      AgentManager.prototype.assertAttentionQuestionTargetSupport.call(
+        { bundledPolicyPacks: registry } as unknown as AgentManager,
+        binding,
+      ),
+    );
+    return {
+      server: createAgentMcpServer({
+        agentManager,
+        agentStorage,
+        providerSnapshotManager: createOpenCodeManager().manager,
+        callerAgentId,
+        sendAgentMessageAtSafeBoundary: vi.fn(async () => undefined),
+        logger,
+      }),
+      spies,
+      getTarget: () => target,
+    };
+  }
+
   it("keeps Q1/Q2 distinct and merges only exact normalized recurrence for a .46 target", async () => {
     const registry = createDefaultSlpBundledPolicyRegistry();
     const scenario = setupAttentionQuestionScenario(registry.resolveActive("slp").owner);
@@ -1459,6 +1575,55 @@ describe("ask_attention_question MCP tool", () => {
     expect(delivered[0]).toContain(question.question);
     expect(delivered[1]).toContain("Which constraint explains the observed delay?");
     expect(scenario.getTarget().coordinationSignals).toHaveLength(2);
+  });
+
+  it("allows the exact delegated Lead across workspaces through the public tool", async () => {
+    const scenario = setupDelegatedCrossWorkspaceAttentionScenario();
+    const server = await scenario.server;
+
+    const response = await invokeToolWithParsedInput(
+      registeredTool(server, "ask_attention_question"),
+      {
+        agentId: "target-agent",
+        ...question,
+      },
+    );
+
+    expect(response.structuredContent.signal).toMatchObject({
+      targetAgentId: "target-agent",
+      requestedByAgentId: "supervisor-46",
+    });
+  });
+
+  it.each([
+    {
+      name: "an unrelated Supervisor parent",
+      input: { targetParentId: "supervisor-other" },
+    },
+    {
+      name: "a reparented Lead",
+      input: { targetParentId: "supervisor-reparented" },
+    },
+    {
+      name: "a grant for another workspace",
+      input: { grantedWorkspaceId: "wks_other" },
+    },
+    {
+      name: "an expired Supervisor delegation lease",
+      input: { expiresAt: "2026-01-01T00:00:00.000Z" },
+    },
+  ])("fails closed for $name at the public tool boundary", async ({ input }) => {
+    const scenario = setupDelegatedCrossWorkspaceAttentionScenario(input);
+    const server = await scenario.server;
+
+    await expect(
+      invokeToolWithParsedInput(registeredTool(server, "ask_attention_question"), {
+        agentId: "target-agent",
+        ...question,
+      }),
+    ).rejects.toThrow("exact delegated Lead child");
+    expect(scenario.getTarget().coordinationSignals).toEqual([]);
+    expect(scenario.spies.agentStorage.upsert).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -8500,6 +8665,7 @@ describe("agent snapshot MCP serialization", () => {
 
     const content = String(response.structuredContent.content);
     expect(content).toContain("Hello world. How are you?");
+    expect(spies.agentManager.fetchTimeline).not.toHaveBeenCalled();
   });
 
   it("get_agent_activity limit=2 returns the last two projected entries whole", async () => {
@@ -8533,5 +8699,106 @@ describe("agent snapshot MCP serialization", () => {
     expect(content).not.toContain("[User] u2");
     expect(content).not.toContain("second answer");
     expect(content).not.toContain("first answer");
+    expect(spies.agentManager.fetchTimeline).not.toHaveBeenCalled();
+  });
+
+  it("get_agent_activity bounded pages preserve visible entries across canonical cursors", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const agentId = "paged-activity-agent";
+    const snapshot = createManagedAgent({ id: agentId, currentModeId: "default" });
+    const timelineStore = new InMemoryAgentTimelineStore();
+    timelineStore.initialize(agentId, {
+      epoch: "activity-epoch",
+      items: [
+        { type: "user_message", text: "first" },
+        { type: "reasoning", text: "private first" },
+        { type: "assistant_message", text: "second" },
+        { type: "reasoning", text: "private second" },
+        { type: "user_message", text: "third" },
+      ],
+    });
+    spies.agentManager.getAgent.mockReturnValue(snapshot);
+    spies.agentManager.fetchTimeline.mockImplementation((requestedAgentId, options) =>
+      timelineStore.fetch(requestedAgentId, options),
+    );
+
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      logger: createTestLogger(),
+      providerSnapshotManager: createClaudeOnlyManager(),
+    });
+    const tool = registeredTool(server, "get_agent_activity");
+
+    const first = await tool.handler({ agentId, direction: "after", limit: 2 });
+    expect(first.structuredContent).toEqual(
+      expect.objectContaining({
+        agentId,
+        epoch: "activity-epoch",
+        nextCursor: { epoch: "activity-epoch", seq: 2 },
+        content: expect.stringContaining("[User] first"),
+        coverage: expect.objectContaining({ canonicalRows: 2, visibleEntries: 1 }),
+      }),
+    );
+    expect(String(first.structuredContent.content)).not.toContain("private first");
+
+    const firstCursor = first.structuredContent.nextCursor;
+    expect(firstCursor).toEqual({ epoch: "activity-epoch", seq: 2 });
+    const second = await tool.handler({
+      agentId,
+      direction: "after",
+      cursor: firstCursor,
+      limit: 2,
+    });
+    expect(second.structuredContent).toEqual(
+      expect.objectContaining({
+        nextCursor: { epoch: "activity-epoch", seq: 4 },
+        content: expect.stringContaining("second"),
+      }),
+    );
+    expect(String(second.structuredContent.content)).not.toContain("private second");
+
+    expect(spies.agentManager.fetchTimeline).toHaveBeenNthCalledWith(1, agentId, {
+      direction: "after",
+      limit: 2,
+    });
+    expect(spies.agentManager.fetchTimeline).toHaveBeenNthCalledWith(2, agentId, {
+      direction: "after",
+      cursor: firstCursor,
+      limit: 2,
+    });
+  });
+
+  it("returns bounded get_agent_activity output matching its registered schema", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    const agentId = "schema-activity-agent";
+    const snapshot = createManagedAgent({ id: agentId, currentModeId: "default" });
+    const timelineStore = new InMemoryAgentTimelineStore();
+    timelineStore.initialize(agentId, {
+      epoch: "schema-epoch",
+      items: [{ type: "assistant_message", text: "observed" }],
+    });
+    spies.agentManager.getAgent.mockReturnValue(snapshot);
+    spies.agentManager.fetchTimeline.mockImplementation((requestedAgentId, options) =>
+      timelineStore.fetch(requestedAgentId, options),
+    );
+
+    const options = {
+      agentManager,
+      agentStorage,
+      logger: createTestLogger(),
+      providerSnapshotManager: createClaudeOnlyManager(),
+    };
+    const server = await createAgentMcpServer(options);
+    const tool = registeredTool(server, "get_agent_activity");
+    const response = await tool.handler({ agentId, direction: "tail", limit: 2 });
+    const catalog = await createPaseoToolCatalog(options);
+    const definition = catalog.getTool("get_agent_activity");
+    if (!definition?.outputSchema) {
+      throw new Error("get_agent_activity output schema is unavailable");
+    }
+
+    const parsed = z.object(definition.outputSchema).safeParse(response.structuredContent);
+    expect(parsed.success).toBe(true);
   });
 });

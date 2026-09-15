@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
+import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 import type { LeadHandoffTransition } from "@getpaseo/protocol/lead-handoff";
+import type {
+  AssignmentContractReceipt,
+  AssignmentEnvelope,
+} from "@getpaseo/protocol/assignment-contract";
 import type { PaseoRoleId } from "@getpaseo/protocol/role-binding";
 
 export const SLP_COORDINATION_POLICY_VERSION = "5";
@@ -271,6 +276,205 @@ export function assertSignalAgentAuthority(input: {
   }
 }
 
+interface AttentionQuestionRoleBinding {
+  roleId: PaseoRoleId;
+  bindingDigest?: string;
+  assignment?: AssignmentContractReceipt;
+  assignmentContract?: {
+    receipt: AssignmentContractReceipt;
+    envelope: AssignmentEnvelope;
+  };
+}
+
+export interface AttentionQuestionAgentContext {
+  id: string;
+  workspaceId: string | undefined;
+  labels: Record<string, string> | undefined;
+  roleBinding: AttentionQuestionRoleBinding | undefined;
+}
+
+const SHA256_DIGEST = /^[a-f0-9]{64}$/u;
+
+function sameLeadWorkspaceGrant(
+  first: AssignmentContractReceipt["resourceGrants"],
+  second: AssignmentEnvelope["resourceGrants"],
+): boolean {
+  const firstLeadWorkspaceIds = first?.leadWorkspaceIds;
+  const secondLeadWorkspaceIds = second?.leadWorkspaceIds;
+  return (
+    (firstLeadWorkspaceIds === undefined) === (secondLeadWorkspaceIds === undefined) &&
+    (firstLeadWorkspaceIds === undefined ||
+      (firstLeadWorkspaceIds.length === secondLeadWorkspaceIds?.length &&
+        firstLeadWorkspaceIds.every(
+          (workspaceId, index) => workspaceId === secondLeadWorkspaceIds?.[index],
+        )))
+  );
+}
+
+function sameAssigner(
+  first: AssignmentContractReceipt["assigner"],
+  second: AssignmentContractReceipt["assigner"],
+): boolean {
+  return (
+    first.kind === second.kind &&
+    (first.kind === "human-session" ||
+      (second.kind === "agent" && first.agentId === second.agentId))
+  );
+}
+
+function sameAssignmentReceipt(
+  receipt: AssignmentContractReceipt,
+  assignment: AssignmentContractReceipt,
+): boolean {
+  return (
+    receipt.version === assignment.version &&
+    receipt.assignmentDigest === assignment.assignmentDigest &&
+    receipt.roleId === assignment.roleId &&
+    sameAssigner(receipt.assigner, assignment.assigner) &&
+    receipt.workspaceId === assignment.workspaceId &&
+    receipt.cwd === assignment.cwd &&
+    receipt.disposition === assignment.disposition &&
+    receipt.effectClass === assignment.effectClass &&
+    receipt.mutationBoundary.mode === assignment.mutationBoundary.mode &&
+    receipt.externalEffectBoundary.mode === assignment.externalEffectBoundary.mode &&
+    sameLeadWorkspaceGrant(receipt.resourceGrants, assignment.resourceGrants) &&
+    receipt.protocolExceptionExpiresAt === assignment.protocolExceptionExpiresAt &&
+    receipt.createdAt === assignment.createdAt &&
+    receipt.expiresAt === assignment.expiresAt
+  );
+}
+
+function sameEnvelopeReceiptBoundary(
+  envelope: AssignmentEnvelope,
+  receipt: AssignmentContractReceipt,
+): boolean {
+  return (
+    envelope.version === receipt.version &&
+    envelope.disposition === receipt.disposition &&
+    envelope.effectClass === receipt.effectClass &&
+    envelope.externalEffectBoundary.mode === receipt.externalEffectBoundary.mode &&
+    receipt.protocolExceptionExpiresAt === envelope.protocolException?.expiresAt &&
+    sameLeadWorkspaceGrant(receipt.resourceGrants, envelope.resourceGrants) &&
+    receipt.expiresAt === envelope.expiresAt
+  );
+}
+
+function isCurrentAssignmentTimestamp(value: string | undefined, now: Date): boolean {
+  if (value === undefined) return true;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > now.getTime();
+}
+
+function hasCurrentSupervisorDelegationLease(
+  caller: AttentionQuestionAgentContext,
+  targetWorkspaceId: string,
+  now: Date,
+): boolean {
+  if (!caller.workspaceId || !caller.roleBinding) return false;
+  const callerContract = caller.roleBinding.assignmentContract;
+  const callerAssignment = caller.roleBinding.assignment;
+  if (!callerContract || !callerAssignment) return false;
+
+  const { envelope, receipt } = callerContract;
+  if (
+    !Number.isFinite(now.getTime()) ||
+    !sameAssignmentReceipt(receipt, callerAssignment) ||
+    !sameEnvelopeReceiptBoundary(envelope, receipt) ||
+    receipt.roleId !== "supervisor" ||
+    envelope.effectClass !== "delegation" ||
+    receipt.assigner.kind !== "human-session" ||
+    receipt.workspaceId !== caller.workspaceId ||
+    envelope.externalEffectBoundary.mode !== "denied" ||
+    envelope.protocolException !== undefined ||
+    !receipt.resourceGrants?.leadWorkspaceIds?.includes(targetWorkspaceId) ||
+    !isCurrentAssignmentTimestamp(envelope.expiresAt, now)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function hasCurrentDelegatedLeadTarget(
+  caller: AttentionQuestionAgentContext,
+  target: AttentionQuestionAgentContext,
+  now: Date,
+): boolean {
+  if (!target.roleBinding) return false;
+  const targetAssignment = target.roleBinding.assignment;
+  const targetContract = target.roleBinding.assignmentContract;
+  if (!targetAssignment || !targetContract) return false;
+  if (
+    !sameAssignmentReceipt(targetContract.receipt, targetAssignment) ||
+    !sameEnvelopeReceiptBoundary(targetContract.envelope, targetContract.receipt) ||
+    targetContract.receipt.assigner.kind !== "agent" ||
+    targetContract.receipt.assigner.agentId !== caller.id ||
+    targetContract.envelope.protocolException !== undefined ||
+    targetAssignment.roleId !== "lead" ||
+    targetAssignment.workspaceId !== target.workspaceId ||
+    !SHA256_DIGEST.test(targetAssignment.assignmentDigest) ||
+    !isCurrentAssignmentTimestamp(targetContract.envelope.expiresAt, now) ||
+    getParentAgentIdFromLabels(target.labels) !== caller.id
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function hasCurrentSupervisorLeadDelegation(
+  caller: AttentionQuestionAgentContext,
+  target: AttentionQuestionAgentContext,
+  now: Date,
+): boolean {
+  if (
+    !caller.workspaceId ||
+    !target.workspaceId ||
+    !caller.roleBinding ||
+    !target.roleBinding ||
+    caller.roleBinding.roleId !== "supervisor" ||
+    target.roleBinding.roleId !== "lead" ||
+    !caller.roleBinding.bindingDigest ||
+    !SHA256_DIGEST.test(caller.roleBinding.bindingDigest) ||
+    !target.roleBinding.bindingDigest ||
+    !SHA256_DIGEST.test(target.roleBinding.bindingDigest)
+  ) {
+    return false;
+  }
+  return (
+    hasCurrentSupervisorDelegationLease(caller, target.workspaceId, now) &&
+    hasCurrentDelegatedLeadTarget(caller, target, now)
+  );
+}
+
+function assertAttentionQuestionTopology(input: {
+  targetAgentId: string;
+  callerAgentId: string;
+  callerWorkspaceId: string | undefined;
+  targetWorkspaceId: string | undefined;
+  callerAgent: AttentionQuestionAgentContext | undefined;
+  targetAgent: AttentionQuestionAgentContext | undefined;
+  now?: Date;
+}): void {
+  if (
+    input.callerAgent === undefined ||
+    input.targetAgent === undefined ||
+    input.callerAgent.id !== input.callerAgentId ||
+    input.targetAgent.id !== input.targetAgentId ||
+    input.callerAgent.workspaceId !== input.callerWorkspaceId ||
+    input.targetAgent.workspaceId !== input.targetWorkspaceId ||
+    !hasCurrentSupervisorLeadDelegation(
+      input.callerAgent,
+      input.targetAgent,
+      input.now ?? new Date(),
+    )
+  ) {
+    throw new Error(
+      "Cross-workspace attention questions require the caller's exact delegated Lead child",
+    );
+  }
+}
+
 export function assertAttentionQuestionAuthority(input: {
   targetAgentId: string;
   targetRoleId: PaseoRoleId | undefined;
@@ -281,6 +485,9 @@ export function assertAttentionQuestionAuthority(input: {
   observation: string;
   question: string;
   evidenceRefs: readonly string[];
+  callerAgent?: AttentionQuestionAgentContext;
+  targetAgent?: AttentionQuestionAgentContext;
+  now?: Date;
 }): void {
   if (input.targetRoleId !== "lead" && input.targetRoleId !== "peer") {
     throw new Error(
@@ -296,7 +503,20 @@ export function assertAttentionQuestionAuthority(input: {
       !input.targetWorkspaceId ||
       input.callerWorkspaceId !== input.targetWorkspaceId)
   ) {
-    throw new Error("Agent-scoped attention questions require caller and target in one workspace");
+    if (!input.targetWorkspaceId || !input.callerWorkspaceId) {
+      throw new Error(
+        "Agent-scoped attention questions require caller and target workspace identity",
+      );
+    }
+    assertAttentionQuestionTopology({
+      targetAgentId: input.targetAgentId,
+      callerAgentId: input.callerAgentId,
+      callerWorkspaceId: input.callerWorkspaceId,
+      targetWorkspaceId: input.targetWorkspaceId,
+      callerAgent: input.callerAgent,
+      targetAgent: input.targetAgent,
+      now: input.now,
+    });
   }
   assertAuthorityNeutralObservation(input.observation);
   assertAuthorityNeutralClarificationQuestion(input.question);

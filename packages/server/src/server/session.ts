@@ -3190,7 +3190,7 @@ export class Session {
   ): Promise<void> {
     try {
       const target = await this.agentStorage.get(msg.agentId);
-      if (!target || target.internal || target.archivedAt) {
+      if (!target || target.id !== msg.agentId || target.internal || target.archivedAt) {
         throw new Error(`Agent ${msg.agentId} is not available`);
       }
       const coordinationPolicy = this.agentManager.resolveActiveSlpPolicy().coordinationPolicy;
@@ -3245,6 +3245,12 @@ export class Session {
           callerAgentId: undefined,
           callerWorkspaceId: undefined,
           targetWorkspaceId: target.workspaceId,
+          targetAgent: {
+            id: target.id,
+            workspaceId: target.workspaceId,
+            labels: target.labels,
+            roleBinding: target.roleBinding,
+          },
           observation: msg.observation ?? "",
           question: msg.question ?? "",
           evidenceRefs: msg.evidenceRefs ?? [],

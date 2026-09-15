@@ -53,7 +53,15 @@ import {
 } from "../agent-projections.js";
 import { curateAgentActivity } from "../activity-curator.js";
 import { selectItemsByProjectedLimit } from "../timeline-projection.js";
+import {
+  buildAgentActivityReport,
+  canonicalFetchLimitForActivityReport,
+  DEFAULT_ACTIVITY_REPORT_LIMIT,
+  MAX_ACTIVITY_REPORT_LIMIT,
+  type ActivityReportDirection,
+} from "../activity-report.js";
 import type { AgentStorage, StoredAgentRecord } from "../agent-storage.js";
+import type { AgentTimelineCursor } from "../agent-timeline-store-types.js";
 import { ensureAgentLoaded, hasPendingAgentInitialization } from "../agent-loading.js";
 import { isStoredAgentProviderAvailable } from "../../persistence-hooks.js";
 import {
@@ -1355,6 +1363,47 @@ function resolveTerminalKeyToken(key: string, literal: boolean): string {
     default:
       return key;
   }
+}
+
+async function getBoundedAgentActivityResult(input: {
+  options: PaseoToolHostDependencies;
+  agentId: string;
+  snapshot: ManagedAgent | null;
+  limit?: number;
+  direction?: ActivityReportDirection;
+  cursor?: AgentTimelineCursor;
+}): Promise<PaseoToolResult> {
+  const requestedLimit =
+    input.limit !== undefined && input.limit > 0
+      ? Math.floor(input.limit)
+      : DEFAULT_ACTIVITY_REPORT_LIMIT;
+  const reportLimit = Math.min(requestedLimit, MAX_ACTIVITY_REPORT_LIMIT);
+  const direction = input.direction ?? (input.cursor ? "after" : "tail");
+  const timeline = input.options.agentManager.fetchTimeline(input.agentId, {
+    direction,
+    ...(input.cursor ? { cursor: input.cursor } : {}),
+    limit: canonicalFetchLimitForActivityReport(reportLimit),
+  });
+  const stored = await input.options.agentStorage.get(input.agentId);
+  const workspaceId = input.snapshot?.workspaceId ?? stored?.workspaceId ?? null;
+  const workspace =
+    workspaceId && input.options.workspaceRegistry
+      ? await input.options.workspaceRegistry.get(workspaceId)
+      : null;
+  const report = buildAgentActivityReport({
+    agentId: input.agentId,
+    timeline,
+    snapshotAt: new Date().toISOString(),
+    workspaceId,
+    projectId: workspace?.projectId ?? null,
+    lifecycle: input.snapshot?.lifecycle ?? null,
+    currentModeId: input.snapshot?.currentModeId ?? null,
+    limitCapped: requestedLimit > MAX_ACTIVITY_REPORT_LIMIT,
+  });
+  return {
+    content: [],
+    structuredContent: ensureValidJson(report),
+  };
 }
 
 export function createPaseoToolCatalog(options: PaseoToolHostDependencies): PaseoToolCatalog {
@@ -3684,13 +3733,17 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         throw new Error("Attention question delivery is unavailable");
       }
       const target = await agentStorage.get(agentId);
-      if (!target || target.internal || target.archivedAt) {
+      if (!target || target.id !== agentId || target.internal || target.archivedAt) {
         throw new Error(`Agent ${agentId} is not available`);
       }
       let requesterRoleId: PaseoRoleId | undefined;
       let requesterWorkspaceId: string | undefined;
+      let caller: StoredAgentRecord | null = null;
       if (callerAgentId) {
-        const caller = await agentStorage.get(callerAgentId);
+        caller = await agentStorage.get(callerAgentId);
+        if (!caller || caller.id !== callerAgentId || caller.internal || caller.archivedAt) {
+          throw new Error(`Agent ${callerAgentId} is not available`);
+        }
         requesterRoleId = caller?.roleBinding?.roleId;
         requesterWorkspaceId = caller?.workspaceId;
       }
@@ -3702,6 +3755,22 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         callerAgentId,
         callerWorkspaceId: requesterWorkspaceId,
         targetWorkspaceId: target.workspaceId,
+        ...(caller
+          ? {
+              callerAgent: {
+                id: caller.id,
+                workspaceId: caller.workspaceId,
+                labels: caller.labels,
+                roleBinding: caller.roleBinding,
+              },
+            }
+          : {}),
+        targetAgent: {
+          id: target.id,
+          workspaceId: target.workspaceId,
+          labels: target.labels,
+          roleBinding: target.roleBinding,
+        },
         observation,
         question,
         evidenceRefs,
@@ -5050,29 +5119,107 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     "get_agent_activity",
     {
       title: "Get agent activity",
-      description: "Return recent agent timeline entries as a curated summary.",
+      description:
+        "Return recent agent timeline entries as a curated snapshot. Pass direction or cursor to opt into a bounded sourced report with stable timeline references and coverage metadata; this is an on-demand snapshot, not a change feed. Repeat the direction when following nextCursor (tail pages continue with before, after pages with after). A limit alone keeps the legacy projected-entry summary.",
       inputSchema: {
         agentId: z.string(),
         limit: z
           .number()
           .optional()
-          .describe("Optional limit for number of activities to include (most recent first)."),
+          .describe(
+            "Optional activity limit. In bounded mode it caps canonical rows (default 20, maximum 50); alone it preserves legacy projected-entry behavior.",
+          ),
+        direction: z
+          .enum(["tail", "before", "after"])
+          .optional()
+          .describe(
+            "Bounded report direction. Use before with a tail/before nextCursor and after with an after nextCursor; cursor-only reads default to after.",
+          ),
+        cursor: z
+          .object({
+            epoch: z.string().min(1),
+            seq: z.number().int().nonnegative(),
+          })
+          .optional()
+          .describe("Stable timeline cursor returned by a previous bounded report."),
       },
       outputSchema: {
         agentId: z.string(),
         updateCount: z.number(),
         currentModeId: z.string().nullable(),
         content: z.string(),
+        workspaceId: z.string().nullable().optional(),
+        projectId: z.string().nullable().optional(),
+        snapshotAt: z.string().datetime().optional(),
+        epoch: z.string().optional(),
+        direction: z.enum(["tail", "before", "after"]).optional(),
+        reset: z.boolean().optional(),
+        staleCursor: z.boolean().optional(),
+        gap: z.boolean().optional(),
+        window: z
+          .object({
+            minSeq: z.number().int().nonnegative(),
+            maxSeq: z.number().int().nonnegative(),
+            nextSeq: z.number().int().nonnegative(),
+          })
+          .optional(),
+        startCursor: z
+          .object({ epoch: z.string(), seq: z.number().int().nonnegative() })
+          .nullable()
+          .optional(),
+        endCursor: z
+          .object({ epoch: z.string(), seq: z.number().int().nonnegative() })
+          .nullable()
+          .optional(),
+        nextCursor: z
+          .object({ epoch: z.string(), seq: z.number().int().nonnegative() })
+          .nullable()
+          .optional(),
+        hasOlder: z.boolean().optional(),
+        hasNewer: z.boolean().optional(),
+        sourceRefs: z.array(z.string()).optional(),
+        observedState: z
+          .object({ lifecycle: z.string().nullable(), currentModeId: z.string().nullable() })
+          .optional(),
+        coverage: z
+          .object({
+            kind: z.literal("bounded"),
+            canonicalRows: z.number().int().nonnegative(),
+            projectedEntries: z.number().int().nonnegative(),
+            visibleEntries: z.number().int().nonnegative(),
+            returnedEntries: z.number().int().nonnegative(),
+            omittedVisibleEntries: z.number().int().nonnegative(),
+            omittedCanonicalRows: z.number().int().nonnegative(),
+            omittedKinds: z.array(z.string()),
+            truncated: z.boolean(),
+            contentTruncated: z.boolean(),
+            contentOmittedEntries: z.number().int().nonnegative(),
+            limitCapped: z.boolean(),
+          })
+          .optional(),
       },
     },
-    async ({ agentId, limit }) => {
+    async ({ agentId, limit, direction, cursor }) => {
       await ensureAgentLoaded(agentId, {
         agentManager,
         agentStorage,
         logger: childLogger,
       });
-      const timeline = agentManager.getTimeline(agentId);
       const snapshot = agentManager.getAgent(agentId);
+
+      const bounded = direction !== undefined || cursor !== undefined;
+      if (bounded) {
+        return getBoundedAgentActivityResult({
+          options,
+          agentId,
+          snapshot,
+          limit,
+          direction,
+          cursor,
+        });
+      }
+
+      const timeline = agentManager.getTimeline(agentId);
 
       const selection = selectItemsByProjectedLimit({
         items: timeline,

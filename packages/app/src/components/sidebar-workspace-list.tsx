@@ -43,6 +43,7 @@ import {
   MoreVertical,
   Plus,
   Trash2,
+  Eye,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -60,6 +61,7 @@ import { useProjectIcons } from "@/projects/icons";
 import {
   buildNewWorkspaceRoute,
   buildHostProjectIssuesRoute,
+  buildHostWatcherRoute,
   buildProjectSettingsRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
@@ -859,6 +861,64 @@ function NewWorkspaceGhostRow({
             numberOfLines={1}
           >
             {t("sidebar.workspace.actions.newWorkspace")}
+          </Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+function WatcherWorkspaceRow({
+  project,
+  displayName,
+  onWorkspacePress,
+}: {
+  project: SidebarProjectEntry;
+  displayName: string;
+  onWorkspacePress?: () => void;
+}) {
+  const host = project.hosts[0];
+  const handlePress = useCallback(() => {
+    if (!host) return;
+    onWorkspacePress?.();
+    router.navigate(buildHostWatcherRoute(host.serverId, host.projectId) as Href);
+  }, [host, onWorkspacePress]);
+  const rowStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.watcherWorkspaceRow,
+      hovered && !pressed && styles.watcherWorkspaceRowHovered,
+      pressed && styles.watcherWorkspaceRowPressed,
+    ],
+    [],
+  );
+  if (!host) return null;
+  return (
+    <Pressable
+      accessibilityRole={platformIsWeb ? undefined : "button"}
+      accessibilityLabel={`Open Watcher for ${displayName}`}
+      onPress={handlePress}
+      style={rowStyle}
+      testID={`sidebar-project-watcher-${project.viewKey}`}
+    >
+      {({ hovered, pressed }) => (
+        <>
+          <View style={styles.watcherWorkspaceIconSlot}>
+            <Eye
+              size={14}
+              color={
+                hovered || pressed
+                  ? styles.watcherWorkspaceTextHovered.color
+                  : styles.watcherWorkspaceText.color
+              }
+            />
+          </View>
+          <Text
+            style={
+              hovered || pressed ? styles.watcherWorkspaceTextHovered : styles.watcherWorkspaceText
+            }
+            numberOfLines={1}
+          >
+            Watcher · {displayName}
           </Text>
         </>
       )}
@@ -1755,6 +1815,13 @@ function ProjectBlock({
 
   let projectChildren = null;
   if (!collapsed) {
+    const watcherRow = (
+      <WatcherWorkspaceRow
+        project={project}
+        displayName={displayName}
+        onWorkspacePress={onWorkspacePress}
+      />
+    );
     if (project.workspaces.length > 0) {
       projectChildren = (
         <>
@@ -1791,6 +1858,14 @@ function ProjectBlock({
         />
       );
     }
+    projectChildren = projectChildren ? (
+      <>
+        {watcherRow}
+        {projectChildren}
+      </>
+    ) : (
+      watcherRow
+    );
   }
 
   return (
@@ -2567,6 +2642,39 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     flexShrink: 1,
     color: theme.colors.foreground,
+  },
+  watcherWorkspaceRow: {
+    minHeight: 36,
+    marginBottom: theme.spacing[0.5],
+    paddingVertical: theme.spacing[2],
+    paddingLeft: theme.spacing[4],
+    paddingRight: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    userSelect: "none",
+  },
+  watcherWorkspaceRowHovered: { backgroundColor: `${theme.colors.accent}14` },
+  watcherWorkspaceRowPressed: { backgroundColor: `${theme.colors.accent}22` },
+  watcherWorkspaceIconSlot: {
+    width: theme.iconSize.md,
+    height: theme.iconSize.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  watcherWorkspaceText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.base,
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  watcherWorkspaceTextHovered: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.base,
+    minWidth: 0,
+    flexShrink: 1,
   },
   projectRow: {
     position: "relative",

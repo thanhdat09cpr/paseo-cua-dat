@@ -21,6 +21,13 @@ import {
   type SemanticAttentionDecision,
   type SemanticAttentionPacket,
 } from "./semantic-attention-contract.js";
+import {
+  SemanticAttentionSweep,
+  DEFAULT_SEMANTIC_ATTENTION_SWEEP_INTERVAL_MS,
+  type SemanticAttentionSweepRoute,
+} from "./semantic-attention-sweep.js";
+import type { SemanticAttentionSweepCheckpoint } from "./semantic-attention-sweep-checkpoint.js";
+import { parseSemanticAttentionSweepCheckpoint } from "./semantic-attention-sweep-checkpoint.js";
 
 export const SLP_ATTENTION_POLICY_ID = "slp.attention";
 export const SLP_ATTENTION_POLICY_VERSION = "6";
@@ -37,6 +44,7 @@ interface SlpAttentionState extends Record<string, unknown> {
   automaticCompactionCount: number;
   contextPressureActive: boolean;
   lastContextRatio?: number;
+  sweepCheckpoint?: SemanticAttentionSweepCheckpoint;
 }
 
 const INITIAL_SLP_ATTENTION_STATE: SlpAttentionState = {
@@ -63,6 +71,9 @@ function parseSlpAttentionState(input: unknown): SlpAttentionState {
     automaticCompactionCount: parseNonNegativeInteger(value.automaticCompactionCount, 0),
     contextPressureActive: value.contextPressureActive === true,
     ...(lastContextRatio === undefined ? {} : { lastContextRatio }),
+    ...(value.sweepCheckpoint && typeof value.sweepCheckpoint === "object"
+      ? { sweepCheckpoint: parseSemanticAttentionSweepCheckpoint(value.sweepCheckpoint) }
+      : {}),
   };
 }
 
@@ -147,6 +158,67 @@ function findSupervisorForAgent(
     }
   }
   return findUniqueRoleAgent(dependencies, agent.workspaceId, "supervisor");
+}
+
+function assignmentIsCurrent(agent: ManagedAgent, now = Date.now()): boolean {
+  const expiresAt = agent.roleBinding?.assignment?.expiresAt;
+  if (!expiresAt) return true;
+  const expiry = Date.parse(expiresAt);
+  return Number.isFinite(expiry) && expiry > now;
+}
+
+function resolveStrictPeriodicSupervisor(
+  dependencies: EventPolicyRuntimeDependencies,
+  agent: ManagedAgent,
+): ManagedAgent | null {
+  if (!assignmentIsCurrent(agent)) return null;
+  if (agent.roleBinding?.roleId === "lead") {
+    const supervisor = findDirectParentRoleAgent(dependencies, agent, "supervisor");
+    return supervisor && assignmentIsCurrent(supervisor) ? supervisor : null;
+  }
+  if (agent.roleBinding?.roleId === "peer") {
+    const lead = findDirectParentRoleAgent(dependencies, agent, "lead");
+    if (!lead || lead.workspaceId !== agent.workspaceId || !assignmentIsCurrent(lead)) return null;
+    const supervisor = findDirectParentRoleAgent(dependencies, lead, "supervisor");
+    return supervisor && assignmentIsCurrent(supervisor) ? supervisor : null;
+  }
+  return null;
+}
+
+function resolveStrictPeriodicRoute(
+  dependencies: EventPolicyRuntimeDependencies,
+  agent: ManagedAgent,
+): SemanticAttentionSweepRoute | null {
+  const sourceRole = agent.roleBinding?.roleId;
+  if (sourceRole !== "lead" && sourceRole !== "peer") return null;
+  const supervisor = resolveStrictPeriodicSupervisor(dependencies, agent);
+  if (!supervisor) return null;
+  const sourceBindingDigest = agent.roleBinding?.bindingDigest;
+  const supervisorBindingDigest = supervisor.roleBinding?.bindingDigest;
+  if (!sourceBindingDigest || !supervisorBindingDigest) return null;
+  const sourceParentId = getParentAgentIdFromLabels(agent.labels) ?? "";
+  const leadParentId =
+    sourceRole === "peer"
+      ? (getParentAgentIdFromLabels(dependencies.agentManager.getAgent(sourceParentId)?.labels) ??
+        "")
+      : sourceParentId;
+  const scope = agent.workspaceId ?? `agent:${agent.id}`;
+  return {
+    source: agent,
+    supervisor,
+    sourceRole,
+    projectRef: opaqueAttentionRef(scope),
+    scopeId: scope,
+    sourceBindingDigest,
+    supervisorBindingDigest,
+    sourcePolicyOwner: policyOwnerIdentity(agent),
+    supervisorPolicyOwner: policyOwnerIdentity(supervisor),
+    sourceWorkspaceId: agent.workspaceId,
+    supervisorWorkspaceId: supervisor.workspaceId,
+    topologyFingerprint: opaqueAttentionRef(
+      `${agent.id}\u0000${sourceParentId}\u0000${leadParentId}\u0000${supervisor.id}`,
+    ),
+  };
 }
 
 interface FailureRoute {
@@ -793,9 +865,129 @@ async function classifyAndRouteSemanticAttention(
   }
 }
 
+function periodicStateNamespace(agent: ManagedAgent, fallback: string): string {
+  const owner = agent.roleBinding?.policyOwner;
+  return owner?.kind === "plugin" ? `${owner.pluginId}@${owner.generationDigest}` : fallback;
+}
+
+function owningLeadId(
+  dependencies: EventPolicyRuntimeDependencies,
+  route: SemanticAttentionSweepRoute,
+): string {
+  if (route.sourceRole === "lead") return route.source.id;
+  const leadId = getParentAgentIdFromLabels(route.source.labels);
+  const lead = leadId ? dependencies.agentManager.getAgent(leadId) : null;
+  return lead?.roleBinding?.roleId === "lead" ? lead.id : "unknown";
+}
+
+async function periodicRouteIsCurrent(
+  dependencies: EventPolicyRuntimeDependencies,
+  expected: SemanticAttentionSweepRoute,
+): Promise<boolean> {
+  const sourceBeforeLookup = dependencies.agentManager.getAgent(expected.source.id);
+  if (!sourceBeforeLookup || sourceBeforeLookup.lifecycle === "closed") return false;
+  const scope = await semanticProjectScope(dependencies, sourceBeforeLookup);
+  const current = dependencies.agentManager.getAgent(expected.source.id);
+  if (!current || current.lifecycle === "closed") return false;
+  const route = resolveStrictPeriodicRoute(dependencies, current);
+  return Boolean(
+    route &&
+    route.supervisor.id === expected.supervisor.id &&
+    route.sourceWorkspaceId === expected.sourceWorkspaceId &&
+    route.supervisorWorkspaceId === expected.supervisorWorkspaceId &&
+    route.sourceBindingDigest === expected.sourceBindingDigest &&
+    route.supervisorBindingDigest === expected.supervisorBindingDigest &&
+    (expected.sourcePolicyOwner === undefined ||
+      policyOwnerIdentity(route.source) === expected.sourcePolicyOwner) &&
+    (expected.supervisorPolicyOwner === undefined ||
+      policyOwnerIdentity(route.supervisor) === expected.supervisorPolicyOwner) &&
+    route.topologyFingerprint === expected.topologyFingerprint &&
+    scope.projectRef === expected.projectRef,
+  );
+}
+
+function createSemanticAttentionSweep(
+  dependencies: EventPolicyRuntimeDependencies,
+): SemanticAttentionSweep {
+  const loadCheckpoint = async (agentId: string, stateNamespace: string): Promise<unknown> => {
+    const record = await dependencies.agentStorage.get(agentId);
+    return record?.eventPolicyStates?.[`${stateNamespace}/${SLP_ATTENTION_POLICY_ID}`]?.state
+      ?.sweepCheckpoint;
+  };
+  const saveCheckpoint = async (
+    agentId: string,
+    stateNamespace: string,
+    checkpoint: SemanticAttentionSweepCheckpoint,
+  ): Promise<void> => {
+    await updateEventPolicyState(
+      dependencies,
+      agentId,
+      { stateNamespace },
+      SLP_ATTENTION_STATE,
+      (state) => ({ state: { ...state, sweepCheckpoint: checkpoint }, result: undefined }),
+    );
+  };
+  return new SemanticAttentionSweep({
+    dependencies,
+    stateNamespace: "static",
+    intervalMs:
+      dependencies.semanticAttentionSweepIntervalMs ?? DEFAULT_SEMANTIC_ATTENTION_SWEEP_INTERVAL_MS,
+    resolveStateNamespace: (agent) => periodicStateNamespace(agent, "static"),
+    resolveRoute: (agent) => resolveStrictPeriodicRoute(dependencies, agent),
+    routeStillCurrent: (route) => periodicRouteIsCurrent(dependencies, route),
+    loadCheckpoint,
+    saveCheckpoint,
+    resolveProjectScope: (agent) => semanticProjectScope(dependencies, agent),
+    onWake: async (route, packet, decision, report) => {
+      const sourceTimelineRefs = report.sourceRefs;
+      const sourceEvidenceMap = sourceTimelineRefs
+        .map((sourceRef, index) => `${packet.evidenceRefs[index] ?? "unknown"}=${sourceRef}`)
+        .join(",");
+      await requestCoordinationSignal(dependencies, {
+        targetAgentId: route.supervisor.id,
+        requestedByAgentId: null,
+        kind: "continuity_attention",
+        customEvent: "slp.semantic_friction",
+        severity: "critical",
+        recipientRole: "supervisor",
+        source: {
+          kind: "paseo",
+          ruleId: "semantic_attention_periodic_sweep",
+          version: SLP_ATTENTION_STATE_VERSION,
+        },
+        coalescingKey: `semantic_attention_periodic:${route.source.id}`,
+        reason:
+          "A bounded periodic activity sample is a high-confidence Supervisor review candidate.",
+        observation:
+          "Review this episode and decide whether an advisory question to the exact owning Lead is useful.",
+        question:
+          "Does this evidence warrant asking the owning Lead an open-ended continuity question?",
+        relatedAgentId: route.source.id,
+        evidenceRefs: packet.evidenceRefs,
+        evidence: {
+          sourceAgentId: route.source.id,
+          owningLeadAgentId: owningLeadId(dependencies, route),
+          sourceAgentRole: packet.sourceRole,
+          semanticDecision: decision.decision,
+          semanticRisk: decision.risk,
+          semanticConfidence: decision.confidence,
+          projectRef: packet.projectRef,
+          activityExcerpt: packet.excerpt,
+          classifierReason: decision.reason,
+          sourceTimelineRefs: sourceTimelineRefs.join(","),
+          sourceEvidenceMap,
+        },
+      });
+    },
+  });
+}
+
+const SEMANTIC_ATTENTION_SWEEP_DRAIN_INTERVAL_MS = 60_000;
+
 function createSlpAttentionProcessor(
   dependencies: EventPolicyRuntimeDependencies,
 ): AgentEventPolicyProcessor {
+  const semanticAttentionSweep = createSemanticAttentionSweep(dependencies);
   const visibleAssistantBuffers = new Map<string, string>();
   const semanticFingerprintsByAgent = new Map<string, Set<string>>();
   const semanticTurnEpochs = new Map<string, number>();
@@ -841,11 +1033,9 @@ function createSlpAttentionProcessor(
     if (!semanticClassifierStoreAvailable(dependencies, classifier, agent)) return;
     const fingerprintKey = `${owner.stateNamespace}\u0000${visibleMessage.turnId}\u0000${friction.fingerprint}`;
     const observedFingerprints = semanticFingerprintsByAgent.get(agent.id) ?? new Set<string>();
-    let shouldClassify = true;
     if (classifier && classifier.mode !== "off") {
       if (observedFingerprints.has(fingerprintKey)) {
-        if (classifier.mode === "active") return;
-        shouldClassify = false;
+        return;
       } else {
         observedFingerprints.add(fingerprintKey);
         semanticFingerprintsByAgent.set(agent.id, observedFingerprints);
@@ -879,12 +1069,15 @@ function createSlpAttentionProcessor(
     }
     if (classifier.mode === "shadow") {
       await sendSemanticAttentionSignal(dependencies, dispatch, currentSupervisor);
-      if (!shouldClassify) return;
+      return;
     }
     void classifyAndRouteSemanticAttention(dependencies, classifier, dispatch, isCurrentTurn);
   }
 
   return {
+    // This dispatch preserves hard-event ordering while keeping legacy off/shadow
+    // deterministic observation beside the periodic model lane.
+    // oxlint-disable-next-line complexity
     async handleEvent(event, owner) {
       if (event.type !== "agent_stream") return;
       const agent = dependencies.agentManager.getAgent(event.agentId);
@@ -904,7 +1097,13 @@ function createSlpAttentionProcessor(
         await handleContextUsage(dependencies, agent, event.event.usage, owner);
       }
       await handleAutomaticCompaction(dependencies, agent, event, owner);
-      await handleSemanticFriction(agent, event, owner);
+      const classifierMode = dependencies.semanticAttentionClassifier?.mode ?? "off";
+      // Semantic model work is owned by the periodic sweep. Keep the legacy
+      // deterministic path only for the explicit off-mode emergency fallback;
+      // shadow mode must not create a second per-turn model consumer.
+      if (classifierMode === "off") {
+        await handleSemanticFriction(agent, event, owner);
+      }
       await handleTerminalEvent(dependencies, agent, event, owner);
       if (
         event.event.type === "turn_completed" ||
@@ -915,8 +1114,20 @@ function createSlpAttentionProcessor(
         visibleAssistantBuffers.delete(agent.id);
       }
     },
+    periodicTask() {
+      return {
+        intervalMs: Math.min(
+          semanticAttentionSweep.intervalMs,
+          SEMANTIC_ATTENTION_SWEEP_DRAIN_INTERVAL_MS,
+        ),
+        async run() {
+          await semanticAttentionSweep.runOnce();
+        },
+      };
+    },
     dispose() {
       disposed = true;
+      semanticAttentionSweep.dispose();
       visibleAssistantBuffers.clear();
       semanticFingerprintsByAgent.clear();
       semanticTurnEpochs.clear();

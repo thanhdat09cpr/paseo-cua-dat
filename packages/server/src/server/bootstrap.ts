@@ -1577,6 +1577,7 @@ export async function createPaseoDaemon(
     SemanticAttentionClassifierConfigSchema.parse(config.slpAttentionClassifier ?? {}),
     logger.child({ module: "slp-semantic-attention" }),
   );
+  const activeEventPolicies = agentManager.listActiveBundledEventPolicies();
   const eventPolicyRuntime = startEventPolicyRuntime({
     dependencies: {
       ...coordinationSignalDependencies,
@@ -1589,7 +1590,8 @@ export async function createPaseoDaemon(
       resolveProjectIdForWorkspace: async (workspaceId) =>
         (await workspaceRegistry.get(workspaceId))?.projectId ?? null,
     },
-    advertisedPolicies: agentManager.listActiveBundledEventPolicies(),
+    policies: activeEventPolicies,
+    advertisedPolicies: activeEventPolicies,
     resolvePolicies: (agentId) => agentManager.resolveBundledEventPoliciesForAgent(agentId),
   });
   logger.info(

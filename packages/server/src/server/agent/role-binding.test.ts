@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -67,6 +68,103 @@ function assignmentBinding(roleId: "lead" | "peer" | "supervisor", cwd: string) 
 }
 
 describe("native Foundation role materialization", () => {
+  test.each(["lead", "supervisor", "peer"] as const)(
+    "projects role-specific attention guidance into a provenance-bound %s snapshot",
+    async (roleId) => {
+      const cwd = await createWorkspace();
+      const binding = await materializeRoleBinding({
+        roleId,
+        provider: "codex",
+        cwd,
+        ...assignmentBinding(roleId, cwd),
+        customInstructions: "Preserve the agreed scope.",
+      });
+
+      expect(binding.instructions).toContain("Preserve the agreed scope.");
+      expect(binding.bindingDigest).toBe(
+        createHash("sha256").update(binding.instructions).digest("hex"),
+      );
+      expect(binding.instructions.includes("Lead method selection:")).toBe(roleId === "lead");
+      expect(binding.instructions.includes("Supervisor attention:")).toBe(roleId === "supervisor");
+      expect(binding.instructions.includes("Supervisor Notebook:")).toBe(roleId === "supervisor");
+      expect(
+        binding.instructions.includes("Watcher notifications are never blanket Notebook records"),
+      ).toBe(roleId === "supervisor");
+      expect(binding.instructions.includes("Attention handback:")).toBe(roleId === "peer");
+      expect(binding.instructions).toContain("Resolution is one-shot");
+      expect(binding.instructions).toContain("next owner if known");
+      expect(binding.instructions).toContain("Signal completion is not engineering acceptance");
+      expect(toRoleBindingReceipt(binding)).not.toHaveProperty("instructions");
+    },
+  );
+
+  test("puts Supervisor assessment before bounded Notebook admission", async () => {
+    const cwd = await createWorkspace();
+    const binding = await materializeRoleBinding({
+      roleId: "supervisor",
+      provider: "codex",
+      cwd,
+      ...assignmentBinding("supervisor", cwd),
+      customInstructions: "Keep the approved Human decisions.",
+    });
+
+    const instructions = binding.instructions;
+    const signalIndex = instructions.indexOf("Watcher or detector event is a suspicion");
+    const assessmentIndex = instructions.indexOf("Assess before Notebook admission");
+    const notebookIndex = instructions.indexOf("Supervisor Notebook:");
+    const writeIndex = instructions.indexOf("write only through the exact Notebook path");
+    const retrospectiveIndex = instructions.indexOf("On a Human progress request");
+
+    expect(signalIndex).toBeGreaterThanOrEqual(0);
+    expect(assessmentIndex).toBeGreaterThan(signalIndex);
+    expect(notebookIndex).toBeGreaterThan(assessmentIndex);
+    expect(writeIndex).toBeGreaterThan(notebookIndex);
+    expect(retrospectiveIndex).toBeGreaterThan(writeIndex);
+    expect(instructions).toContain("material, unresolved coordination risk that needs Lead review");
+    expect(instructions).toContain(
+      "lesson without an unresolved coordination risk goes to the Notebook or a requested retrospective without waking Lead",
+    );
+    expect(instructions).toContain(
+      "admitted route to the exact current owning Lead is available, including a valid delegated cross-workspace route",
+    );
+    expect(instructions).toContain(
+      "If current identity, delegation, or an admitted route cannot be verified, return a blocked handback",
+    );
+    expect(instructions).toContain("Watcher notifications are never blanket Notebook records");
+    expect(instructions).toContain(
+      "If the assignment contract lacks an exact Notebook write path or is no-write, write no file",
+    );
+    expect(instructions).toContain(
+      "hand back the assessed episode or proposal with evidence and uncertainty",
+    );
+    expect(instructions).toContain("existing attention surfaces with a disposition");
+    expect(instructions).toContain(
+      "Keep the assessment verdict, lesson, and correction approval as separate states",
+    );
+    expect(instructions).toContain(
+      "ordinary progress report with the admitted get_agent_activity tool",
+    );
+    expect(instructions).toContain("paging with returned cursors");
+    expect(instructions).toContain("claims versus verified proof");
+    expect(instructions).toContain(
+      "do not prompt, signal, or wake workers only to make the report",
+    );
+    expect(instructions).toContain("healthy decisions and counterexamples");
+    expect(instructions).toContain("ordinary product bugs");
+    expect(instructions).toContain(
+      "smallest owner-scoped correction with a measurable check and rollback condition",
+    );
+    expect(instructions).toContain(
+      "Track proposed, authorized, applied, and later-effect states separately",
+    );
+    expect(instructions).toContain("never auto-promote a conclusion");
+    expect(instructions).toContain(
+      "Do not edit roles or skills, start a periodic watcher, or create a schedule",
+    );
+    expect(instructions).toContain("Keep the approved Human decisions.");
+    expect(binding.bindingDigest).toBe(createHash("sha256").update(instructions).digest("hex"));
+  });
+
   test("detects only exact legacy role transport commands", () => {
     expect(LEGACY_PROVIDER_ROLE_DETECTION_EXPIRES_AT).toBe("2026-09-30");
     expect(detectLegacyProviderRole(["/opt/paseo/codex-profile", "lead"])).toBe("lead");
@@ -169,7 +267,9 @@ describe("native Foundation role materialization", () => {
     });
     const { policyOwner: _policyOwner, ...legacyBinding } = binding;
 
-    expect(policyOwnerForRoleBinding(legacyBinding)).toEqual({ kind: "legacy-core" });
+    expect(policyOwnerForRoleBinding(legacyBinding)).toEqual({
+      kind: "legacy-core",
+    });
   });
 
   test("keeps Peer protocol readership assignment-only", async () => {
@@ -390,7 +490,10 @@ describe("native Foundation role materialization", () => {
         ...assignmentBinding("lead", cwd),
         assignment: {
           ...assignmentFor("lead", "delegation"),
-          externalEffectBoundary: { mode: "bounded", scope: "publish release notes" },
+          externalEffectBoundary: {
+            mode: "bounded",
+            scope: "publish release notes",
+          },
         },
       }),
     ).rejects.toThrow(`${WORKSPACE_PROTOCOL_ADMISSION_ERROR}: missing`);
@@ -628,7 +731,10 @@ describe("native Foundation role materialization", () => {
         "cursor-agent",
         "acp",
       ]),
-    ).toMatchObject({ status: "unsupported", reason: expect.stringContaining("retired") });
+    ).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("retired"),
+    });
     expect(
       resolveProviderRoleBindingSupport("cursor", null, null, undefined, [
         "cursor-agent",
@@ -716,7 +822,9 @@ describe("native Foundation role materialization", () => {
   });
 
   test("role-bound tool policy owns enablement while provider filters can narrow it", () => {
-    expect(applyRolePaseoToolPolicy(undefined, { enabled: false })).toEqual({ enabled: false });
+    expect(applyRolePaseoToolPolicy(undefined, { enabled: false })).toEqual({
+      enabled: false,
+    });
     const leadPolicy = applyRolePaseoToolPolicy("lead", { enabled: false });
     expect(leadPolicy).toEqual({
       enabled: true,

@@ -138,6 +138,14 @@ import {
 import { LEGACY_CORE_OPERATIONAL_POLICY } from "./legacy-role-binding.js";
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
+const WATCHER_SURFACE_LABEL = "watcher";
+
+function projectWatcherKey(labels: Record<string, string> | undefined): string | null {
+  const projectId = labels?.["paseo.projectId"]?.trim();
+  return labels?.["paseo.surface"] === WATCHER_SURFACE_LABEL && projectId
+    ? `${WATCHER_SURFACE_LABEL}:${projectId}`
+    : null;
+}
 const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: false,
   supportsSessionPersistence: true,
@@ -865,6 +873,7 @@ export class AgentManager {
   private readonly backgroundTasks = new Set<Promise<void>>();
   private readonly durableTimelineFlushesByAgent = new Map<string, Promise<void>>();
   private readonly agentRegistrationTasks = new Set<Promise<void>>();
+  private readonly watcherCreationsByProject = new Map<string, Promise<ManagedAgent>>();
   private readonly inFlightAgentCloses = new Map<string, Promise<void>>();
   private readonly agentCloseFailures = new Map<string, unknown>();
   private readonly lifecycleMutationTails = new Map<string, Promise<void>>();
@@ -1585,7 +1594,38 @@ export class AgentManager {
     agentId: string | undefined,
     options: CreateAgentOptions,
   ): Promise<ManagedAgent> {
-    return this.trackAgentRegistrationOperation(this.createAgentInternal(config, agentId, options));
+    const watcherKey = projectWatcherKey(options.labels);
+    if (watcherKey) {
+      const existing = this.findProjectWatcher(watcherKey);
+      if (existing) return Promise.resolve(existing);
+      const pending = this.watcherCreationsByProject.get(watcherKey);
+      if (pending) return pending;
+    }
+    const operation = this.trackAgentRegistrationOperation(
+      this.createAgentInternal(config, agentId, options),
+    );
+    if (!watcherKey) return operation;
+    const deduplicated = operation.then(
+      (agent) => {
+        this.watcherCreationsByProject.delete(watcherKey);
+        return agent;
+      },
+      (error) => {
+        this.watcherCreationsByProject.delete(watcherKey);
+        throw error;
+      },
+    );
+    this.watcherCreationsByProject.set(watcherKey, deduplicated);
+    return deduplicated;
+  }
+
+  private findProjectWatcher(key: string): ManagedAgent | null {
+    for (const agent of this.agents.values()) {
+      if (!agent.internal && projectWatcherKey(agent.labels) === key) {
+        return { ...agent };
+      }
+    }
+    return null;
   }
 
   private async createAgentInternal(

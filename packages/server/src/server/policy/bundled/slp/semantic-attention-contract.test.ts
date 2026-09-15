@@ -67,4 +67,14 @@ describe("semantic attention contract", () => {
       ),
     ).toThrow();
   });
+
+  test("accepts the bounded periodic activity event kind", () => {
+    expect(
+      SemanticAttentionPacketSchema.parse({
+        ...packet,
+        eventKind: "periodic_activity",
+        deterministicRule: "periodic_activity",
+      }),
+    ).toMatchObject({ eventKind: "periodic_activity" });
+  });
 });

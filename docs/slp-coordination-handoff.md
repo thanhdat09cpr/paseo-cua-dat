@@ -57,8 +57,10 @@ Ví dụ:
 
 Attention question bắt buộc có observation, câu hỏi kết thúc bằng `?` và ít nhất một evidence reference.
 Nó không phải command, decision, acceptance hoặc ownership transfer. Peer chỉ nhận và tự resolve signal;
-surface này không cấp cho Peer quyền signal/orchestrate. Agent-scoped Supervisor và target phải cùng
-exact workspace. Runtime chỉ nhận một observation clause và một clarification clause bounded tới 1000
+surface này không cấp cho Peer quyền signal/orchestrate. Agent-scoped Supervisor và target mặc định cùng exact workspace. Source candidate
+cho phép ngoại lệ tới đúng Lead con được Supervisor giao việc: kiểm tra ID, parent,
+assignment issuer, lease còn hiệu lực và grant đúng workspace của Lead. Không áp dụng
+ngoại lệ cho Peer hoặc Lead không thuộc Supervisor đó. Thiếu workspace ID bị từ chối. Runtime chỉ nhận một observation clause và một clarification clause bounded tới 1000
 ký tự mỗi phần; không có positive allowlist grammar cố định. Câu bổ sung, imperative, modal/second-person
 request, wording mang authority/external-effect shape, hoặc routing/handoff-shaped phrasing hướng về một
 role (ví dụ "đưa về Lead", "back to the Lead") đều fail closed, kể cả khi diễn đạt tự nhiên bằng tiếng Anh
@@ -66,6 +68,39 @@ hoặc tiếng Việt.
 
 Detach recommendation không promote agent. Detach thật chỉ xóa parent label và vẫn cần exact
 Human-facing lifecycle action.
+
+### Project Watcher
+
+Watcher là agent/session Gemini riêng theo project, đọc activity công khai của Lead/Peer để tạo báo cáo
+và trả lời câu hỏi trạng thái. Nó có identity và lịch sử chat riêng để Human hỏi trực tiếp, nhưng không
+phải Supervisor, không có governance authority, không spawn role mới và không tự gửi prompt điều phối.
+WebUI hiển thị một dòng workspace **Watcher** dưới project; surface này không mở quyền đọc reasoning ẩn
+hay raw tool input. Khi cần hành động, Watcher chỉ cung cấp evidence refs và cảnh báo; Supervisor xác
+minh, còn Lead giữ ownership và điều phối Peer.
+
+Heartbeat/attention sweep và UI report là hai lớp khác nhau: sweep candidate có thể đánh thức Supervisor
+ở safe boundary, còn UI chỉ đọc snapshot timeline theo yêu cầu. Cả hai đều phải giữ coverage, dedupe,
+cooldown và fail-closed semantics; không coi một report hoặc câu trả lời là acceptance. UI Watcher gửi
+snapshot bounded vào session Gemini/ACP đã được host quảng cáo cùng mode đọc-only. Adapter `gemini-antigravity` hiện yêu
+cầu canonical role binding nên không được dùng để giả lập role thứ tư; host chỉ có adapter đó sẽ dừng
+ở unavailable/error và không dùng câu trả lời deterministic thay thế. UI Watcher hiện là source
+candidate, chưa chứng minh activation trên daemon đang chạy.
+
+### Disposition và theo dõi tiếp
+
+Receiving role kiểm tra evidence trước khi resolve. Ghi vào resolution note: quyết định giữ/kiểm tra/
+mở lại/blocked, evidence refs, bước tiếp theo, người phụ trách nếu biết và điều còn chưa rõ. Không suy
+acceptance từ việc agent nói đã xong hoặc signal có trạng thái completed.
+
+API resolve hiện xử lý một lần từ pending. `acknowledged` và `deferred` không thể chuyển tiếp thành
+`completed` trên cùng signal; dùng work record hiện có để theo dõi hành động còn lại. Một occurrence mới
+có thể re-arm theo routing bên dưới. Không tạo signal mới chỉ để giả lập chuỗi trạng thái.
+
+Downstream role composition bổ sung hướng dẫn này cho binding mới. Lead tự chọn cách làm tương xứng
+trong assignment: trực tiếp khi role cho phép, bounded Peer cho implementation, cân nhắc independent
+design khi tiền đề quan trọng còn mở và independent review khi đã có candidate quan trọng. Human không
+cần chỉ tên phương pháp cho từng bước; quyết định đã chốt và giới hạn lease vẫn giữ nguyên. Binding cũ
+không tự đổi; kiểm thử composition chỉ chứng minh instruction được inject, chưa chứng minh tự chủ live.
 
 ## Routing SLP
 

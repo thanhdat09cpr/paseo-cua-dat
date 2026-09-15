@@ -185,6 +185,50 @@ Ownership/lease: <released | retained with reason>
 `completed`, notification hoặc test pass chỉ đánh thức authority holder. Lead inspect current stable
 artifact và issue `ACCEPT`, `REOPEN`, `REJECT` hoặc `UNKNOWN` trong engineering boundary của mình.
 
+## Đọc tiến độ theo yêu cầu
+
+Source candidate bổ sung báo cáo có giới hạn vào `get_agent_activity`; không cần có attention alert.
+Caller có quyền dùng tool có thể đọc timeline hiện có mà không gửi prompt hay đánh thức agent được đọc.
+Ví dụ input: `{ "agentId": "<id>", "direction": "tail", "limit": 20 }`.
+
+`direction` hoặc `cursor` chọn chế độ báo cáo mới. Chỉ truyền `limit` vẫn giữ cách tóm tắt cũ. Báo cáo
+mới đọc tối đa 50 dòng timeline gốc mỗi lần, mặc định 20, và giới hạn phần nội dung ở 12.000 ký tự.
+Reasoning không xuất hiện; assistant output được gắn nhãn, tool input bên ngoài không được chép thô.
+Các câu agent nói đã hoàn tất vẫn là claim; người báo cáo cần đối chiếu artifact và kết quả kiểm chứng.
+
+Đọc ngược từ trang `tail`: dùng `nextCursor` với `direction: "before"`. Đọc tiếp về phía mới: dùng
+`direction: "after"`. Cursor theo trang đã xét nên vẫn tiến qua trang không có nội dung công khai.
+Mỗi consumer tự giữ cursor; đọc không tiêu thụ lịch sử của consumer khác.
+
+Kiểm tra `coverage`, `gap`, `staleCursor`, `reset` và `sourceRefs` trước khi kết luận đã xem đủ. Khi
+nội dung bị cắt, refs vẫn chỉ tới các mục trong trang đã chọn; thu nhỏ trang để kiểm tra từng mục,
+dùng transcript/artifact gốc nếu một mục vẫn quá dài. Cursor phân trang snapshot; sửa đổi một dòng cũ
+không phải sự kiện mới có sequence mới. Khi cần trạng thái mới nhất, đọc lại tail và đối chiếu evidence.
+Tool không xác nhận acceptance hay tự suy người phụ trách khi thiếu dữ liệu.
+
+### Project Watcher trên WebUI
+
+Source candidate hiện thêm một dòng **Watcher** dưới mỗi project đang mở trong sidebar. Đây là
+surface theo project với một agent/session Gemini riêng, được gắn nhãn project và dùng cwd gốc của
+project (không tạo checkout mới). Nó có identity và lịch sử chat riêng để Human hỏi trực tiếp, nhưng
+không phải role thứ tư trong SLP và không có governance authority. Dòng này mở trang báo cáo chỉ đọc,
+lấy activity công khai đã được project timeline chiếu của Lead/Peer; reasoning ẩn và tool input không
+được đưa vào báo cáo. Host deduplicate create request theo nhãn project để giữ một Watcher hoạt động
+cho mỗi project.
+
+Trang Watcher gửi câu hỏi qua agent Gemini/ACP đã được host quảng cáo (ưu tiên model Flash nếu có) và
+có mode đọc-only được provider quảng cáo, rồi đọc lại assistant output công khai trong session đó. Mỗi câu hỏi kèm snapshot Lead/Peer bounded để
+Gemini không phải tự tải toàn bộ transcript. Câu trả lời luôn ghi rõ phạm vi quan sát và giữ bất định;
+nó không phải acceptance, ruling hay lệnh điều phối. Dấu hiệu đáng chú ý vẫn phải được Supervisor
+xác minh, rồi Lead mới điều phối Peer trong lease của mình.
+
+Nếu project được đồng bộ trên nhiều host, dòng hiện mở host đầu tiên trong project entry; trạng thái
+multi-host aggregate chưa được chứng minh. Nếu host không quảng cáo Gemini khả dụng hoặc snapshot
+provider lỗi, hoặc host chỉ có adapter `gemini-antigravity` vốn bắt buộc canonical role binding,
+Watcher dừng ở trạng thái unavailable/error và không giả lập câu trả lời cục bộ. UI/report
+và agent creation này là source candidate cho `.64`, chưa phải bằng chứng daemon `.62` đang chạy đã
+được reload; việc tạo session Gemini thật cần được kiểm tra riêng trên host có provider đó.
+
 ## Candidate coordination signal
 
 Current product code có durable advisory signal. Interface không interrupt active run và không chuyển

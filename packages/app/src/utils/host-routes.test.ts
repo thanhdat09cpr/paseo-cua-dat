@@ -10,6 +10,7 @@ import {
   buildHostRoomsRoute,
   buildHostWorkspaceOpenRoute,
   buildHostWorkspaceRoute,
+  buildHostWatcherRoute,
   buildNewWorkspaceRoute,
   buildOpenProjectRoute,
   resolveKnownHostRoute,
@@ -96,6 +97,12 @@ describe("workspace route parsing", () => {
 
   it("builds host root routes", () => {
     expect(buildHostRootRoute("local")).toBe("/h/local");
+  });
+
+  it("builds project-scoped watcher routes", () => {
+    expect(buildHostWatcherRoute("local host", "project/one")).toBe(
+      "/h/local%20host/watcher/project%2Fone",
+    );
   });
 
   it("builds host-scoped room routes with encoded IDs", () => {
