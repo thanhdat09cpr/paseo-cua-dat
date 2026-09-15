@@ -314,6 +314,7 @@ class AntigravityNativeAgentSession implements AgentSession {
       "--print-timeout",
       DEFAULT_PRINT_TIMEOUT,
     ];
+    if (this.modeLocked) args.push("--disable-slash-commands");
     if (this.conversationId) args.push("--conversation", this.conversationId);
     if (this.config.model) args.push("--model", this.config.model);
     if (this.currentModeId === FULL_ACCESS_MODE) {

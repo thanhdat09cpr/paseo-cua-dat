@@ -188,6 +188,7 @@ describe("native Antigravity provider", () => {
         await expect(session.run("Return AGY_OK")).resolves.toMatchObject({ finalText: "AGY_OK" });
         const argv = await readFile(argvLog, "utf8");
         expect(argv).toContain("--mode\nplan\n");
+        expect(argv).toContain("--disable-slash-commands\n");
         expect(argv).toContain("--agent\npaseo-watcher-");
         const profileNames = await import("node:fs/promises").then((fs) => fs.readdir(profileRoot));
         const profile = await readFile(join(profileRoot, profileNames[0], "agent.md"), "utf8");
