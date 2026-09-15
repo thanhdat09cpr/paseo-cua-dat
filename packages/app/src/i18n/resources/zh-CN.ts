@@ -265,6 +265,8 @@ export const zhCN: TranslationResources = {
       occurrenceCount: "出现 {{count}} 次",
       lastOccurredAt: "最近发生于 {{time}}",
       hiddenHistoryCount: "另有 {{count}} 条更早的记录",
+      historyToggleShow: "显示历史记录（{{count}}）",
+      historyToggleHide: "隐藏历史记录（{{count}}）",
       resolution: {
         acknowledged: "确认",
         deferred: "推迟",

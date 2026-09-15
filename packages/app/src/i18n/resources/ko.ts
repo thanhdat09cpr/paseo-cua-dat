@@ -266,6 +266,8 @@ export const ko: TranslationResources = {
       occurrenceCount: "{{count}}회 발생",
       lastOccurredAt: "마지막 발생 {{time}}",
       hiddenHistoryCount: "이전 기록 {{count}}건 더 있음",
+      historyToggleShow: "기록 표시 ({{count}})",
+      historyToggleHide: "기록 숨기기 ({{count}})",
       resolution: {
         acknowledged: "확인",
         deferred: "보류",

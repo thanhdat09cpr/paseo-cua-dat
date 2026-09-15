@@ -263,6 +263,8 @@ export const en = {
       occurrenceCount: "Seen {{count}} times",
       lastOccurredAt: "Last occurred {{time}}",
       hiddenHistoryCount: "+{{count}} earlier",
+      historyToggleShow: "Show history ({{count}})",
+      historyToggleHide: "Hide history ({{count}})",
       resolution: {
         acknowledged: "Acknowledge",
         deferred: "Defer",

@@ -265,6 +265,8 @@ export const ar: TranslationResources = {
       occurrenceCount: "ظهر {{count}} مرات",
       lastOccurredAt: "آخر ظهور {{time}}",
       hiddenHistoryCount: "+{{count}} أقدم",
+      historyToggleShow: "إظهار السجل ({{count}})",
+      historyToggleHide: "إخفاء السجل ({{count}})",
       resolution: {
         acknowledged: "إقرار",
         deferred: "تأجيل",

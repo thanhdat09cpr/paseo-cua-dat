@@ -19,8 +19,10 @@ const RESOLUTIONS: readonly CoordinationSignalResolution[] = [
 ];
 
 // Bounded presentation only: daemon storage is never mutated or capped. Every pending
-// signal is always shown; only the history list (already-resolved signals) is bounded.
+// signal is always shown; resolved history stays collapsed and is bounded when expanded.
 const HISTORY_DISPLAY_LIMIT = 5;
+const HISTORY_COLLAPSED_ACCESSIBILITY_STATE = { expanded: false } as const;
+const HISTORY_EXPANDED_ACCESSIBILITY_STATE = { expanded: true } as const;
 
 function signalRecencyTimestamp(signal: CoordinationSignal): number {
   const value = signal.resolvedAt ?? signal.lastOccurredAt ?? signal.createdAt;
@@ -28,8 +30,13 @@ function signalRecencyTimestamp(signal: CoordinationSignal): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function selectVisibleSignals(signals: readonly CoordinationSignal[]): {
-  visible: CoordinationSignal[];
+function selectVisibleSignals(
+  signals: readonly CoordinationSignal[],
+  historyExpanded: boolean,
+): {
+  pending: CoordinationSignal[];
+  history: CoordinationSignal[];
+  visibleHistory: CoordinationSignal[];
   hiddenHistoryCount: number;
 } {
   const pending = signals.filter((signal) => signal.status === "pending");
@@ -37,10 +44,12 @@ function selectVisibleSignals(signals: readonly CoordinationSignal[]): {
     .filter((signal) => signal.status !== "pending")
     .slice()
     .sort((a, b) => signalRecencyTimestamp(b) - signalRecencyTimestamp(a));
-  const visibleHistory = history.slice(0, HISTORY_DISPLAY_LIMIT);
+  const visibleHistory = historyExpanded ? history.slice(0, HISTORY_DISPLAY_LIMIT) : [];
   return {
-    visible: [...pending, ...visibleHistory],
-    hiddenHistoryCount: history.length - visibleHistory.length,
+    pending,
+    history,
+    visibleHistory,
+    hiddenHistoryCount: historyExpanded ? history.length - visibleHistory.length : 0,
   };
 }
 
@@ -294,6 +303,10 @@ export function CoordinationSignalsSection({
   canResolve?: boolean;
 }) {
   const { t } = useTranslation();
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const toggleHistory = useCallback(() => {
+    setHistoryExpanded((expanded) => !expanded);
+  }, []);
   const featureEnabled = useSessionStore((state) =>
     serverId
       ? state.sessions[serverId]?.serverInfo?.features?.coordinationSignalResolution === true
@@ -308,14 +321,50 @@ export function CoordinationSignalsSection({
 
   const resolveEnabled =
     canResolve && featureEnabled && hasClient && Boolean(agentId) && Boolean(serverId);
-  const { visible, hiddenHistoryCount } = selectVisibleSignals(signals);
+  const { pending, history, visibleHistory, hiddenHistoryCount } = selectVisibleSignals(
+    signals,
+    historyExpanded,
+  );
+  const historyToggleLabel = t(
+    historyExpanded
+      ? "agentPanel.coordinationSignals.historyToggleHide"
+      : "agentPanel.coordinationSignals.historyToggleShow",
+    { count: history.length },
+  );
 
   return (
     <View style={styles.container} testID="coordination-signals-section">
       <Text style={styles.title} accessibilityRole="header">
         {t("agentPanel.coordinationSignals.title")}
       </Text>
-      {visible.map((signal) => (
+      {pending.map((signal) => (
+        <CoordinationSignalRow
+          key={signal.id}
+          signal={signal}
+          agentId={agentId ?? ""}
+          canResolve={resolveEnabled}
+          resolve={resolve}
+          pendingKey={pendingKey}
+          errorMessage={errorBySignalId[signal.id]}
+        />
+      ))}
+      {history.length > 0 ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          onPress={toggleHistory}
+          accessibilityState={
+            historyExpanded
+              ? HISTORY_EXPANDED_ACCESSIBILITY_STATE
+              : HISTORY_COLLAPSED_ACCESSIBILITY_STATE
+          }
+          accessibilityLabel={historyToggleLabel}
+          testID="coordination-signals-history-toggle"
+        >
+          {historyToggleLabel}
+        </Button>
+      ) : null}
+      {visibleHistory.map((signal) => (
         <CoordinationSignalRow
           key={signal.id}
           signal={signal}

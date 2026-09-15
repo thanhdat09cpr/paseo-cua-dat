@@ -269,6 +269,8 @@ export const fr: TranslationResources = {
       occurrenceCount: "Observé {{count}} fois",
       lastOccurredAt: "Dernière occurrence {{time}}",
       hiddenHistoryCount: "+{{count}} plus anciens",
+      historyToggleShow: "Afficher l’historique ({{count}})",
+      historyToggleHide: "Masquer l’historique ({{count}})",
       resolution: {
         acknowledged: "Accuser réception",
         deferred: "Différer",

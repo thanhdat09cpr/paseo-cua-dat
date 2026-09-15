@@ -268,6 +268,8 @@ export const ja: TranslationResources = {
       occurrenceCount: "{{count}}回発生",
       lastOccurredAt: "最終発生 {{time}}",
       hiddenHistoryCount: "他 {{count}} 件（古い履歴）",
+      historyToggleShow: "履歴を表示（{{count}}）",
+      historyToggleHide: "履歴を非表示（{{count}}）",
       resolution: {
         acknowledged: "確認する",
         deferred: "延期する",

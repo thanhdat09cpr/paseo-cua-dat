@@ -267,6 +267,8 @@ export const ru: TranslationResources = {
       occurrenceCount: "Замечено {{count}} раз",
       lastOccurredAt: "Последний раз {{time}}",
       hiddenHistoryCount: "+{{count}} более ранних",
+      historyToggleShow: "Показать историю ({{count}})",
+      historyToggleHide: "Скрыть историю ({{count}})",
       resolution: {
         acknowledged: "Подтвердить",
         deferred: "Отложить",

@@ -73,6 +73,8 @@ const translations: Record<string, string> = {
   "agentPanel.coordinationSignals.resolution.completed": "Complete",
   "agentPanel.coordinationSignals.resolveErrorLabel": "Failed to resolve signal",
   "common.errors.daemonClientUnavailable": "Daemon client unavailable",
+  "agentPanel.coordinationSignals.historyToggleShow": "Show history ({{count}})",
+  "agentPanel.coordinationSignals.historyToggleHide": "Hide history ({{count}})",
 };
 
 function hiddenHistoryCountLabel(count: number): string {
@@ -93,6 +95,12 @@ vi.mock("react-i18next", () => ({
       }
       if (key === "agentPanel.coordinationSignals.hiddenHistoryCount") {
         return hiddenHistoryCountLabel(Number(options?.count));
+      }
+      if (key === "agentPanel.coordinationSignals.historyToggleShow") {
+        return `Show history (${options?.count})`;
+      }
+      if (key === "agentPanel.coordinationSignals.historyToggleHide") {
+        return `Hide history (${options?.count})`;
       }
       return translations[key] ?? key;
     },
@@ -237,7 +245,7 @@ describe("CoordinationSignalsSection", () => {
     expect(row?.textContent).toContain("Last occurred 2026-09-02T00:00:00.000Z");
   });
 
-  it("renders one row per signal", () => {
+  it("keeps resolved history collapsed until requested", () => {
     const signals = [
       buildSignal({ id: "signal-1" }),
       buildSignal({ id: "signal-2", kind: "handoff_recommended", status: "acknowledged" }),
@@ -247,10 +255,28 @@ describe("CoordinationSignalsSection", () => {
     });
 
     expect(container?.querySelector('[data-testid="coordination-signal-signal-1"]')).not.toBeNull();
+    expect(container?.querySelector('[data-testid="coordination-signal-signal-2"]')).toBeNull();
+
+    const toggle = container?.querySelector(
+      '[data-testid="coordination-signals-history-toggle"]',
+    ) as HTMLElement | null;
+    expect(toggle?.textContent).toBe("Show history (1)");
+
+    act(() => {
+      click(toggle as HTMLElement);
+    });
+
     expect(container?.querySelector('[data-testid="coordination-signal-signal-2"]')).not.toBeNull();
+    expect(toggle?.textContent).toBe("Hide history (1)");
+
+    act(() => {
+      click(toggle as HTMLElement);
+    });
+
+    expect(container?.querySelector('[data-testid="coordination-signal-signal-2"]')).toBeNull();
   });
 
-  it("shows every pending signal, bounds history to the 5 most recent, and reports a hidden count", () => {
+  it("shows every pending signal and bounds expanded history to the 5 most recent", () => {
     const pending = [
       buildSignal({ id: "pending-a", status: "pending" }),
       buildSignal({ id: "pending-b", status: "pending" }),
@@ -303,13 +329,37 @@ describe("CoordinationSignalsSection", () => {
       root?.render(<CoordinationSignalsSection signals={[...history, ...pending]} />);
     });
 
+    const initiallyVisibleRowIds = Array.from(
+      container?.querySelectorAll('[data-testid^="coordination-signal-"]') ?? [],
+    )
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id): id is string => id !== null && !id.endsWith("-error"));
+
+    // Every pending signal is visible while resolved history remains collapsed.
+    expect(initiallyVisibleRowIds).toEqual([
+      "coordination-signal-pending-a",
+      "coordination-signal-pending-b",
+    ]);
+
+    const toggle = container?.querySelector(
+      '[data-testid="coordination-signals-history-toggle"]',
+    ) as HTMLElement | null;
+    expect(toggle?.textContent).toBe("Show history (7)");
+    expect(
+      container?.querySelector('[data-testid="coordination-signals-hidden-history-count"]'),
+    ).toBeNull();
+
+    act(() => {
+      click(toggle as HTMLElement);
+    });
+
     const rowIds = Array.from(
       container?.querySelectorAll('[data-testid^="coordination-signal-"]') ?? [],
     )
       .map((el) => el.getAttribute("data-testid"))
       .filter((id): id is string => id !== null && !id.endsWith("-error"));
 
-    // Every pending signal is visible and precedes all history rows.
+    // Every pending signal is visible and precedes all expanded history rows.
     expect(rowIds.slice(0, 2).sort()).toEqual([
       "coordination-signal-pending-a",
       "coordination-signal-pending-b",
@@ -333,7 +383,7 @@ describe("CoordinationSignalsSection", () => {
     expect(hiddenCount?.textContent).toBe(hiddenHistoryCountLabel(2));
   });
 
-  it("does not show a hidden-history count when history is within the bound", () => {
+  it("does not show a hidden-history count when expanded history is within the bound", () => {
     const signals = [
       buildSignal({ id: "signal-1", status: "pending" }),
       buildSignal({
@@ -346,6 +396,13 @@ describe("CoordinationSignalsSection", () => {
       root?.render(<CoordinationSignalsSection signals={signals} />);
     });
 
+    const toggle = container?.querySelector(
+      '[data-testid="coordination-signals-history-toggle"]',
+    ) as HTMLElement | null;
+    expect(toggle).not.toBeNull();
+    act(() => {
+      click(toggle as HTMLElement);
+    });
     expect(
       container?.querySelector('[data-testid="coordination-signals-hidden-history-count"]'),
     ).toBeNull();
@@ -380,7 +437,10 @@ describe("CoordinationSignalsSection", () => {
       );
     });
 
-    expect(container?.querySelectorAll('[role="button"]').length).toBe(0);
+    expect(container?.textContent).not.toContain("Acknowledge");
+    expect(
+      container?.querySelector('[data-testid="coordination-signals-history-toggle"]'),
+    ).not.toBeNull();
   });
 
   it("does not render resolve controls when the feature is unsupported by the daemon", () => {

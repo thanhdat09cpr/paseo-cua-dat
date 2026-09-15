@@ -268,6 +268,8 @@ export const es: TranslationResources = {
       occurrenceCount: "Visto {{count}} veces",
       lastOccurredAt: "Última vez {{time}}",
       hiddenHistoryCount: "+{{count}} anteriores",
+      historyToggleShow: "Mostrar historial ({{count}})",
+      historyToggleHide: "Ocultar historial ({{count}})",
       resolution: {
         acknowledged: "Reconocer",
         deferred: "Aplazar",

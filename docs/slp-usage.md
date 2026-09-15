@@ -257,6 +257,14 @@ hình hoặc wording command/acceptance/ownership/handoff/write/recovery bị re
 resolve/defer/decline/complete có thể re-arm ở episode/fingerprint mới, trong khi pending duplicate cùng
 rule/fingerprint merge occurrence evidence thay vì phát prompt mới.
 
+### Hiển thị coordination signal trên WebUI
+
+Mặt chính luôn hiển thị signal `pending`. Các signal đã `acknowledged`, `deferred`, `declined` hoặc
+`completed` vẫn được giữ trong daemon history nhưng thu gọn mặc định dưới nút lịch sử có số lượng N;
+Human có thể mở lại khi cần. Khi mở, UI chỉ hiển thị tối đa 5 signal gần nhất và ghi số lượng bản cũ hơn.
+Thao tác thu gọn chỉ thay đổi presentation, không xóa signal hay thay đổi trạng thái runtime; signal
+`completed` cũng không đồng nghĩa với engineering acceptance.
+
 ## Manual stop conditions
 
 Stop condition là assignment contract, không phải daemon rule engine. Agent và authority holder phải dừng

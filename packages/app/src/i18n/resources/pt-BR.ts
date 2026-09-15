@@ -268,6 +268,8 @@ export const ptBR: TranslationResources = {
       occurrenceCount: "Visto {{count}} vezes",
       lastOccurredAt: "Última ocorrência {{time}}",
       hiddenHistoryCount: "+{{count}} anteriores",
+      historyToggleShow: "Mostrar histórico ({{count}})",
+      historyToggleHide: "Ocultar histórico ({{count}})",
       resolution: {
         acknowledged: "Reconhecer",
         deferred: "Adiar",
