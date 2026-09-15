@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/plugin",
-  "version": "0.7.0-paseo.65",
+  "version": "0.7.0-paseo.66",
   "private": true,
   "description": "Paseo plugin SDK package",
   "files": [
