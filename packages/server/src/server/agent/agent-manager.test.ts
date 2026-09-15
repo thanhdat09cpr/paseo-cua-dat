@@ -3415,6 +3415,71 @@ test("createAgent passes native Paseo tools through launch context without inter
   });
 });
 
+test("project Watcher launch context stays outside the role and tool planes", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-watcher-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const paseoTools: PaseoToolCatalog = {
+    tools: new Map(),
+    getTool: () => undefined,
+    executeTool: async () => {
+      throw new Error("Watcher must not call Paseo tools");
+    },
+  };
+
+  class WatcherCaptureClient extends TestAgentClient {
+    override readonly capabilities = {
+      ...TEST_CAPABILITIES,
+      supportsNativePaseoTools: true,
+    };
+    launchContext: AgentLaunchContext | undefined;
+
+    override async createSession(
+      _config: AgentSessionConfig,
+      launchContext?: AgentLaunchContext,
+    ): Promise<AgentSession> {
+      this.launchContext = launchContext;
+      return new TestAgentSession({ provider: "codex", cwd: workdir });
+    }
+  }
+
+  const client = new WatcherCaptureClient("codex");
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    paseoToolCatalogFactory: () => paseoTools,
+    idFactory: () => "00000000-0000-4000-8000-000000000117",
+  });
+
+  try {
+    const agent = await manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+        systemPrompt: "bounded watcher instructions",
+      },
+      undefined,
+      {
+        workspaceId: "workspace-watcher",
+        labels: {
+          "paseo.surface": "watcher",
+          "paseo.projectId": "project-watcher",
+        },
+      },
+    );
+
+    expect(agent.labels).toMatchObject({ "paseo.surface": "watcher" });
+    expect(client.launchContext?.watcher).toEqual({
+      instructions: "bounded watcher instructions",
+    });
+    expect(client.launchContext?.roleBinding).toBeUndefined();
+    expect(client.launchContext?.providerLaunchBinding).toBeUndefined();
+    expect(client.launchContext?.paseoTools).toBeUndefined();
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("createAgent allows best-effort internal MCP when the provider session reports no support", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-test-"));
   const storagePath = join(workdir, "agents");

@@ -81,9 +81,9 @@ minh, còn Lead giữ ownership và điều phối Peer.
 Heartbeat/attention sweep và UI report là hai lớp khác nhau: sweep candidate có thể đánh thức Supervisor
 ở safe boundary, còn UI chỉ đọc snapshot timeline theo yêu cầu. Cả hai đều phải giữ coverage, dedupe,
 cooldown và fail-closed semantics; không coi một report hoặc câu trả lời là acceptance. UI Watcher gửi
-snapshot bounded vào session Gemini/ACP đã được host quảng cáo cùng mode đọc-only. Adapter `gemini-antigravity` hiện yêu
-cầu canonical role binding nên không được dùng để giả lập role thứ tư; host chỉ có adapter đó sẽ dừng
-ở unavailable/error và không dùng câu trả lời deterministic thay thế. UI Watcher hiện là source
+snapshot bounded vào session `gemini-antigravity` riêng với mode `plan`, profile không có tool hay
+command execution. Runtime vẫn lưu timeline/observation log; Watcher không sửa project hay dùng
+Paseo command gateway. UI Watcher hiện là source
 candidate, chưa chứng minh activation trên daemon đang chạy.
 
 ### Disposition và theo dõi tiếp

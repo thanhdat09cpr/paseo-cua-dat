@@ -9,14 +9,18 @@ import {
 
 function entry(overrides: Partial<ProviderSnapshotEntry> = {}): ProviderSnapshotEntry {
   return {
-    provider: "gemini",
+    provider: "gemini-antigravity",
     status: "ready",
     enabled: true,
     modes: [{ id: "plan", label: "Plan", description: "Read only" }],
     models: [
-      { provider: "gemini", id: "gemini-pro", label: "Gemini Pro" },
-      { provider: "gemini", id: "gemini-flash", label: "Gemini Flash" },
-      { provider: "gemini", id: "gemini-3.8-flash", label: "Gemini 3.8 Flash" },
+      { provider: "gemini-antigravity", id: "gemini-pro", label: "Gemini Pro" },
+      { provider: "gemini-antigravity", id: "gemini-flash", label: "Gemini Flash" },
+      {
+        provider: "gemini-antigravity",
+        id: "gemini-3.8-flash",
+        label: "Gemini 3.8 Flash",
+      },
     ],
     ...overrides,
   };
@@ -25,10 +29,23 @@ function entry(overrides: Partial<ProviderSnapshotEntry> = {}): ProviderSnapshot
 describe("watcher agent config", () => {
   test("selects an advertised Gemini Flash model", () => {
     expect(selectWatcherProvider([entry()])).toMatchObject({
-      provider: "gemini",
+      provider: "gemini-antigravity",
       model: "gemini-3.8-flash",
-      providerModel: "gemini/gemini-3.8-flash",
+      providerModel: "gemini-antigravity/gemini-3.8-flash",
       modeId: "plan",
+    });
+  });
+
+  test("prefers the low effort Flash variant when Antigravity advertises tiers", () => {
+    const models = ["high", "medium", "low"].map((effort) => ({
+      provider: "gemini-antigravity",
+      id: `gemini-3.8-flash-${effort}`,
+      label: `Gemini 3.8 Flash (${effort})`,
+    }));
+    expect(selectWatcherProvider([entry({ models })])).toMatchObject({
+      provider: "gemini-antigravity",
+      model: "gemini-3.8-flash-low",
+      providerModel: "gemini-antigravity/gemini-3.8-flash-low",
     });
   });
 
@@ -47,8 +64,8 @@ describe("watcher agent config", () => {
     expect(selectWatcherProvider([entry({ provider: "custom", label: "Gemini" })])).toBeNull();
   });
 
-  test("does not use native Antigravity without a canonical role binding", () => {
-    expect(selectWatcherProvider([entry({ provider: "gemini-antigravity" })])).toBeNull();
+  test("does not use the retired Gemini CLI provider", () => {
+    expect(selectWatcherProvider([entry({ provider: "gemini" })])).toBeNull();
   });
 
   test("fails closed when Gemini does not advertise a read-only mode", () => {

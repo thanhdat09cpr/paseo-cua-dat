@@ -1662,6 +1662,9 @@ export class AgentManager {
         paseoToolPolicy,
         options?.env,
         launchContract,
+        projectWatcherKey(options.labels)
+          ? { instructions: storedConfig.systemPrompt ?? "" }
+          : undefined,
       );
       const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
       const createOptions = this.buildCreateSessionOptions(options);
@@ -1785,6 +1788,9 @@ export class AgentManager {
         paseoToolPolicy,
         undefined,
         launchContract,
+        projectWatcherKey(options?.labels)
+          ? { instructions: storedConfig.systemPrompt ?? "" }
+          : undefined,
       );
       const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
       const session = await client.resumeSession(
@@ -1850,6 +1856,9 @@ export class AgentManager {
       paseoToolPolicy,
       undefined,
       launchContract,
+      projectWatcherKey(input.labels)
+        ? { instructions: storedConfig.systemPrompt ?? "" }
+        : undefined,
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
     const imported = await client.importSession(
@@ -1950,6 +1959,9 @@ export class AgentManager {
       paseoToolPolicy,
       undefined,
       launchContract,
+      projectWatcherKey(existing.labels)
+        ? { instructions: storedConfig.systemPrompt ?? "" }
+        : undefined,
     );
     const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
 
@@ -5872,10 +5884,15 @@ export class AgentManager {
     paseoToolPolicy: ProviderPaseoToolsPolicy | undefined,
     env?: Record<string, string>,
     launchContract?: PersistedLaunchContract,
+    watcher?: AgentLaunchContext["watcher"],
   ): Promise<AgentLaunchContext> {
     const roleBinding = launchContract?.roleBinding;
+    if (watcher && (roleBinding || launchContract)) {
+      throw new Error("Project Watcher cannot use a role-bound launch contract");
+    }
     const context: AgentLaunchContext = {
       agentId,
+      ...(watcher ? { watcher } : {}),
       env: {
         ...env,
         PASEO_AGENT_ID: agentId,
@@ -5899,6 +5916,7 @@ export class AgentManager {
       ...(launchContract ? { providerLaunchBinding: launchContract.providerBinding } : {}),
     };
     if (
+      !watcher &&
       isPaseoToolPolicyEnabled(paseoToolPolicy) &&
       client.capabilities.supportsNativePaseoTools &&
       this.paseoToolCatalogFactory

@@ -279,7 +279,11 @@ Không restart daemon hoặc mutate user credentials/provider activation trong i
 - Incompatible provider bị reject trước session launch.
 - Protocol hiện diện nhưng invalid bị reject trước state mutation hoặc provider launch.
 - Cursor capsule phải giữ exact role marker qua ACP create/resume mà không ghi `.cursor/rules` vào target repository.
-- Antigravity native adapter phải pin exact materialized profile trên create/resume, chỉ cấp `run_command`, cleanup only exact owned profile, giữ gateway loopback/token private, persist exact conversation handle, và fail closed ngoài role Peer hoặc khi caller-scoped catalog không materialize được.
+- Antigravity native role-bound adapter phải pin exact materialized profile trên create/resume, chỉ cấp
+  `run_command`, cleanup only exact owned profile, giữ gateway loopback/token private, persist exact
+  conversation handle, và fail closed ngoài role Peer hoặc khi caller-scoped catalog không materialize
+  được. Project Watcher dùng một profile transport-only riêng với `tools: []`,
+  `commandExecutionPolicy: off` và `plan`; profile này không phải role binding và không có Paseo gateway.
 - Legacy no-role sessions tiếp tục chạy như trước.
 - Workspace Protocol bootstrap không overwrite file vừa xuất hiện hoặc vừa đổi ngoài WebUI, và invalid
   preview không tạo partial file.

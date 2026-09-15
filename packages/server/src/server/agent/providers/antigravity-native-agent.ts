@@ -188,6 +188,44 @@ async function materializeRoleProfile(input: {
   };
 }
 
+async function materializeWatcherProfile(input: {
+  agentId: string;
+  instructions: string;
+  profileRoot?: string;
+}): Promise<MaterializedAntigravityProfile> {
+  const name = `paseo-watcher-${sha256(input.agentId).slice(0, 12)}`;
+  const content = `---
+name: ${name}
+description: Paseo project Watcher (read-only observation)
+tools: []
+mainAgent: true
+subagent: false
+commandExecutionPolicy: off
+inheritMcp: false
+---
+
+${input.instructions.trim()}
+
+The runtime may persist bounded observation and conversation logs. Never edit project files, run commands, change configuration, or contact other agents.
+`;
+  const directory = join(input.profileRoot ?? join(homedir(), ".gemini", "config", "agents"), name);
+  const profilePath = join(directory, "agent.md");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeExclusiveOrVerify(profilePath, content);
+  return {
+    name,
+    cleanup: async () => {
+      try {
+        if ((await readFile(profilePath, "utf8")) === content) {
+          await rm(directory, { recursive: true, force: true });
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    },
+  };
+}
+
 function parseModels(stdout: string, provider: AgentProvider): AgentModelDefinition[] {
   return stdout
     .split(/\r?\n/u)
@@ -233,7 +271,7 @@ class AntigravityNativeAgentSession implements AgentSession {
     private readonly config: AgentSessionConfig,
     private readonly env: Record<string, string>,
     private readonly profile: MaterializedAntigravityProfile,
-    private readonly gateway: AntigravityPaseoGateway,
+    private readonly gateway: AntigravityPaseoGateway | null,
     private readonly logger: Logger,
     conversationId?: string | null,
   ) {
@@ -465,7 +503,7 @@ class AntigravityNativeAgentSession implements AgentSession {
     if (this.closed) return;
     this.closed = true;
     await this.interrupt();
-    await Promise.all([this.profile.cleanup(), this.gateway.close()]);
+    await Promise.all([this.profile.cleanup(), this.gateway?.close()]);
   }
 }
 
@@ -526,6 +564,34 @@ export class AntigravityNativeAgentClient implements AgentClient {
     launchContext: AgentLaunchContext | undefined,
     conversationId: string | null,
   ): Promise<AgentSession> {
+    if (launchContext?.watcher) {
+      if (
+        launchContext.roleBinding ||
+        launchContext.paseoTools ||
+        launchContext.providerLaunchBinding
+      ) {
+        throw new Error("Antigravity Watcher cannot use role binding or Paseo tools");
+      }
+      if (!launchContext.agentId || !launchContext.watcher.instructions.trim()) {
+        throw new Error("Antigravity Watcher requires a bounded system instruction snapshot");
+      }
+      const executable = await resolveAgyExecutable(this.command, this.resolveExecutable);
+      const profile = await materializeWatcherProfile({
+        agentId: launchContext.agentId,
+        instructions: launchContext.watcher.instructions,
+        profileRoot: this.profileRoot,
+      });
+      return new AntigravityNativeAgentSession(
+        this.provider,
+        executable,
+        { ...config, provider: this.provider, modeId: PLAN_MODE },
+        { ...this.env, ...launchContext["env"] },
+        profile,
+        null,
+        this.options.logger,
+        conversationId,
+      );
+    }
     if (!launchContext?.roleBinding || !launchContext.paseoTools) {
       throw new Error("Native Antigravity requires role binding and caller-scoped Paseo tools");
     }

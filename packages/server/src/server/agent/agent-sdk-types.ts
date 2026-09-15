@@ -631,6 +631,14 @@ export type ProviderLaunchBinding =
 
 export interface AgentLaunchContext {
   agentId?: string;
+  /**
+   * Runtime-only project Watcher launch. Watchers have no Paseo role or
+   * command gateway; native providers must enforce the supplied instructions
+   * through their strict read-only observation profile.
+   */
+  watcher?: {
+    instructions: string;
+  };
   env?: Record<string, string>;
   /**
    * Daemon-owned, immutable policy instructions. Clients cannot set

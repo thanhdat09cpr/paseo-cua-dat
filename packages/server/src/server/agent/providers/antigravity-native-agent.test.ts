@@ -152,6 +152,49 @@ describe("native Antigravity provider", () => {
     },
   );
 
+  test.skipIf(process.platform === "win32")(
+    "creates a transport-only read-only Watcher session without a Paseo role",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "agy-watcher-test-"));
+      const profileRoot = join(root, "profiles");
+      const { binary, argvLog } = await createFakeAgy(root);
+      const client = new AntigravityNativeAgentClient({
+        logger: createTestLogger(),
+        command: [binary],
+        env: { PASEO_TEST_AGY_ARGV: argvLog },
+        profileRoot,
+        temporaryRoot: root,
+        resolveExecutable: async () => binary,
+      });
+      const session = await client.createSession(
+        {
+          provider: "gemini-antigravity",
+          cwd: root,
+          model: "gemini-test",
+          modeId: "full-access",
+        },
+        {
+          agentId: "agent-watcher",
+          watcher: { instructions: "Watcher instructions" },
+        },
+      );
+      try {
+        await expect(session.run("Return AGY_OK")).resolves.toMatchObject({ finalText: "AGY_OK" });
+        const argv = await readFile(argvLog, "utf8");
+        expect(argv).toContain("--mode\nplan\n");
+        expect(argv).toContain("--agent\npaseo-watcher-");
+        const profileNames = await import("node:fs/promises").then((fs) => fs.readdir(profileRoot));
+        const profile = await readFile(join(profileRoot, profileNames[0], "agent.md"), "utf8");
+        expect(profile).toContain("tools: []");
+        expect(profile).toContain("commandExecutionPolicy: off");
+        expect(profile).toContain("Watcher instructions");
+        expect(profile).not.toContain("paseo-agent-tool");
+      } finally {
+        await session.close();
+      }
+    },
+  );
+
   test("fails closed without an immutable role or caller-scoped tool catalog", async () => {
     const client = new AntigravityNativeAgentClient({
       logger: createTestLogger(),

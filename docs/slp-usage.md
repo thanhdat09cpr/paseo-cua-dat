@@ -216,16 +216,18 @@ lấy activity công khai đã được project timeline chiếu của Lead/Peer
 được đưa vào báo cáo. Host deduplicate create request theo nhãn project để giữ một Watcher hoạt động
 cho mỗi project.
 
-Trang Watcher gửi câu hỏi qua agent Gemini/ACP đã được host quảng cáo (ưu tiên model Flash nếu có) và
-có mode đọc-only được provider quảng cáo, rồi đọc lại assistant output công khai trong session đó. Mỗi câu hỏi kèm snapshot Lead/Peer bounded để
+Trang Watcher gửi câu hỏi qua provider `gemini-antigravity` đã được host quảng cáo (ưu tiên model Flash)
+với mode `plan`, rồi đọc lại assistant output công khai trong session đó. Profile Watcher có `tools: []`
+và `commandExecutionPolicy: off`; runtime vẫn được phép lưu timeline, observation và conversation log.
+Mỗi câu hỏi kèm snapshot Lead/Peer bounded để
 Gemini không phải tự tải toàn bộ transcript. Câu trả lời luôn ghi rõ phạm vi quan sát và giữ bất định;
 nó không phải acceptance, ruling hay lệnh điều phối. Dấu hiệu đáng chú ý vẫn phải được Supervisor
 xác minh, rồi Lead mới điều phối Peer trong lease của mình.
 
 Nếu project được đồng bộ trên nhiều host, dòng hiện mở host đầu tiên trong project entry; trạng thái
-multi-host aggregate chưa được chứng minh. Nếu host không quảng cáo Gemini khả dụng hoặc snapshot
-provider lỗi, hoặc host chỉ có adapter `gemini-antigravity` vốn bắt buộc canonical role binding,
-Watcher dừng ở trạng thái unavailable/error và không giả lập câu trả lời cục bộ. UI/report
+multi-host aggregate chưa được chứng minh. Nếu host không quảng cáo `gemini-antigravity` khả dụng,
+không có model/mode `plan`, hoặc snapshot provider lỗi, Watcher dừng ở trạng thái unavailable/error và
+không giả lập câu trả lời cục bộ. UI/report
 và agent creation này là source candidate cho `.64`, chưa phải bằng chứng daemon `.62` đang chạy đã
 được reload; việc tạo session Gemini thật cần được kiểm tra riêng trên host có provider đó.
 
