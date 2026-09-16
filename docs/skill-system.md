@@ -1,8 +1,8 @@
 # Hệ thống skill của Paseo
 
-Paseo có hai nhóm skill khác nhau: product workflow skills giúp user điều khiển Paseo, và Foundation
-role skills được admit theo SLP role. Skill là instruction package cho một loại attention/workflow; nó
-không phải role, provider, tool permission hoặc authority lease.
+Paseo có ba lớp skill khác nhau: product workflow skills giúp user điều khiển Paseo, Foundation role
+skills được admit theo SLP role, và project skills do project author quản lý. Skill là instruction package
+cho một loại attention/workflow; nó không phải role, provider, tool permission hoặc authority lease.
 
 ## Product workflow skills
 
@@ -82,6 +82,25 @@ admission map là
 `beads-issue-tracker` là package mandatory duy nhất được daemon embed nguyên bytes vào durable role
 instructions của cả ba role. Agent áp dụng package đã load này trực tiếp; không phụ thuộc global skill
 discovery hoặc một copy cũ trong provider home. Thiếu/invalid package block role materialization.
+
+## Project skills
+
+Project settings có một khu vực riêng cho skill của từng repository. Host-wide Agent skills manager vẫn
+giữ nguyên và không bị thay đổi. Khi thêm hoặc sửa một project skill, UI ghi cùng một `SKILL.md` vào hai
+đường provider-native:
+
+- `.codex/skills/<name>/SKILL.md` cho Codex;
+- `.claude/skills/<name>/SKILL.md` cho Claude Code.
+
+Hai bản dùng chung `name`, `description` và phần instructions. UI đọc cả hai bản, báo khi một bản thiếu,
+metadata sai hoặc nội dung lệch, rồi cho phép lưu để đồng bộ lại. Tên thư mục chỉ dùng chữ thường, số và
+dấu gạch nối nên không thể thoát khỏi project root qua form.
+
+Project skill là instruction do project author viết. Nó không mở rộng Foundation admission, role
+allowlist, lease hoặc quyền external effect; role profile và bundle Foundation vẫn là nguồn quyết định
+authority. Claude nhận project skill qua `settingSources: ["project"]` với project `cwd`; Codex quét
+`.codex/skills` theo `cwd`/repo root. Việc file tồn tại chỉ chứng minh artifact đã có trong repository,
+không chứng minh một agent đang chạy đã nạp bản mới.
 
 ## Tại sao bundle theo role
 

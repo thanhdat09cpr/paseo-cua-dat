@@ -2670,6 +2670,49 @@ export const ko: TranslationResources = {
     project: {
       noEditableTarget: "이 호스트에서는 이 프로젝트를 편집할 수 없습니다.",
       backToProjects: "프로젝트로 돌아가기",
+      skills: {
+        title: "Project skills",
+        sectionTitle: "Skills available in this project",
+        info: "Instruction packages stored in this repository and discovered by project agents. They do not change Foundation role authority.",
+        emptyTitle: "No project skills yet",
+        emptyDescription:
+          "Add a SKILL.md package for this project. It is mirrored for Claude and Codex and stays separate from host-wide skills.",
+        invalid: "Needs attention",
+        loadFailedTitle: "Could not load project skills",
+        loadFailedDescription: "Check the repository path and permissions, then reload.",
+        operationFailedTitle: "Project skill action failed",
+        saved: "Project skill saved",
+        deleted: "Project skill removed",
+        removeTitle: "Remove project skill?",
+        removeMessage: "Remove {{name}} from this project?",
+        editor: {
+          newTitle: "Add project skill",
+          editTitle: "Edit {{name}}",
+          name: "Skill name",
+          nameAccessibility: "Project skill name",
+          nameHint:
+            "Lowercase letters, numbers, and hyphens. The folder name is fixed after creation.",
+          description: "Description",
+          descriptionAccessibility: "Project skill description",
+          descriptionPlaceholder: "Review the team's API conventions",
+          instructions: "Instructions",
+          instructionsAccessibility: "Project skill instructions",
+          instructionsPlaceholder: "Explain when and how the agent should use this skill.",
+          scopeHint:
+            "Stored at .codex/skills/<name>/SKILL.md and .claude/skills/<name>/SKILL.md. Host-wide skills remain unchanged.",
+          saving: "Saving...",
+        },
+        validation: {
+          name: "Use 1–64 lowercase letters, numbers, or hyphens; start with a letter or number.",
+          description: "Description is required.",
+          instructions: "Instructions are required.",
+        },
+        actions: {
+          add: "Add skill",
+          edit: "Edit skill",
+          remove: "Remove skill",
+        },
+      },
       workspaceProtocol: {
         title: "Workspace Protocol",
         info: "Paseo가 Foundation 역할에 바인딩하는 저장소별 오케스트레이션 규칙",

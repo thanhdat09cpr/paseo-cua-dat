@@ -29,6 +29,7 @@ import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-moda
 import { ProjectEditSheet } from "@/components/project-edit-sheet";
 import { EditingTextInput as TextInput } from "@/components/ui/text-input";
 import { SettingsTextAreaCard } from "@/components/settings-textarea";
+import { ProjectSkillsSettings } from "@/components/project-skills-settings";
 import { SettingsGroup } from "@/screens/settings/settings-group";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
@@ -319,6 +320,12 @@ function ProjectSettingsBody({
         serverId={selectedHost.serverId}
         repoRoot={protocolRoot || selectedHost.repoRoot}
         supported={supportsWorkspaceProtocol}
+      />
+
+      <ProjectSkillsSettings
+        client={client}
+        serverId={selectedHost.serverId}
+        repoRoot={selectedHost.repoRoot}
       />
 
       {renderContent({

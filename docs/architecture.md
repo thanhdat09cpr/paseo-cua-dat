@@ -194,9 +194,11 @@ Electron wrapper for macOS, Linux, and Windows.
 - Native file access for workspace integration
 - Same WebSocket client as mobile app
 
-The desktop does not manage agent skills. It retains one compatibility reader for the old
-`skill-selection.json`, imports that preference into its managed local daemon, then deletes the old
-file after the daemon confirms persistence.
+The desktop shell delegates agent skill management to the app and daemon. It retains one compatibility
+reader for the old `skill-selection.json`, imports that preference into its managed local daemon, then
+deletes the old file after the daemon confirms persistence. Project settings can manage repository-local
+skills for both Codex (`.codex/skills`) and Claude Code (`.claude/skills`) without changing the host-wide
+catalog.
 
 **Multi-window (hybrid land-on model).** `createWindow()` in `main.ts` is reusable: `⌘⇧N`/File→New Window, relaunching the app (`second-instance`), and the sidebar "Open in new window" action each open a fresh `BrowserWindow`. Every window shows the full sidebar — there is no per-window project ownership or filtering. "Land on a project" is delivered by a per-`webContents` `PendingOpenProjectStore`: each window pulls its own pending project path on mount (`paseo:get-pending-open-project`) and runs the normal open-project flow, identical to a CLI `paseo <path>` launch.
 
