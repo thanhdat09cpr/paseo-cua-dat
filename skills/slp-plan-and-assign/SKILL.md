@@ -1,17 +1,17 @@
 ---
 name: slp-plan-and-assign
-description: Lead-owned planning and assignment for non-trivial multi-slice work. Use outcome-first framing, dependency-aware decomposition, and bounded Peer handbacks; skip for a small self-contained change.
+description: Lead-owned planning and assignment with Peer-by-default routing. Use outcome-first framing, dependency-aware decomposition, and bounded handbacks; Lead-direct is allowed only inside a measurable protocol ceiling.
 metadata:
-  provenance: PASEO_DERIVATIVE
-  source: codex-room-setup/slp-plan-and-assign
   role-owner: lead
 ---
 
 # SLP plan and assign
 
-Use this method when a request crosses more than one meaningful slice, has
-uncertain architecture, or needs multiple owners. For a bounded CRUD change,
-use the ordinary implementation path instead.
+## 0. Choose the path
+
+Call this method for outcomes touching architecture, multiple slices/owners, hard-to-reverse work, or any unanswered foundation question. For a small bounded task, skip steps 1–3 but still assign one Peer through step 4.
+
+Lead-direct is allowed only when the repo protocol permits it and the change fits its measurable `default topology` ceiling; a missing or unresolved ceiling routes to Peer. A direct commit starts `LEAD-WROTE:` and needs a read-only Peer review before the owner summary; Lead never self-reviews.
 
 ## 1. Freeze the outcome before the solution
 
@@ -42,9 +42,7 @@ write scope has one owner; a review does not become a second writer.
 
 ## 4. Write one bounded assignment per task
 
-Use [the assignment template](references/assignment-template.md). Every write
-assignment must state the exact objective, the existing authority envelope, the
-evidence to return, and the handback/stop condition. Translate authority into
+Before choosing Lead-direct, compare the protocol's `default topology` ceiling; no ceiling means no Lead-direct. Use [the assignment template](references/assignment-template.md). Every write assignment must state the exact objective, the existing authority envelope, the evidence to return, and the handback/stop condition. Translate authority into
 the current `AssignmentEnvelope` (`effectClass`, mutation and external-effect
 boundaries, resource grants, and expiry); prose never grants extra authority.
 
@@ -74,3 +72,5 @@ Peer coordination.
 
 End with a compact decision packet: outcome, evidence, accepted/reopened tasks,
 remaining unknowns, next owner, and the exact validation still required.
+
+Self-check: (1) Can Peer fail while still meeting the brief? (2) Can runtime block a correct brief? (3) Can Peer infer the verdict Lead wants? If yes, fix Objective/Evidence, Authority, or pre-solving respectively.

@@ -13,21 +13,28 @@ Authority:
   externalEffectBoundary: <exact scope or denied>
   resourceGrants: <issue/workspace grants, if any>
 Evidence:
-  - <source or test to inspect>
+  - <repository evidence or test to inspect>
   - <artifact or readback to return>
 Handback/stop: <done evidence, blocker, or reopen condition>
 depends_on: []
 invariants: []
 reopen_when: []
-disposition: <peer-execution|independent-review|discovery>
+disposition: <lead-direct|peer-execution|independent-review|supervision>
 effort: <provider preference only>
 ```
 
-Before launch, validate that the envelope matches the role lease and that the
-project/issue binding is authoritative. `depends_on`, `invariants`, and
-`reopen_when` are planning metadata unless the current protocol explicitly
-supports them; do not invent new wire fields. Never put Supervisor or control
-plane instructions into a Peer brief.
+Before launch, compare any Lead-direct choice with the protocol's measurable
+`default topology` ceiling; if it is missing or unresolved, use a Peer. Validate
+that the envelope matches the role lease and that the project/issue binding is
+authoritative. `depends_on`, `invariants`, and `reopen_when` are planning
+metadata unless the current protocol explicitly supports them; do not invent
+new wire fields. Never put Supervisor or control plane instructions into a Peer
+brief.
+
+For a Lead-written change, set `disposition: lead-direct`, prefix the commit
+with `LEAD-WROTE:`, and create a separate read-only Peer assignment with
+`disposition: independent-review` before the owner receives the summary. Lead
+cannot review or accept its own change.
 
 For every write assignment include this boundary:
 
